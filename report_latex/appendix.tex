@@ -890,8 +890,11 @@ Script & What it is for \\
 For completeness, the provenance of every component and the
 workspace it lives in.
 
-Three upstream stacks are used, each in its own catkin workspace so their
-build flags and dependencies stay isolated:
+Four upstream stacks are used, each in its own catkin workspace so their
+build flags and dependencies stay isolated (Kalibr's workspace,
+\code{kalibr\_ws}, is separate from the three runtime workspaces of
+\S\ref{ap:repro-build} because it is a calibration-time tool, not something
+that runs alongside the estimators):
 
 \begingroup\small
 \begin{longtable}{@{}L{3.2cm}L{5.6cm}L{4.6cm}@{}}
@@ -906,7 +909,7 @@ MINS & \url{https://github.com/rpng/MINS} &
 Carolus beacon & \url{https://github.com/albator63/carolus_ws} &
   \code{carolus\_ws} \\
 Kalibr (calibration) & \url{https://github.com/ethz-asl/kalibr} &
-  \code{catkin\_ws/src/kalibr} \\
+  \code{kalibr\_ws/src/kalibr} \\
 \bottomrule
 \end{longtable}
 \endgroup
@@ -1863,28 +1866,354 @@ Key & Value & Why \\
 \code{gyroscope\_noise\_density: 3.4e-04}) are \emph{measured} values inflated
 by a safety factor of three, not datasheet figures.
 
-\subsection{MINS}
-A per-sensor tree selected by \code{mins.launch}'s \code{config} argument
-(default \code{leo}), under \code{mins\_ws/src/MINS/mins/config/leo/}:
-\begin{lstlisting}[language=bash]
-config.yaml            # top level: includes the files below
-config_imu.yaml        # IMU noise model
-config_camera.yaml     # camera intrinsics + extrinsics
-config_wheel.yaml      # wheel model: effective radius, wheel base
-config_estimator.yaml  # filter and update options
-config_init.yaml       # static IMU + wheel initialisation
-config_system.yaml     # frames, topics, the VICON slot used by Carolus
-\end{lstlisting}
-MINS initialises \textbf{standing still} (static IMU + wheel init, $4$--$12$\,s),
-which is why it is the default served source. Its transforms are deliberately
-isolated onto \code{/tf\_mins} so it cannot fight openVINS over the main
-\code{/tf} tree.
+\subsection{MINS, start to finish: download, build, install, calibrate, test}
+\label{ap:repro-mins-guide}
+MINS (multi-sensor inertial navigation system) is the tightly-coupled filter
+on this platform: camera, IMU and wheel odometry fused in one estimator,
+publishing its pose on \code{/mins/imu/odom}. Because its own TF broadcasts
+would otherwise fight openVINS over the same frames, they are isolated onto a
+dedicated \code{/tf\_mins} topic (subscribe there explicitly in RViz, not on
+\code{/tf}).
 
-\noindent \textbf{Convention trap.} Kalibr and openVINS express the
-camera--IMU extrinsic as $\mathbf{T}_{\text{cam,imu}}$; MINS wants the
-\textbf{inverse}, $\mathbf{T}_{\text{imu,cam}}$. Copying one into the other
-without inverting produces a plausible-looking, wrong geometry. The helper
-\code{scripts/fill\_mins\_camchain.py} does the conversion.
+This subsection is a single, self-contained path from an empty machine to a
+MINS you can trust, and does not assume the rest of this appendix has been
+read first: download and build the estimator, install and understand the ten
+configuration files that make it work on \emph{this} robot rather than a
+generic one, calibrate the two measurements those files depend on, then
+validate that a fresh install is not just running but running correctly.
+Steps that apply to the whole platform and not just MINS (ROS, system
+libraries, network) are covered fully in \S\ref{ap:repro-build} and only
+summarised here; every \S reference below is for extra depth, not a
+prerequisite for the step it is attached to.
+
+\paragraph{Download and build.}
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Prerequisites.} Ubuntu~20.04 with ROS~Noetic, and the C++
+  libraries both estimators need (\S\ref{ap:repro-build}, Steps~0--2):
+\begin{lstlisting}[language=bash]
+sudo apt install libeigen3-dev libboost-all-dev libopencv-dev \
+                 libceres-dev libsuitesparse-dev
+\end{lstlisting}
+  \textbf{One MINS-specific caveat, from upstream's own README:} MINS is
+  tested against Eigen~$3.3.7$ or lower; a newer system Eigen can fail to
+  compile the bundled \code{libpointmatcher} third-party library (used for
+  the LiDAR sensor, disabled on this platform but still compiled). Ubuntu
+  20.04's own \code{libeigen3-dev} is $3.3.7$, so this only bites if you have
+  manually upgraded it.
+\item \textbf{Clone MINS} into its own workspace, kept separate from
+  openVINS because the two disagree on build flags (\S\ref{ap:repro-build}):
+\begin{lstlisting}[language=bash]
+mkdir -p ~/TOUT/mins_ws/src
+cd ~/TOUT/mins_ws/src
+git clone https://github.com/rpng/MINS.git
+\end{lstlisting}
+\item \textbf{Resolve dependencies and build:}
+\begin{lstlisting}[language=bash]
+cd ~/TOUT/mins_ws
+rosdep install --from-paths src --ignore-src -r -y
+catkin build mins
+source devel/setup.bash
+\end{lstlisting}
+  \textbf{Expected:} a progress table ending with a green summary,
+  \code{[build] Summary: All ... packages succeeded!}, matching
+  \S\ref{ap:repro-build}'s Step~3.
+\item \textbf{Do not source this workspace back-to-back with
+  \code{catkin\_ws}.} \code{devel/setup.bash} replaces several environment
+  variables instead of extending them, so sourcing both in sequence breaks
+  one workspace's or the other's \code{ROS\_PACKAGE\_PATH}
+  (\S\ref{ap:repro-sourcetrap}, the single most confusing failure mode in
+  this build). \textbf{Never launch anything MINS-side with a plain
+  \code{roslaunch}}; always go through the wrapper:
+\begin{lstlisting}[language=bash]
+~/TOUT/catkin_ws/src/leo_navigation/launch_mins.sh navigation_master.launch
+\end{lstlisting}
+  or, equivalently and more simply, \code{bash tools/restart\_stack.sh},
+  which calls the same wrapper for you.
+\end{enumerate}
+
+\paragraph{Install and configure.}
+\textbf{The step a fresh clone is missing.} MINS ships with example
+configuration profiles (\code{kaist}, \code{tum\_vi}, \code{euroc\_mav},
+\code{simulation}, \dots) but no profile for this robot: there is no
+\code{mins/config/leo/} directory in the upstream repository. Without one,
+\code{mins.launch}'s default argument (\code{config:=leo}) points at a file
+that does not exist, and MINS reports that it cannot open a configuration
+file. The \code{leo} profile is \textbf{this project's own work}, so it is
+versioned in \emph{this} repository, not MINS's, at
+\code{LEO\_Rover\_Navigation\_System/MINS-master/mins/config/leo/}. Install it
+into the workspace just built:
+\begin{lstlisting}[language=bash]
+cp -r ~/TOUT/LEO_Rover_Navigation_System/MINS-master/mins/config/leo \
+      ~/TOUT/mins_ws/src/MINS/mins/config/leo
+\end{lstlisting}
+\textbf{Verify:} \code{ls ~/TOUT/mins\_ws/src/MINS/mins/config/leo/} lists ten
+files. Every one is required: \code{config.yaml}'s only job is to include the
+other nine by relative filename, and a missing file aborts the same way a
+missing \code{leo/} directory does.
+
+\begin{center}\small
+\begin{longtable}{@{}L{2.9cm}L{9.9cm}@{}}
+\toprule
+File & What it holds, and what is not a stock/default value \\
+\midrule
+\endhead
+\code{config.yaml} & Top-level include list only. Also documents, in its own
+  header comment, the \textbf{enable ladder} this deployment follows: bring
+  up camera+IMU first, then wheels, then the Carolus VICON slot, then
+  LiDAR last, each stage validated before the next is switched on. An
+  unvalidated extrinsic on one sensor makes the whole fused estimate diverge
+  in a way that is hard to attribute back to that sensor. \\
+\code{config\_imu.yaml} & Noise densities from an Allan-variance
+  characterisation of \emph{this} IMU, not datasheet figures. The field that
+  matters most here is \code{topic: "/imu/data\_clean"}: point this at the
+  raw firmware topic (\code{/firmware/imu}) instead and MINS silently
+  ingests every glitch, every frozen-sample run, and the accelerometer's
+  $-10.6\%$ scale error that \code{imu\_sanitizer.py} exists to remove
+  (\S\ref{ap:repro-ourcode}). \\
+\code{config\_camera.yaml} & \code{cam0}/\code{cam1} topics are
+  \code{/pc/camera/infra1|2/image\_rect\_raw}: the workstation's local
+  republish of the robot's compressed stream, never the robot's raw topics
+  directly (two raw $848\times480$ streams demand more bandwidth than the
+  WiFi link can sustain, and have been measured saturating the AP to the
+  point of dropping it). Intrinsics come from \code{kalibr\_calibrate\_cameras}
+  and are frozen (\code{do\_calib\_int: false}); \code{T\_imu\_cam} is still a
+  tape-measure seed, see \textbf{Calibrate} below. \code{max\_slam: 0} because
+  this platform pivots on the spot often, which makes landmark depth
+  unobservable and produced a measured $+0.58$\,rad/s phantom heading term
+  from bad SLAM anchors on 2026-07-13. \\
+\code{config\_wheel.yaml} & The most heavily retuned file; see the dedicated
+  walkthrough below. \\
+\code{config\_estimator.yaml} & \code{gravity\_mag: 9.790}, local gravity for
+  Melbourne FL, not the generic $9.81$; re-measure only if this configuration
+  is deployed somewhere else. Filter and clone-rate settings otherwise match
+  MINS's own defaults. \\
+\code{config\_init.yaml} & Static IMU+wheel initialisation thresholds. MINS
+  initialises \textbf{standing still} in $4$--$12$\,s with these defaults;
+  nothing platform-specific to change here. \\
+\code{config\_system.yaml} & \code{verbosity: 1}, not MINS's own default of
+  \code{2}: at \code{2}, the initialiser's diagnostic prints (waiting for
+  data, gravity convergence, static/dynamic init attempts) are filtered
+  silently, which looks exactly like a hung initialiser when it may be
+  running normally. Also sets the output paths for the trajectory/timing
+  logs. \\
+\code{config\_gps.yaml} & \code{enabled: false}. Present only because MINS's
+  loader expects the file to exist; this platform has no GNSS receiver.
+  Leave it as shipped. \\
+\code{config\_lidar.yaml} & \code{enabled: false}. Staged for a future
+  integration (an RPLidar publishes \code{LaserScan}; MINS wants
+  \code{PointCloud2}, and a conversion node does not exist yet). Leave
+  disabled. \\
+\code{config\_vicon.yaml} & \code{enabled: false} until
+  \code{carolus\_vicon\_bridge.py} is verified publishing on
+  \code{/mins/external\_ref/carolus}, MINS's slot for the Carolus beacon
+  acting as an indoor GPS (\S\ref{ap:repro-ourcode}). Flip to \code{true}
+  once that bridge is confirmed live; the topic is a private slot and
+  nothing else may publish on it (rule established 2026-07-08). \\
+\bottomrule
+\caption{Every file \code{config.yaml} includes, and what is genuinely
+platform-specific inside it.}
+\label{tab:minsconfigfiles}
+\end{longtable}
+\end{center}
+
+\noindent\textbf{\code{config\_wheel.yaml} in detail}, because it carries more
+measured, platform-specific corrections than any other file in the tree:
+\begin{itemize}[leftmargin=1.4em]
+\item \code{type: "Wheel2DAng"}: a two-wheel differential model. This rover is
+  four-wheel skid-steer, not differential-drive; \code{Wheel2DAng}
+  approximates it from the front-left/front-right pair, and the online
+  extrinsic refinement below absorbs most of the mismatch.
+\item \code{intrinsics: [0.0622, 0.0622, 0.358]}: effective wheel radius
+  (twice) and track width, in metres. \textbf{These are measured, not the
+  firmware's stock values}, and they are specific to this set of wheels; see
+  \textbf{Calibrate} below for how to re-measure them.
+\item \code{T\_imu\_wheel}: a $180^\circ$ rotation about $z$, because this
+  rover's wheel-odometry frame points opposite to the camera/IMU frame at the
+  firmware level. Without it, every wheel measurement contradicts the
+  inertial prediction and the $\chi^2$ gate silently rejects it, which looks
+  exactly like ``MINS is ignoring the wheels.''
+\item \code{chi2\_mult: 5}, not MINS's default of \code{15}: the
+  slip-rejection gate for wheel-versus-IMU disagreement, tightened after
+  measuring rigid wheels slipping in turns (below).
+\item \code{noise\_w: 0.8} and \code{noise\_v: 0.2}, both retuned from MINS's
+  defaults (\code{0.2} and \code{0.5} respectively): in a turn, this rover's
+  wheels can imply a yaw rate an order of magnitude larger than the
+  camera-measured truth ($3.8$\,rad/s of wheel-implied rotation for
+  $0.001$\,rad/s actually measured), so angular trust is loosened; linear
+  speed from the wheels is accurate and is trusted \emph{more} than the
+  default, because it is what keeps the filter anchored through camera
+  dropouts.
+\item \code{topic: "/joint\_states\_mins"} with
+  \code{sub\_topics: "wheel\_FL\_joint, wheel\_FR\_joint"}: MINS reads wheel
+  velocities \textbf{by array index, not by name}
+  (\code{ROSSubscriber::callback\_wheel} takes \code{velocity.at(0)} and
+  \code{.at(1)}), and this rover's real \code{/joint\_states} does not order
+  its four wheels front-left-first. Point this at raw \code{/joint\_states}
+  and MINS silently reads the wrong wheel; \code{wheel\_remap.py} exists
+  purely to fix the order (\S\ref{ap:repro-ourcode}), and \code{sub\_topics}
+  must name-match that node's own \code{\textasciitilde front\_left\_name}
+  and \code{\textasciitilde front\_right\_name} parameters. Omitting
+  \code{sub\_topics} is a silent-drop trap in its own right: MINS's loader
+  defaults it to generic joint names this rover does not use, the remapped
+  topic keeps publishing (visible on \code{rostopic hz}), and MINS's internal
+  wheel buffer simply never fills, which looks like an initialisation problem
+  rather than a name mismatch.
+\end{itemize}
+
+\noindent\textbf{Wiring it up.} Two more pieces complete the installation,
+covered fully in \S\ref{ap:repro-launcharch}:
+\begin{itemize}[leftmargin=1.4em]
+\item The config profile is selected by \code{mins.launch}'s \code{config}
+  argument, passed to the estimator as \code{args="\$(find mins)/config/\$(arg
+  config)/config.yaml"}. It must be \code{args}, never a
+  \code{<param name="config\_path">}: the parameter read exists only in
+  MINS's ROS2 build, and on ROS1 that block is compiled out entirely
+  (\S\ref{ap:repro-argsparam}). Getting this wrong does not fail clearly:
+  MINS reports it cannot open a file whose name was never typed.
+\item MINS's config files are parsed with OpenCV's \code{FileStorage}, not a
+  general YAML parser: a long inline comment placed after a value on the same
+  line aborts the file silently, and the node then starts, subscribes to
+  nothing, and respawns forever with no error naming the file
+  (\S\ref{ap:repro-yamltrap}). If a comment is added or edited in any
+  \code{config\_*.yaml}, keep it short or put it on its own line, and
+  validate before restarting anything:
+\begin{lstlisting}[language=bash]
+cd ~/TOUT/mins_ws/src/MINS/mins/config/leo
+python3 -c "import cv2; f=cv2.FileStorage('config_wheel.yaml', \
+cv2.FILE_STORAGE_READ); print('readable:', f.isOpened()); f.release()"
+\end{lstlisting}
+\end{itemize}
+\noindent Finally, three companion nodes must be running or the topics these
+config files name never publish: \code{imu\_sanitizer.py} (feeds
+\code{config\_imu.yaml}'s topic), \code{wheel\_remap.py} (feeds
+\code{config\_wheel.yaml}'s), and, once Stage~3 is reached,
+\code{carolus\_vicon\_bridge.py} (feeds \code{config\_vicon.yaml}'s). All
+three start automatically as part of \code{navigation\_supervision.launch},
+included by the same \code{navigation\_master.launch} that starts MINS itself
+(\S\ref{ap:repro-launcharch}); nothing further needs to be launched by hand.
+
+\paragraph{Calibrate.}
+Three measurements feed the config files above; two are already done and
+versioned, one is not.
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{IMU sanitisation (already automatic).} \code{imu\_sanitizer.py}
+  applies a fixed accelerometer scale correction ($\times 1.1186$, measured
+  stationary against local gravity) and re-measures gyroscope bias at every
+  startup (\S\ref{ap:repro-ourcode}). Nothing to run by hand: this happens
+  every time the stack starts, before MINS ever sees a sample.
+\item \textbf{Wheel radius and track (\code{config\_wheel.yaml}'s
+  \code{intrinsics}).} Required again only if the wheels themselves change
+  (different tyres, a different rover). Measured passively, with no commanded
+  motion from the script itself:
+\begin{lstlisting}[language=bash]
+cd ~/TOUT
+python3 tools/calib_roues_rigides.py
+\end{lstlisting}
+  Then, from the cockpit or a joystick, drive the rover \textbf{straight for
+  about 3\,m} (estimates the radius), then \textbf{spin in place for about
+  two full turns} (estimates the track), and press \code{Ctrl-C}. The script
+  prints the left/right radius, the track, and an \code{intrinsics:} line
+  ready to paste into \code{config\_wheel.yaml}.
+\item \textbf{Camera--IMU extrinsic (\code{config\_camera.yaml}'s
+  \code{T\_imu\_cam}).}
+\begin{trapbox}{Honest status: not yet completed on this platform}
+The procedure below is fully scripted and ready to run, but the excitation
+motion it needs (physically lifting and tilting the rover in front of the
+target) has \textbf{not} been performed as of this writing
+(Table~\ref{tab:openitems}, item~2). The deployed extrinsic is a
+tape-measure seed, refined online (\code{do\_calib\_ext: true} in both
+\code{config\_camera.yaml} and the equivalent openVINS setting), which is why
+MINS still runs and initialises correctly without this step: it is a
+precision improvement, not a blocker. Completing it is the single
+highest-value calibration task remaining on this platform.
+\end{trapbox}
+  Kalibr lives in its own workspace, since its build requirements conflict
+  with both estimators':
+\begin{lstlisting}[language=bash]
+mkdir -p ~/TOUT/kalibr_ws/src && cd ~/TOUT/kalibr_ws/src
+git clone https://github.com/ethz-asl/kalibr.git
+cd ~/TOUT/kalibr_ws && catkin build
+source devel/setup.bash
+\end{lstlisting}
+  With Kalibr built, two scripts do the rest, in order:
+\begin{lstlisting}[language=bash]
+tools/calib_imucam_record.sh [duration_s]   # default 90s, records a bag
+tools/calib_imucam_run.sh <bag>             # kalibr's two calib steps
+\end{lstlisting}
+  \textbf{The recording step is the one that fails if driven, not held.}
+  Kalibr needs all three rotation axes excited in front of the checkerboard
+  target; a rover rolled flat along the ground stays planar and roll/pitch
+  are never observed, so the calibration fails silently. Pick the rig up and
+  tilt it by hand instead. The run step needs no supervision: it executes
+  \code{kalibr\_calibrate\_cameras} then \code{kalibr\_calibrate\_imu\_camera}
+  back to back, $10$--$40$ CPU-heavy minutes depending on bag length.
+  \textbf{Expected:} a \code{*-camchain-imucam.yaml} and a report PDF;
+  \textbf{accept only if} the reprojection error is $<0.5$\,px and
+  \code{timeshift\_cam\_imu} is a few milliseconds, not a fraction of a
+  second. Then, specifically for MINS (the companion
+  \code{calib\_imucam\_apply.sh} script installs a result into
+  \emph{openVINS's} config only, by design, so the two estimators' opposite
+  conventions are never mixed in one script):
+\begin{lstlisting}[language=bash]
+python3 catkin_ws/src/leo_navigation/scripts/fill_mins_camchain.py \
+        <bag>-camchain-imucam.yaml \
+        mins_ws/src/MINS/mins/config/leo/config_camera.yaml
+\end{lstlisting}
+  This inverts Kalibr's \code{T\_cam\_imu} into the \code{T\_imu\_cam}
+  convention MINS expects and copies the time offset; a direct copy without
+  inverting produces a plausible-looking, wrong geometry.
+\end{enumerate}
+\noindent \textbf{A fourth measurement, optional but valuable:} the
+ground-truth floor protocol of \S\ref{ap:repro-calibrun} validates
+\code{gyro\_scale} and cross-checks the wheel radius against a tape measure
+and a 3-4-5 triangle rather than against another estimator. It is not
+required for MINS to run, but it is the only procedure in this guide that
+compares any of the above to physical reality rather than to another sensor.
+
+\paragraph{Test.}
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Launch.} From \code{\textasciitilde/TOUT}:
+\begin{lstlisting}[language=bash]
+bash tools/restart_stack.sh
+\end{lstlisting}
+  \textbf{Expected:} \code{stack relancée}, then
+  \code{MINS initialisé après <N>s} (typically $8$--$12$\,s), then
+  \code{TERMINE}. Unlike openVINS, MINS needs no jerk to start: it
+  initialises standing still (\S\ref{ap:repro-launch}).
+\item \textbf{Confirm the node registered:}
+\begin{lstlisting}[language=bash]
+source /opt/ros/noetic/setup.bash
+rosnode list | grep mins_subscribe
+\end{lstlisting}
+\item \textbf{Confirm it is actually publishing, at a healthy rate.} A
+  registered node can be completely silent; this is the real test:
+\begin{lstlisting}[language=bash]
+rostopic hz /mins/imu/odom          # expect ~80-90 Hz
+\end{lstlisting}
+  Nothing at all after $15$--$20$\,s usually means one of the config files
+  above failed to parse (\S\ref{ap:repro-yamltrap}: check
+  \code{logs/navigation\_master.log} for a respawn loop) or a companion node
+  (\code{imu\_sanitizer.py}, \code{wheel\_remap.py}) is not running.
+\item \textbf{Validate correctness, not just aliveness.} A silent estimator
+  is an obvious failure; a wrong one that publishes cleanly at $85$\,Hz is
+  not. Protocol T1.1 (\S\ref{ap:repro-t11}) is the cheapest test that tells
+  the two apart: log \code{/robot\_pose\_fused} for five minutes with the
+  rover completely still,
+\begin{lstlisting}[language=bash]
+cd ~/TOUT/tools
+python3 log_pose_static.py 300 /tmp/t1_1_static_pose.csv
+python3 analyze_pose_variance.py /tmp/t1_1_static_pose.csv
+\end{lstlisting}
+  \textbf{Pass:} linear drift below $1$\,mm/s on every axis. A fresh install
+  that passes this has a correctly wired MINS. One that fails it almost
+  always has a configuration or extrinsic problem, not a filter-gain problem
+  (\S\ref{ap:repro-t11}).
+\item \textbf{Validate under motion, once the above passes.} Drive a closed
+  loop and compare MINS against openVINS on the same run, following
+  \S\ref{ap:repro-comprun} end to end. That procedure also covers switching
+  the cockpit's \emph{Pose Source} to MINS and recording both estimators to a
+  rosbag, which the website's own buffers are not reliable enough to replace.
+\end{enumerate}
 
 \subsection{Where each estimator keeps its configuration}
 \label{ap:repro-config-ref}
@@ -1910,23 +2239,17 @@ must be nudged to initialise VINS), \code{use\_stereo: true},
 (\code{do\_calib\_int: false}) with online extrinsic/time-offset refinement
 (\code{do\_calib\_ext: true}, \code{do\_calib\_dt: true}).
 
-\paragraph{MINS.} A per-sensor tree selected by the \code{config} launch arg
-(\code{mins.launch}: \code{<arg name="config" default="leo"/>}), under
-\code{mins\_ws/src/MINS/mins/config/leo/}:
-\begin{lstlisting}[language=bash]
-config/leo/config.yaml           # top-level: includes the files below
-config/leo/config_imu.yaml       # IMU noise model
-config/leo/config_camera.yaml    # camera intrinsics + extrinsics
-config/leo/config_wheel.yaml     # differential-drive wheel model (radius, base)
-config/leo/config_estimator.yaml # filter / update options
-config/leo/config_init.yaml      # static IMU+wheel initialisation
-config/leo/config_system.yaml    # frames, topics, VICON slot (Carolus)
-\end{lstlisting}
-MINS initialises \emph{standing still} (static IMU+wheel init, 4--12\,s,
-\S\ref{sec:ovinit}), which is why it is the default served source. Its
-transform output is isolated to \code{/tf\_mins}
-(\code{mins.launch}, \S\ref{sec:chain}); the Carolus global fix enters through
-the VICON slot on \code{/mins/external\_ref/carolus}.
+\paragraph{MINS.} A per-sensor tree of \textbf{ten} files, selected by the
+\code{config} launch arg (\code{mins.launch}:
+\code{<arg name="config" default="leo"/>}), under
+\code{mins\_ws/src/MINS/mins/config/leo/}. MINS initialises \emph{standing
+still} (static IMU+wheel init, 4--12\,s, \S\ref{sec:ovinit}), which is why it
+is the default served source. Its transform output is isolated to
+\code{/tf\_mins} (\code{mins.launch}, \S\ref{sec:chain}); the Carolus global
+fix enters through the VICON slot on \code{/mins/external\_ref/carolus}.
+\textbf{For the full file-by-file listing, what in each file is
+platform-specific, and a complete download-to-test walkthrough, see
+\S\ref{ap:repro-mins-guide}.}
 
 \paragraph{Beacon / AprilTag.} The autonomy beacon config lives with the
 project package: \code{catkin\_ws/src/leo\_autonomy/config/apriltag.yaml}
