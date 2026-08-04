@@ -1,0 +1,245 @@
+<launch>
+  <!-- LEO Rover — supervision layer: the 5 PC-side scripts that must
+       self-heal without tearing down the rest of the stack. respawn="true"
+       on all of them, deliberately WITHOUT required="true" — required would
+       shut down the entire launch on a single crash, which defeats the
+       point of respawn. mins_subscribe (the actual estimator) stays
+       required="true" in mins.launch, since restarting mid-flight without
+       re-init isn't meaningful for it — that's the one case where tearing
+       everything down is the right call. -->
+
+  <!-- WiFi image hop: the D455 topics live on the robot; subscribing to the
+       RAW streams from the PC pulls 848x480 Y8 @30Hz per stream (~12 MB/s
+       each) through a WiFi link measured at ~6 MB/s total — it saturates the
+       AP (two AP crashes correlated with raw pulls, MINS starved to ~3 Hz
+       camera). These republish nodes subscribe to the COMPRESSED transport
+       (JPEG happens Pi-side, inside the camera nodelet's image_transport
+       publisher, only while someone subscribes) and re-serve raw images
+       locally under /pc/camera/... — ONE ~1-2 MB/s JPEG stream per camera
+       crosses WiFi, shared by every local consumer (MINS cam0/cam1,
+       leo_backend). header.stamp is preserved by republish. -->
+  <node name="infra1_republish" pkg="image_transport" type="republish"
+        respawn="true" respawn_delay="5"
+        args="compressed in:=/camera/infra1/image_rect_raw raw out:=/pc/camera/infra1/image_rect_raw"/>
+  <node name="infra2_republish" pkg="image_transport" type="republish"
+        respawn="true" respawn_delay="5"
+        args="compressed in:=/camera/infra2/image_rect_raw raw out:=/pc/camera/infra2/image_rect_raw"/>
+  <!-- depth 424x240@15 (PNG via compressedDepth, ~0.5-1 MB/s) — nourrit la
+       détection d'obstacles de leo_backend (_on_depth). Même règle : jamais
+       le depth brut du robot à travers le WiFi (3+ MB/s). -->
+  <node name="depth_republish" pkg="image_transport" type="republish"
+        respawn="true" respawn_delay="5"
+        args="compressedDepth in:=/camera/depth/image_rect_raw raw out:=/pc/camera/depth/image_rect_raw"/>
+  <!-- Couleur RGB (2026-07-27) : activée pour la détection Carolus (teinte des
+       LEDs bleues), qui exige un flux couleur. Même règle bande passante que
+       les autres : JPEG compressé Pi-side, un seul flux ~1-2 MB/s traverse le
+       WiFi, re-servi en brut localement sous /pc/camera/color pour
+       carolus_astrobee. -->
+  <!-- REACTIVE 2026-07-29 : requis par la detection Carolus.
+       Historique, a garder en tete avant de le recouper : desactive le 28/07
+       en cherchant a soulager le Pi (86.6 C, bride a 600 MHz). La coupure a
+       ete MESUREE sans AUCUN gain thermique — le nodelet camera restait a
+       140 % de CPU — et ce republish n'avait alors aucun abonne. Il en a un
+       maintenant : carolus_detect.launch consomme
+       /pc/camera/color/image_raw (via un throttle a 4 Hz), donc sans ce
+       noeud la detection de balise ne recoit RIEN et echoue en silence.
+       ATTENTION SECURITE : l'activation de la couleur a deja provoque une
+       PERTE DE CONTROLE du robot le 27/07 (Pi a 87 C, surcharge CPU). Le
+       throttle a 4 Hz de carolus_detect.launch est la mitigation ; surveiller
+       la temperature pendant tout roulage avec Carolus actif. -->
+  <node name="color_republish" pkg="image_transport" type="republish"
+        respawn="true" respawn_delay="5"
+        args="compressed in:=/camera/color/image_raw raw out:=/pc/camera/color/image_raw"/>
+  <!-- camera_info relayés dans le namespace local : image_transport apparie
+       image+camera_info du MÊME namespace (apriltag, rtabmap, etc. attendent
+       /pc/camera/.../camera_info). Messages minuscules, coût nul. -->
+  <node name="infra1_info_relay" pkg="topic_tools" type="relay"
+        respawn="true" respawn_delay="5"
+        args="/camera/infra1/camera_info /pc/camera/infra1/camera_info"/>
+  <node name="infra2_info_relay" pkg="topic_tools" type="relay"
+        respawn="true" respawn_delay="5"
+        args="/camera/infra2/camera_info /pc/camera/infra2/camera_info"/>
+  <node name="depth_info_relay" pkg="topic_tools" type="relay"
+        respawn="true" respawn_delay="5"
+        args="/camera/depth/camera_info /pc/camera/depth/camera_info"/>
+  <node name="color_info_relay" pkg="topic_tools" type="relay"
+        respawn="true" respawn_delay="5"
+        args="/camera/color/camera_info /pc/camera/color/camera_info"/>
+
+  <!-- nice -10 (autorisé par limits.conf) : le sanitizer est sur le chemin
+       critique de CHAQUE échantillon IMU vers MINS — il ne doit jamais être
+       affamé par un indexeur IDE. -->
+  <node name="imu_sanitizer" pkg="leo_navigation" type="imu_sanitizer.py"
+        output="screen" respawn="true" respawn_delay="5"
+        launch-prefix="nice -n -10">
+    <param name="in_topic"  value="/firmware/imu"/>
+    <param name="out_topic" value="/imu/data_clean"/>
+    <!-- Correction d'échelle accéléromètre (2026-07-28). L'accéléro CORE2
+         mesure 8.7525 m/s^2 au repos (robot vérifié immobile, 502 échant.,
+         écart-type 0.02) au lieu de la gravité locale 9.790 (Melbourne FL) :
+         -10,6 %. L'erreur est dans le capteur BRUT, pas dans le sanitizer.
+         openVINS suppose gravity_mag=9.81 -> résidu 1,06 m/s^2 -> doublement
+         intégré ≈ 1900 m/min : c'est LA cause des divergences VINS observées
+         (1567 m, 2713 m, 4718 m). MINS y survivait grâce à l'odométrie roues.
+         Explicite ici plutôt que caché dans le défaut du script : c'est une
+         constante de CALIBRATION, elle doit se voir en configuration.
+         RÉSERVE : mesure à une seule orientation, ne distingue pas erreur
+         d'échelle et biais d'axe -> calibration 6 positions à faire pour
+         valider. Mettre 1.0 pour désactiver. -->
+    <param name="accel_scale" value="1.1186"/>
+  </node>
+
+  <node name="carolus_vicon_bridge" pkg="leo_navigation" type="carolus_vicon_bridge.py"
+        output="screen" respawn="true" respawn_delay="5">
+    <param name="global_frame" value="beacon_link"/>
+    <param name="body_frame"   value="base_link"/>
+  </node>
+
+  <!-- Mapping d'ORIGINE (rétabli 2026-07-13) : le remontage 180° échange les
+       côtés ET inverse le sens de roulement — les deux s'annulent pour le
+       lacet roues r(w2-w1)/b, et Rz(pi) gère le linéaire. Le chi2 6 % vu en
+       rotation venait d'un état MINS corrompu (landmarks SLAM en pivot pur),
+       PAS d'un mauvais mapping — vérifié au gyro. Ne pas ré-échanger. -->
+  <node name="wheel_remap" pkg="leo_navigation" type="wheel_remap.py"
+        output="screen" respawn="true" respawn_delay="5"/>
+
+  <!-- OpenVINS (le "VINS" du switch VINS/MINS du cockpit). Publie
+       /ov_msckf/odomimu, que pose_selector sert quand la source active est
+       VINS. Config leo = intrinsèques Kalibr réelles 640x480 + IMU réelle
+       (mêmes valeurs que MINS), topics /pc/camera locaux. respawn comme
+       mins_subscribe : aucun estimateur n'a le droit d'abattre la stack. -->
+  <!-- Audit 2026-07-13 : nice -10 RETIRÉ — OpenVINS est l'estimateur de
+       SECOURS (pose_source=MINS en permanence) ; le prioriser au niveau du
+       chemin critique volait du CPU à MINS sur un PC à 81°C/82 max. Il
+       tourne en priorité normale et cède sous contention. -->
+  <node name="ov_msckf" pkg="ov_msckf" type="run_subscribe_msckf"
+        output="screen" clear_params="true"
+        respawn="true" respawn_delay="5">
+    <param name="verbosity"   type="string" value="WARNING"/>
+    <param name="config_path" type="string"
+           value="$(find ov_msckf)/../config/leo/estimator_config.yaml"/>
+    <param name="use_stereo"  type="bool" value="true"/>
+    <param name="max_cameras" type="int"  value="2"/>
+    <!-- TF isolé (audit 2026-07-08) : mêmes noms de frames que MINS
+         (global->imu) -> canal dédié, sinon guerre d'autorités TF dès
+         qu'OpenVINS s'initialise. -->
+    <remap from="/tf" to="/tf_vins"/>
+    <!-- Sortie brute redirigee : le garde-fou anti-rotation s'intercale
+         entre openVINS et pose_selector (voir noeud vins_rotation_guard
+         ci-dessous). Retirer ce remap + le noeud pour revenir au direct. -->
+    <!-- RETIRE 2026-07-29 : le garde-fou etait branche ici. Voir ci-dessous. -->
+  </node>
+
+  <!-- GARDE-FOU ANTI-DIVERGENCE (2026-07-28). Mesure decisive
+       (tools/vins_divergence_probe.py) : openVINS suit CORRECTEMENT les roues
+       en translation (ratio 0.92 a 1.36) et decroche EXCLUSIVEMENT en
+       rotation (ratio 30 a 0.64 rad/s ; rotation mediane des decrochages
+       0.60 rad/s contre 0.00 globalement). Signature d'un bras de levier
+       camera-IMU faux. Ce noeud gele la POSITION au-dela du seuil et laisse
+       passer l'ORIENTATION (geler le cap ferait repartir tout le
+       deplacement suivant de travers). PANSEMENT : le correctif reste la
+       calibration Kalibr IMU-camera, item 2 du registre. -->
+  <!-- ══ GARDE-FOU ANTI-DIVERGENCE — RETIRE LE 2026-07-29 ══════════════════
+       IL AGGRAVAIT CE QU'IL DEVAIT CORRIGER. Mesure decisive, robot verifie
+       IMMOBILE (odometrie roues = 0.000 m sur 30 s) :
+           openVINS BRUT  : 16.99 m de chemin cumule, deplacement NET 0.021 m
+           sortie du garde: 11.06 m de chemin cumule, deplacement NET 5.914 m
+       Le brut n'est donc PAS en train de deriver : il oscille autour d'un
+       point stable (bruit haute frequence, vitesse mediane 0.357 m/s a
+       l'arret). Le garde rejetait 12 % des increments — ceux depassant
+       max_speed — d'une oscillation SYMETRIQUE. Retirer unilateralement une
+       fraction d'un bruit de moyenne nulle ne le supprime pas : ca le
+       REDRESSE en derive. Compteurs pendant l'arret : 2007 sauts rejetes,
+       87.10 m d'offset accumule pour zero mouvement reel.
+
+       POURQUOI JE M'ETAIS TROMPE : le garde reposait sur la mesure du 28/07
+       (ratio VINS/roues = 30.2 en rotation), prise PENDANT la tempete de
+       relances automatiques du watchdog (bug de PATH sous cron, corrige
+       depuis) — openVINS etait alors reinitialise toutes les ~2 min et ne
+       convergeait jamais. La stack etant stable, ce symptome a disparu.
+
+       Le probleme restant est un JITTER haute frequence, pas une divergence.
+       Il se traite par un lissage qui PRESERVE LA MOYENNE (passe-bas), jamais
+       par un gel selectif. Le script de validation reste dans
+       tools/vins_guard_validate.py si le sujet doit etre rouvert. -->
+
+  <node name="pose_selector" pkg="leo_navigation" type="pose_selector.py"
+        output="screen" respawn="true" respawn_delay="5">
+    <!-- MINS, pas VINS (2026-07-24) : contredisait le commentaire juste
+         au-dessus (VINS = estimateur de SECOURS, pose_source=MINS en
+         permanence) et §sec:ovinit du rapport (MINS = source par défaut,
+         init statique). Conséquence concrète constatée en direct : tout
+         redémarrage de pose_selector (respawn, ou déploiement de code)
+         réinitialise self.active sur ce défaut SANS tenir compte de la
+         source réellement saine au moment du restart — avec "VINS" ici,
+         un simple respawn coupait /robot_pose_fused en silence dès que
+         VINS n'avait pas encore de donnée, y compris quand MINS publiait
+         sainement une seconde avant. -->
+    <param name="default_source" value="MINS"/>
+    <param name="vins_topic"     value="/ov_msckf/odomimu"/>
+    <param name="mins_topic"     value="/mins/imu/odom"/>
+    <param name="odom_frame"     value="odom"/>
+    <!-- ARBRE TF LINEAIRE (2026-07-30). Etait `base_link`, ce qui donnait a
+         base_link DEUX PARENTS : la statique `base_footprint -> base_link` de
+         l'URDF (robot_state_publisher) ET la dynamique `odom -> base_link`
+         publiee ici. tf2 le signalait par « TF_OLD_DATA ignoring data from the
+         past for frame base_link (parent base_footprint) » et gardait la
+         branche dynamique, laissant base_footprint orphelin. En visant
+         base_footprint on obtient la chaine stricte
+             odom -> base_footprint -> base_link
+         conforme a la convention ROS pour un robot terrestre.
+         GEOMETRIQUEMENT SUR : ce noeud compose deja a travers la statique
+         base_frame <- imu_frame, donc la pose reste exprimee au bon endroit,
+         et base_link demeure atteignable pour tous les lookups existants. -->
+    <param name="base_frame"     value="base_footprint"/>
+    <param name="imu_frame"      value="imu_frame"/>
+    <param name="publish_tf"     value="true"/>
+  </node>
+
+  <!-- AprilTag longue portée (acquisition balise à 3-4 m) : était lancé à la
+       main → perdu à chaque restart de stack (constaté 2026-07-10, publisher
+       absent sur /tag_detections). Inclus ici pour être supervisé comme le
+       reste ; consomme l'infra1 locale /pc/camera (jamais le flux brut WiFi).
+       Audit 2026-07-13 : alimenté à 8 Hz (throttle) au lieu de 15 — la
+       détection pleine résolution coûtait 16 % CPU pour une fenêtre de
+       fraîcheur backend de 0.7 s ; 8 Hz divisent le coût par ~2 sans effet
+       mission mesurable. -->
+  <node name="infra1_tag_throttle" pkg="topic_tools" type="throttle"
+        respawn="true" respawn_delay="5"
+        args="messages /pc/camera/infra1/image_rect_raw 8.0 /pc/camera/infra1/image_tag"/>
+  <include file="$(find leo_autonomy)/launch/apriltag_only.launch"/>
+
+  <!-- leo_backend.py lives outside catkin_ws (/home/lab272/TOUT/leo_backend.py),
+       so roslaunch can't resolve it by pkg/type directly — leo_backend_launch.sh
+       is a thin exec wrapper installed in this package's scripts/ so roslaunch
+       can find and supervise it like any other node. -->
+  <node name="leo_backend" pkg="leo_navigation" type="leo_backend_launch.sh"
+        output="screen" respawn="true" respawn_delay="5">
+    <!-- Source du fix 6-DOF affiche au cockpit (2026-07-30).
+         /pose est la sortie REELLE du detecteur (carolus_astrobee.cpp:362,
+         geometry_msgs/PoseStamped) — et le topic nomme par le superviseur.
+         Le defaut du code (/mins/external_ref/carolus) est une IMPASSE :
+         carolus_vicon_bridge devait l'alimenter depuis un TF `beacon_link`,
+         mais RIEN ne publie ce TF (le composant tf_bridge.py que sa
+         documentation attend est absent de l'espace de travail), donc ce
+         topic est reste vide depuis toujours.
+         DECLARE ICI et pas via `rosparam set` : le serveur de parametres vit
+         dans le master, qui tourne sur le ROBOT. Un redemarrage du robot —
+         justement prevu pour activer enable_color — effacerait un parametre
+         pose a la main, et le panneau retomberait en silence sur le topic
+         mort. LECTURE SEULE : on ne publie jamais sur /pose. -->
+    <param name="carolus_fix_topic" value="/pose"/>
+  </node>
+
+  <!-- Flux MJPEG du cockpit (2026-07-13) : web_video_server mourait avec le
+       master et RESTAIT mort (3 lanceurs concurrents — start_web.sh, ~/bin/leo,
+       manuels — aucun superviseur ; en plus start_web.sh faisait free_port 8080
+       et aurait tué toute instance saine à chaque guérison web). Il ne sert que
+       /mission/image_annotated produit par leo_backend : sa place est ICI, sous
+       respawn, à vivre et mourir avec la stack. Les autres lanceurs sont
+       devenus de simples vérificateurs. -->
+  <node name="web_video_server" pkg="web_video_server" type="web_video_server"
+        respawn="true" respawn_delay="5">
+    <param name="port" value="8080"/>
+  </node>
+</launch>

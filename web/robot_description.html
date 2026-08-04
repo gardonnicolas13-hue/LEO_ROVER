@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en" class="dark scroll-smooth">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LEO ROVER — Robot Description</title>
+<script src="i18n.js?v=r17"></script>
+<script src="vendor/tailwind.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: {
+      fontFamily: {
+        sans: ['Inter','system-ui','sans-serif'],
+        mono: ['"JetBrains Mono"','ui-monospace','monospace'],
+        display: ['Rajdhani','Inter','sans-serif'],
+      },
+      colors: {
+        space:  { 950:'#0B0E14', 900:'#10141c', 800:'#161b24' },
+        accent: { DEFAULT:'#22d3ee', soft:'#67e8f9', deep:'#0e7490' },
+        plasma: { DEFAULT:'#ff6b35', soft:'#ff8f66', deep:'#c2410c' },
+        alert:  { DEFAULT:'#FC3D21' },
+        ok:     { DEFAULT:'#3fdc97' },
+        warn:   { DEFAULT:'#eab308' },
+      },
+      boxShadow: {
+        glow:'0 0 0 1px rgba(34,211,238,.25), 0 0 40px -10px rgba(34,211,238,.6)',
+        neon:'0 0 6px rgba(34,211,238,.6), 0 0 24px rgba(34,211,238,.4)',
+      },
+      keyframes: {
+        'fade-up':{ '0%':{ opacity:0, transform:'translateY(16px)' }, '100%':{ opacity:1, transform:'translateY(0)' } },
+        blink:{ '0%,100%':{ opacity:1 }, '50%':{ opacity:.25 } },
+      },
+      animation: {
+        'fade-up':'fade-up .6s ease-out both',
+        blink:'blink 1.2s step-end infinite',
+      },
+    }},
+  };
+</script>
+<link rel="stylesheet" href="fonts/fonts.css?v=f1" />
+<link rel="stylesheet" href="mission.css?v=m1" />
+<!-- moteur 3D : cœur Three.js + addons STLLoader/OrbitControls (même version r128
+     que le reste du site, cf. index.html/ops.html/logbook.html — cdnjs n'héberge pas
+     les addons examples/js pour r128, jsdelivr sert le même paquet npm complet). -->
+<script src="vendor/three.min.js"></script>
+<script src="vendor/STLLoader.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0B0E14; }
+  .grid-bg { background-image:
+      linear-gradient(rgba(34,211,238,.05) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(34,211,238,.05) 1px,transparent 1px);
+      background-size:46px 46px; }
+  .glass { background:rgba(255,255,255,.035); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); }
+  .tile { border:1px solid rgba(255,255,255,.08); border-radius:1.25rem; }
+  .tile:hover { border-color:rgba(34,211,238,.2); }
+  .text-gradient { background:linear-gradient(120deg,#fff,#67e8f9 45%,#ff6b35);
+      -webkit-background-clip:text; background-clip:text; color:transparent; }
+  ::-webkit-scrollbar{ width:9px; }
+  ::-webkit-scrollbar-thumb{ background:#1c2733; border-radius:5px; }
+  .lang-btn { padding:.3rem .55rem; border-radius:.5rem; font-size:.7rem; font-weight:600;
+      color:#71717a; letter-spacing:.05em; transition:.15s; }
+  .lang-btn:hover { color:#fff; }
+  .lang-btn.active { background:rgba(34,211,238,.18); color:#67e8f9; }
+  table.spec-tbl th, table.spec-tbl td, table.cmp th, table.cmp td { vertical-align:top; }
+
+  /* ── Visualiseur STL ─────────────────────────────────────────────────── */
+  .viewer-canvas-wrap { position:relative; height:52vh; min-height:380px; max-height:560px; }
+  .viewer-canvas-wrap canvas { display:block; width:100%; height:100%; outline:none; cursor:grab; }
+  .viewer-canvas-wrap canvas:active { cursor:grabbing; }
+  .viewer-toolbtn { display:inline-flex; align-items:center; gap:.4rem; border-radius:.6rem;
+      border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.03);
+      padding:.4rem .65rem; font-size:.72rem; font-weight:600; color:#a1a1aa; transition:.15s; }
+  .viewer-toolbtn:hover { background:rgba(255,255,255,.08); color:#fff; }
+  .viewer-toolbtn.on { background:rgba(34,211,238,.16); border-color:rgba(34,211,238,.35); color:#67e8f9; }
+</style>
+</head>
+
+<body class="font-sans text-zinc-200 antialiased selection:bg-accent/30">
+  <div class="pointer-events-none fixed inset-0 -z-20 bg-[radial-gradient(ellipse_at_top,#161b24,#0B0E14_60%)]"></div>
+  <div class="pointer-events-none fixed inset-0 -z-10 grid-bg opacity-40"></div>
+  <div class="pointer-events-none fixed -top-32 left-1/4 -z-10 h-96 w-96 rounded-full bg-accent/10 blur-[150px]"></div>
+  <div class="pointer-events-none fixed bottom-0 right-0 -z-10 h-96 w-96 rounded-full bg-plasma/10 blur-[150px]"></div>
+
+  <!-- ══════════════════ NAV ══════════════════ -->
+  <header class="sticky top-0 z-50 border-b border-white/5 glass">
+    <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+      <a href="index.html" class="group flex items-center gap-3">
+        <span class="flex items-center gap-2">
+          <img src="vendor/NASA_logo.svg"
+               alt="NASA" loading="lazy"
+               class="h-9 w-9 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 shadow-glow transition group-hover:scale-105" />
+          <img src="vendor/fit_seal.svg"
+               alt="Florida Institute of Technology" loading="lazy"
+               class="h-9 w-9 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 transition group-hover:scale-105" />
+        </span>
+        <span class="hidden h-7 w-px bg-white/15 sm:block"></span>
+        <span class="font-display text-base font-bold tracking-widest">LEO<span class="text-accent">·</span>ROBOT</span>
+      </a>
+      <nav class="hidden items-center gap-1 md:flex">
+        <a href="index.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
+        <a href="ops.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_ops">Operations</a>
+        <a href="logbook.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
+        <a href="robot_description.html" class="rounded-lg bg-white/5 px-3 py-2 text-sm text-white" data-i18n="nav_robot">Robot</a>
+        <a href="navigation_modes.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
+        <a href="trajectory.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+        <a href="pid.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_pid">PID</a>
+      </nav>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/[.03] p-0.5" title="Language">
+          <button type="button" class="lang-btn" data-lang="fr" onclick="if(window.I18N)I18N.set('fr')">FR</button>
+          <button type="button" class="lang-btn" data-lang="en" onclick="if(window.I18N)I18N.set('en')">EN</button>
+        </div>
+        <!-- Bouton menu mobile — la nav du haut est masquée sous md -->
+        <button type="button" id="mobileMenuBtn" aria-label="Menu"
+                class="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/[.03] text-zinc-300 transition hover:bg-white/10 md:hidden"
+                onclick="document.getElementById('mobileMenu').classList.toggle('hidden')">
+          <i data-lucide="menu" class="h-4 w-4"></i>
+        </button>
+      </div>
+    </div>
+    <!-- Panneau nav mobile -->
+    <div id="mobileMenu" class="hidden border-t border-white/5 bg-space-950/95 md:hidden">
+      <nav class="mx-auto flex max-w-5xl flex-col gap-1 px-5 py-3">
+        <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
+        <a href="ops.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_ops">Operations</a>
+        <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
+        <a href="robot_description.html" class="rounded-lg bg-white/5 px-3 py-2.5 text-sm text-white" data-i18n="nav_robot">Robot</a>
+        <a href="navigation_modes.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
+        <a href="trajectory.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+        <a href="pid.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_pid">PID</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ══════════════════ HERO ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-8 pt-16">
+    <div class="animate-fade-up">
+      <p class="font-mono text-xs uppercase tracking-[.3em] text-accent" data-i18n="robot_kicker">// hardware documentation · CAD reference</p>
+      <h1 class="mt-3 font-display text-4xl font-black tracking-tight sm:text-5xl">
+        <span class="text-gradient" data-i18n="robot_title">Robot Description</span>
+      </h1>
+      <p class="mt-4 max-w-2xl text-zinc-400" data-i18n="robot_desc">
+        Interactive 3D reference and subsystem-level engineering documentation for this specific LEO Rover unit — chassis geometry, drivetrain, and onboard electronics, grounded in the CAD model and in-field calibration data gathered during the mission campaign.
+      </p>
+    </div>
+  </section>
+
+  <!-- ══════════════════ 3D VIEWER ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass overflow-hidden">
+      <div class="flex items-center justify-between border-b border-white/5 px-5 py-3.5">
+        <h2 class="flex items-center gap-2 font-display text-lg font-bold text-white">
+          <i data-lucide="rotate-3d" class="h-5 w-5 text-accent"></i>
+          <span data-i18n="robot_viewer_title">3D Model Viewer</span>
+        </h2>
+        <span class="ms-live font-mono text-[10px] uppercase tracking-widest text-emerald-300" id="stlLiveTag" style="display:none">LEO ROVER v1.9</span>
+      </div>
+
+      <div class="viewer-canvas-wrap">
+        <canvas id="stlViewer" tabindex="0" aria-label="LEO Rover interactive 3D model"></canvas>
+
+        <!-- Overlay de chargement -->
+        <div id="stlLoading" class="absolute inset-0 grid place-items-center bg-space-950/80">
+          <div class="flex flex-col items-center gap-3 px-6 text-center">
+            <i data-lucide="loader-circle" class="h-7 w-7 animate-spin text-accent"></i>
+            <p class="font-mono text-xs text-zinc-400" data-i18n="robot_viewer_loading">Loading 3D model…</p>
+            <div class="h-1 w-56 overflow-hidden rounded-full bg-white/10">
+              <div id="stlProgressBar" class="h-full w-0 bg-accent transition-[width] duration-150"></div>
+            </div>
+            <p id="stlProgressPct" class="font-mono text-[11px] text-zinc-500">0%</p>
+          </div>
+        </div>
+
+        <!-- Message d'erreur (masqué par défaut) -->
+        <div id="stlError" class="hidden absolute inset-0 grid place-items-center bg-space-950/90">
+          <div class="flex max-w-sm flex-col items-center gap-2 px-6 text-center">
+            <i data-lucide="triangle-alert" class="h-6 w-6 text-warn"></i>
+            <p class="text-sm text-zinc-400" data-i18n="robot_viewer_error">3D model unavailable — WebGL or the STL file could not be loaded. The documentation below remains fully available.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Barre d'outils -->
+      <div class="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 px-5 py-2.5">
+        <p class="font-mono text-[11px] text-zinc-500" data-i18n="robot_viewer_hint">Drag to orbit · Scroll to zoom · Right-click to pan</p>
+        <div class="flex items-center gap-2">
+          <button type="button" id="stlBtnWire" class="viewer-toolbtn">
+            <i data-lucide="grid-3x3" class="h-3.5 w-3.5"></i> <span data-i18n="robot_viewer_wireframe">Wireframe</span>
+          </button>
+          <button type="button" id="stlBtnRotate" class="viewer-toolbtn">
+            <i data-lucide="rotate-cw" class="h-3.5 w-3.5"></i> <span data-i18n="robot_viewer_rotate">Auto-rotate</span>
+          </button>
+          <button type="button" id="stlBtnReset" class="viewer-toolbtn">
+            <i data-lucide="refresh-ccw" class="h-3.5 w-3.5"></i> <span data-i18n="robot_viewer_reset">Reset view</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Barre de stats (mesurées en direct sur le maillage chargé) -->
+      <div class="border-t border-white/5 bg-black/20 px-5 py-2">
+        <div id="stlStats" class="flex flex-wrap items-center gap-x-6 gap-y-1 font-mono text-[11px] text-zinc-500">
+          <span><span data-i18n="robot_viewer_stat_file">Source file</span>: Leo Rover v1.9 v5.stl</span>
+          <span><span data-i18n="robot_viewer_stat_tri">Triangles</span>: <span id="stlTriCount">—</span></span>
+          <span><span data-i18n="robot_viewer_stat_bbox">Measured bounding box</span>: <span id="stlBboxVal">—</span> mm</span>
+        </div>
+        <p id="stlBboxNote" class="mt-1 hidden font-mono text-[10px] text-emerald-400/80">
+          <span data-i18n="robot_viewer_bbox_note">within a fraction of a millimeter of the official 424 × 445 × 303 mm FictionLab specification</span>
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ OFFICIAL SPECIFICATIONS ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="mb-4 flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="font-mono text-xs uppercase tracking-[.3em] text-accent" data-i18n="robot_specs_kicker">// official specification · FictionLab, Leo Rover 1.9</p>
+        <h2 class="mt-2 font-display text-2xl font-bold tracking-tight text-white" data-i18n="robot_specs_title">Official Specifications</h2>
+        <p class="mt-2 max-w-2xl text-sm text-zinc-400" data-i18n="robot_specs_sub">Manufacturer figures for the Leo Rover 1.9 product line. Where this specific unit's verified hardware differs from the current default configuration, it is called out explicitly in the sections below.</p>
+      </div>
+      <a href="https://docs.fictionlab.pl/leo-rover/documentation/specification"
+         target="_blank" rel="noopener"
+         class="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 font-mono text-xs text-zinc-400 transition hover:border-accent/40 hover:text-accent">
+        <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
+        <span data-i18n="robot_specs_source">FictionLab official specification</span>
+      </a>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <!-- Physical & Geometry -->
+      <div class="tile glass overflow-hidden">
+        <h3 class="flex items-center gap-2 border-b border-white/5 px-5 py-3 font-display text-sm font-bold uppercase tracking-wider text-white">
+          <i data-lucide="ruler" class="h-4 w-4 text-accent"></i>
+          <span data-i18n="robot_specs_tbl1">Physical &amp; Geometry</span>
+        </h3>
+        <table class="spec-tbl w-full border-collapse text-sm">
+          <tbody class="divide-y divide-white/5">
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_dim">Dimensions (L×W×H)</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">424 × 445 × 303 mm</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_weight">Weight</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">≈ 7 kg</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_payload">Max payload</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">≈ 5 kg</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_track">Track width</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">354 mm</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_wheelbase">Wheelbase</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">295 mm</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_clearance">Ground clearance</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">108 mm</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Performance & Power -->
+      <div class="tile glass overflow-hidden">
+        <h3 class="flex items-center gap-2 border-b border-white/5 px-5 py-3 font-display text-sm font-bold uppercase tracking-wider text-white">
+          <i data-lucide="gauge" class="h-4 w-4 text-plasma"></i>
+          <span data-i18n="robot_specs_tbl2">Performance &amp; Power</span>
+        </h3>
+        <table class="spec-tbl w-full border-collapse text-sm">
+          <tbody class="divide-y divide-white/5">
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_speedlin">Max linear speed</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">≈ 0.4 m/s</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_speedang">Max angular speed</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">≈ 1 rad/s</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_obstacle">Max obstacle size</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">≈ 70 mm</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_climb">Climb grade (0–5 kg payload)</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">45° (100%)</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_ip">IP protection rating</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">IP 55</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_temp">Operating temperature</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">−10 to +40 °C</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_range">Connection range</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">up to 100 m</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_battery">Battery</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">Li-Ion 3S2P · 6.8 Ah · 10.8 V</td></tr>
+            <tr><td class="px-5 py-2.5 text-zinc-400" data-i18n="robot_spec_runtime">Runtime</td><td class="px-5 py-2.5 text-right font-mono text-zinc-200">≤ 4 h</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SUBSYSTEM 01 · CHASSIS ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass p-6">
+      <p class="font-mono text-xs uppercase tracking-[.3em] text-accent" data-i18n="robot_s1_kicker">// subsystem 01</p>
+      <h2 class="mt-2 flex items-center gap-2 font-display text-2xl font-bold text-white">
+        <i data-lucide="box" class="h-5 w-5 text-accent"></i>
+        <span data-i18n="robot_s1_title">Chassis Architecture &amp; Mobility</span>
+      </h2>
+      <p class="mt-4 text-sm leading-relaxed text-zinc-400" data-i18n="robot_s1_p1">
+        The chassis is a 4×4 skid-steer platform, 424 × 445 × 303 mm (L × W × H, excluding camera mast) at ≈7 kg, rated for a 5 kg payload — FictionLab's official v1.9 specification (see the table above). The bounding box measured directly from the CAD model above — 445.8 × 424.6 × 303.4 mm — matches it to within a fraction of a millimeter, confirming the model faithfully represents the as-built unit.
+      </p>
+      <p class="mt-3 text-sm leading-relaxed text-zinc-400" data-i18n="robot_s1_p2">
+        Mass is distributed low and central: the battery pack sits at the geometric center of the chassis floor, beneath the compute and sensor deck, keeping the center of mass close to the wheel-axle plane. This is the standard stability strategy for a skid-steer platform, whose cornering behavior depends on tire-ground friction rather than a steering linkage — a high or off-center mass would directly degrade traction predictability during turns.
+      </p>
+      <p class="mt-3 text-sm leading-relaxed text-zinc-400" data-i18n="robot_s1_p3">
+        The 295 mm wheelbase and 354 mm track width, spread across 4-point ground contact, give the platform a wide, stable footprint for its size, at the cost of the turning-radius flexibility of a wheeled platform with true steering — a trade-off made explicit by the drivetrain findings below.
+      </p>
+      <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-3 text-center">
+          <p class="font-display text-lg font-bold text-white">424×445×303</p>
+          <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">mm L×W×H</p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-3 text-center">
+          <p class="font-display text-lg font-bold text-white">≈7 <span class="text-xs font-normal text-zinc-500">kg</span></p>
+          <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">weight</p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-3 text-center">
+          <p class="font-display text-lg font-bold text-plasma">5 <span class="text-xs font-normal text-zinc-500">kg</span></p>
+          <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">payload</p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-3 text-center">
+          <p class="font-display text-lg font-bold text-white">295 / 354 <span class="text-xs font-normal text-zinc-500">mm</span></p>
+          <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">wheelbase / track</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SUBSYSTEM 02 · MOTORISATION ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass p-6">
+      <p class="font-mono text-xs uppercase tracking-[.3em] text-plasma" data-i18n="robot_s2_kicker">// subsystem 02</p>
+      <h2 class="mt-2 flex items-center gap-2 font-display text-2xl font-bold text-white">
+        <i data-lucide="settings-2" class="h-5 w-5 text-plasma"></i>
+        <span data-i18n="robot_s2_title">Motorisation &amp; Transmission</span>
+      </h2>
+      <p class="mt-4 text-sm leading-relaxed text-zinc-400" data-i18n="robot_s2_p1">
+        Four brushed DC gearmotors (Bühler), each with a quadrature encoder, drive the wheels independently through the CORE2 controller board's motor stage — nominally a differential (skid-steer) drivetrain, commanded as geometry_msgs/Twist and converted to per-wheel setpoints on the robot.
+      </p>
+
+      <h3 class="mt-6 flex items-center gap-2 font-display text-base font-bold text-white">
+        <i data-lucide="flask-conical" class="h-4 w-4 text-emerald-400"></i>
+        <span data-i18n="robot_s2_h_discovery">Field discovery — the wheels are Mecanum, not rigid</span>
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="robot_s2_p2">
+        A field calibration campaign made a consequential discovery: the wheels fitted to this unit are not the plain rigid wheel FictionLab lists in its base specification, but the FictionLab Mecanum wheel set (Leo Addon) — Ø128.8 mm hubs with 45°, free-rolling polyurethane rollers. Commanding a gentle turn produced a large commanded wheel-speed differential with almost no actual chassis rotation (gyroscope and visual heading both near zero): the rollers were absorbing the differential exactly as mecanum kinematics predicts, instead of converting it into yaw.
+      </p>
+      <p class="mt-3 text-sm leading-relaxed text-zinc-400" data-i18n="robot_s2_p3">
+        Straight-line rolling is unaffected: 20 guarded half-second windows over a 2.2 m run gave an effective rolling radius r_eff = 62.2 mm against the 64.4 mm geometric hub radius (IQR ±0.5 mm) — a 3.4% roller-contact compression, typical for mecanum rollers, and only 0.5% off the stock value. The longitudinal odometry constraint is trustworthy; the differential-yaw constraint is not.
+      </p>
+      <div class="mt-4 flex items-start gap-3 rounded-xl border border-plasma/30 bg-plasma/10 p-4">
+        <i data-lucide="git-merge" class="mt-0.5 h-5 w-5 shrink-0 text-plasma"></i>
+        <p class="text-sm leading-relaxed text-zinc-300" data-i18n="robot_s2_p4">
+          Practical consequence: in-place pivot turns and SLAM-critical rotations are disabled in autonomous behaviors, and the state estimator's trust in wheel-derived angular rate was deliberately reduced (its trust in wheel-derived linear speed was not) — the correct response once the drivetrain's true kinematics were understood, not a wheel-hardware defect.
+        </p>
+      </div>
+
+      <h3 class="mt-6 flex items-center gap-2 font-display text-base font-bold text-white">
+        <i data-lucide="cable" class="h-4 w-4 text-accent"></i>
+        <span data-i18n="robot_s2_h_serial">CORE2 serial link</span>
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="robot_s2_p5">
+        The CORE2 board — FictionLab's official product name is "LeoCore"; this project's software and documentation consistently refer to it as CORE2 — and the onboard Raspberry Pi communicate over a dedicated UART (/dev/serial0, 250 000 baud), decoded by the firmware_message_converter node into standard ROS topics (odometry, joint states, battery, IMU). This link is a known fragility point: sustained checksum-error bursts have been observed and are under active investigation (see the Nav Modes page's data-flow diagram for where this node sits in the pipeline).
+      </p>
+
+      <h3 class="mt-6 flex items-center gap-2 font-display text-base font-bold text-white">
+        <i data-lucide="plug-2" class="h-4 w-4 text-accent"></i>
+        <span data-i18n="robot_s2_h_conn">CORE2 board interfaces</span>
+      </h3>
+      <div class="mt-3 overflow-x-auto rounded-xl border border-white/10">
+        <table class="spec-tbl w-full border-collapse text-sm">
+          <thead>
+            <tr class="border-b border-white/10 bg-white/[.03] text-left text-xs uppercase tracking-wider text-zinc-500">
+              <th class="px-4 py-2.5" data-i18n="robot_conn_h_iface">Interface</th>
+              <th class="px-4 py-2.5" data-i18n="robot_conn_h_spec">Specification</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-white/5">
+            <tr>
+              <td class="px-4 py-2.5 font-semibold text-white" data-i18n="robot_conn_power_l">Power Input</td>
+              <td class="px-4 py-2.5 font-mono text-xs text-zinc-400" data-i18n="robot_conn_power_v">DC 2.1/5.5 mm barrel jack · 8–30 V DC · 10 A fast-blow fuse</td>
+            </tr>
+            <tr>
+              <td class="px-4 py-2.5 font-semibold text-white" data-i18n="robot_conn_motor_l">Motor Outputs</td>
+              <td class="px-4 py-2.5 font-mono text-xs text-zinc-400" data-i18n="robot_conn_motor_v">4× PWM H-bridge (A/B/C/D) · ±2.8 A peak per channel</td>
+            </tr>
+            <tr>
+              <td class="px-4 py-2.5 font-semibold text-white" data-i18n="robot_conn_led_l">LED Output</td>
+              <td class="px-4 py-2.5 font-mono text-xs text-zinc-400" data-i18n="robot_conn_led_v">5 V / 10 mA</td>
+            </tr>
+            <tr>
+              <td class="px-4 py-2.5 font-semibold text-white" data-i18n="robot_conn_fan_l">Fan Connector</td>
+              <td class="px-4 py-2.5 font-mono text-xs text-zinc-400" data-i18n="robot_conn_fan_v">5 V / 1 A</td>
+            </tr>
+            <tr>
+              <td class="px-4 py-2.5 font-semibold text-white" data-i18n="robot_conn_uart_l">UART / GPIO Port</td>
+              <td class="px-4 py-2.5 font-mono text-xs text-zinc-400" data-i18n="robot_conn_uart_v">3.3 V logic-level UART + GPIO breakout · also supplies power to the Raspberry Pi</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-2 font-mono text-[11px] text-zinc-500" data-i18n="robot_conn_note">Source: FictionLab official LeoCore board specification.</p>
+
+      <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-3 text-center">
+          <p class="font-display text-lg font-bold text-white">4× DC</p>
+          <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">Bühler + encoders</p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-3 text-center">
+          <p class="font-display text-lg font-bold text-white">Ø128.8</p>
+          <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">mm mecanum hub</p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-3 text-center">
+          <p class="font-display text-lg font-bold text-emerald-400">62.2</p>
+          <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">mm r_eff (measured)</p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-3 text-center">
+          <p class="font-display text-lg font-bold text-white">250k</p>
+          <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">baud, Pi↔CORE2</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SUBSYSTEM 03 · ÉLECTRONIQUE ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass p-6">
+      <p class="font-mono text-xs uppercase tracking-[.3em] text-accent" data-i18n="robot_s3_kicker">// subsystem 03</p>
+      <h2 class="mt-2 flex items-center gap-2 font-display text-2xl font-bold text-white">
+        <i data-lucide="cpu" class="h-5 w-5 text-accent"></i>
+        <span data-i18n="robot_s3_title">Electronics &amp; Onboard Sensors</span>
+      </h2>
+      <p class="mt-4 text-sm leading-relaxed text-zinc-400" data-i18n="robot_s3_p1">
+        Compute runs Ubuntu 20.04 LTS and ROS Noetic, hosting the CORE2 firmware bridge, the camera driver, and the sensor-sanitizing nodes described below before anything reaches the estimators.
+      </p>
+
+      <h3 class="mt-6 flex items-center gap-2 font-display text-base font-bold text-white">
+        <i data-lucide="flask-conical" class="h-4 w-4 text-emerald-400"></i>
+        <span data-i18n="robot_s3_h_compute">As-verified — Raspberry Pi 4B, not the current default Pi 5</span>
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="robot_s3_p_compute">
+        FictionLab's official v1.9 specification lists a Raspberry Pi 5 (Broadcom BCM2712, 2.4 GHz quad-core Cortex-A76, 4 GB LPDDR4X) as the onboard computer. This specific unit, checked directly on the robot (/proc/device-tree/model, free -h), runs a Raspberry Pi 4 Model B instead — Broadcom BCM2711, 1.5 GHz quad-core Cortex-A72, 8 GB LPDDR4 — a confirmed hardware divergence from the current default configuration, not a documentation guess. All ROS Noetic / Ubuntu 20.04 software on this site targets this Pi 4B build.
+      </p>
+
+      <h3 class="mt-6 flex items-center gap-2 font-display text-base font-bold text-white">
+        <i data-lucide="waves" class="h-4 w-4 text-plasma"></i>
+        <span data-i18n="robot_s3_h_imu">IMU sanitizing — two guarded failure modes</span>
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="robot_s3_p2">
+        The onboard IMU (CORE2/LeoCore mainboard, 6-axis, published on /firmware/imu) feeds a dedicated sanitizer node before any estimator sees it. Two independent failure modes were characterized from live data and are guarded in software: single-sample glitches (occasional gyro/accel spikes many orders of magnitude above physical motion, traced to I2C/rosserial framing hiccups) are clamped — any axis exceeding 35 rad/s (gyro) or 160 m/s² (accel) is rejected and replaced by the last good sample — and full sensor freezes (200+ consecutive bit-identical samples, seen after serial desync bursts) trigger an automatic firmware board reset via the /firmware/reset_board service, throttled to one reset per 60 s.
+      </p>
+
+      <h3 class="mt-6 flex items-center gap-2 font-display text-base font-bold text-white">
+        <i data-lucide="camera" class="h-4 w-4 text-accent"></i>
+        <span data-i18n="robot_s3_h_cam">Perception — Intel RealSense D455</span>
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="robot_s3_p3">
+        Perception's primary sensor is an Intel RealSense D455: a stereo IR pair (infra1/infra2) at 640×480 for visual-inertial tracking, a depth stream for obstacle avoidance, and an internal 6-axis IMU — all delivered over USB3 at up to ~30 Hz.
+      </p>
+
+      <h3 class="mt-6 flex items-center gap-2 font-display text-base font-bold text-white">
+        <i data-lucide="sigma" class="h-4 w-4 text-accent"></i>
+        <span data-i18n="robot_s3_h_est">Feeding the estimators</span>
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="robot_s3_p4">
+        These sensors feed one of two interchangeable state estimators — OpenVINS (vision + IMU) or MINS (adds wheel odometry, extensible to beacon and LiDAR fixes) — switchable live from the cockpit with no discontinuity in the published pose. The full estimator architecture, live data-flow diagram, and switch mechanism are documented on the Navigation Modes page.
+      </p>
+      <a href="navigation_modes.html" class="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-accent hover:underline" data-i18n="robot_s3_link">→ Navigation Modes: estimator deep dive</a>
+
+      <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-3 text-center">
+          <p class="font-display text-lg font-bold text-emerald-400">Pi 4B</p>
+          <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">8 GB (measured)</p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-3 text-center">
+          <p class="font-display text-lg font-bold text-white">35 / 160</p>
+          <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">rad/s · m/s² clamp</p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-3 text-center">
+          <p class="font-display text-lg font-bold text-white">D455</p>
+          <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">RGB-D + IMU</p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-3 text-center">
+          <p class="font-display text-lg font-bold text-white">~30 <span class="text-xs font-normal text-zinc-500">Hz</span></p>
+          <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">vision rate</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ CTA ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-16">
+    <div class="tile glass flex flex-col gap-4 p-6 sm:flex-row sm:items-center">
+      <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/15 text-accent ring-1 ring-accent/30">
+        <i data-lucide="compass" class="h-5 w-5"></i>
+      </span>
+      <div class="min-w-0 flex-1">
+        <h3 class="font-semibold text-white" data-i18n="robot_cta_title">Continue exploring</h3>
+        <p class="mt-1 text-sm text-zinc-400" data-i18n="robot_cta_desc">See the estimators in depth, or take the rover into Operations for live control.</p>
+      </div>
+      <div class="flex shrink-0 flex-wrap items-center gap-2">
+        <a href="navigation_modes.html" class="flex items-center gap-2 rounded-xl border border-white/15 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition hover:bg-white/5">
+          <span data-i18n="robot_cta_navmodes">Navigation Modes</span>
+        </a>
+        <a href="ops.html" class="flex items-center gap-2 rounded-xl bg-accent/15 px-4 py-2.5 text-sm font-semibold text-accent ring-1 ring-accent/30 transition hover:bg-accent/25 hover:shadow-neon">
+          <span data-i18n="robot_cta_ops">Go to Operations</span> <i data-lucide="arrow-right" class="h-4 w-4"></i>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <footer class="border-t border-white/5">
+    <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-3 px-5 py-8 text-xs text-zinc-600 sm:flex-row">
+      <p>© 2026 LEO ROVER · Florida Tech Robotics Lab</p>
+      <p class="font-mono">ROS NOETIC · AGILEX LEO · INTEL D455</p>
+    </div>
+  </footer>
+
+  <script src="vendor/lucide-1.25.0.umd.js?v=v1"></script>
+  <script>
+    lucide.createIcons();
+    if (window.I18N) I18N.apply();
+
+    /* ═══════════════════════════════════════════════════════════════════
+       VISUALISEUR 3D — Three.js r128 + STLLoader + OrbitControls.
+       Charge le maillage réel du rover (models/leo_rover_v1.9_v5.stl,
+       1 162 904 triangles, ~58 Mo) : orbite/zoom/pan souris, respecte
+       prefers-reduced-motion (pas d'auto-rotation, damping désactivé),
+       se dégrade proprement si WebGL/les addons sont indisponibles.
+       ═══════════════════════════════════════════════════════════════════ */
+    (function initSTLViewer() {
+      var canvas   = document.getElementById('stlViewer');
+      var overlay  = document.getElementById('stlLoading');
+      var errorBox = document.getElementById('stlError');
+      var progBar  = document.getElementById('stlProgressBar');
+      var progPct  = document.getElementById('stlProgressPct');
+      var triEl    = document.getElementById('stlTriCount');
+      var bboxEl   = document.getElementById('stlBboxVal');
+      var bboxNote = document.getElementById('stlBboxNote');
+      var liveTag  = document.getElementById('stlLiveTag');
+      if (!canvas) return;
+
+      function fail() {
+        if (overlay) overlay.classList.add('hidden');
+        if (errorBox) errorBox.classList.remove('hidden');
+      }
+
+      if (typeof THREE === 'undefined' || !THREE.STLLoader || !THREE.OrbitControls) { fail(); return; }
+
+      var reduceMotion = !!(window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+      var renderer;
+      try {
+        renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+      } catch (e) { fail(); return; }
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setClearColor(0x0b0e14, 1);
+
+      var scene  = new THREE.Scene();
+      var camera = new THREE.PerspectiveCamera(45, 1, 1, 10000);
+
+      scene.add(new THREE.AmbientLight(0x8899aa, 0.55));
+      var keyLight = new THREE.DirectionalLight(0xffffff, 0.95);
+      keyLight.position.set(1, 1.4, 1);
+      scene.add(keyLight);
+      var rimLight = new THREE.DirectionalLight(0x3b74e4, 0.55);
+      rimLight.position.set(-1.2, -0.3, -0.8);
+      scene.add(rimLight);
+      var fillLight = new THREE.DirectionalLight(0xc0142e, 0.22);
+      fillLight.position.set(-0.6, 1, -1.2);
+      scene.add(fillLight);
+
+      var controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = !reduceMotion;
+      controls.dampingFactor = 0.08;
+      controls.rotateSpeed = 0.75;
+      controls.minDistance = 10;
+      controls.maxDistance = 8000;
+      controls.listenToKeyEvents(canvas);
+
+      function resize() {
+        var w = canvas.clientWidth, h = canvas.clientHeight;
+        if (!w || !h) return;
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }
+      resize();
+      window.addEventListener('resize', resize, { passive: true });
+
+      var mesh = null, autoRotate = false, defaultDist = 900;
+
+      function frameCamera(maxDim) {
+        defaultDist = maxDim * 1.15;
+        camera.near = Math.max(maxDim / 200, 0.1);
+        camera.far  = maxDim * 20;
+        camera.position.set(maxDim * 0.75, maxDim * 0.6, maxDim * 0.95);
+        camera.updateProjectionMatrix();
+        controls.target.set(0, 0, 0);
+        controls.update();
+      }
+
+      var loader = new THREE.STLLoader();
+      loader.load(
+        'models/leo_rover_v1.9_v5.stl?v=r1',
+        function onLoad(geometry) {
+          geometry.computeBoundingBox();
+          var bb = geometry.boundingBox;
+          var size = new THREE.Vector3(); bb.getSize(size);
+          var center = new THREE.Vector3(); bb.getCenter(center);
+          geometry.translate(-center.x, -center.y, -center.z);
+
+          var material = new THREE.MeshStandardMaterial({
+            color: 0xc7d2e0, metalness: 0.32, roughness: 0.55, flatShading: true,
+          });
+          mesh = new THREE.Mesh(geometry, material);
+          scene.add(mesh);
+
+          var maxDim = Math.max(size.x, size.y, size.z) || 1;
+          frameCamera(maxDim);
+
+          if (overlay) overlay.classList.add('hidden');
+          if (liveTag) liveTag.style.display = '';
+          if (triEl) triEl.textContent = (geometry.attributes.position.count / 3).toLocaleString('en-US');
+          if (bboxEl) {
+            bboxEl.textContent = size.x.toFixed(1) + ' × ' + size.y.toFixed(1) + ' × ' + size.z.toFixed(1);
+          }
+          if (bboxNote) bboxNote.classList.remove('hidden');
+        },
+        function onProgress(xhr) {
+          if (xhr.lengthComputable && progBar) {
+            var pct = Math.round((xhr.loaded / xhr.total) * 100);
+            progBar.style.width = pct + '%';
+            if (progPct) progPct.textContent = pct + '%';
+          }
+        },
+        function onError() { fail(); }
+      );
+
+      var visible = !document.hidden;
+      document.addEventListener('visibilitychange', function () { visible = !document.hidden; });
+
+      var INTERVAL = 1000 / 60, lastTs = 0;
+      function frame(ts) {
+        requestAnimationFrame(frame);
+        if (!visible || (ts - lastTs) < INTERVAL) return;
+        lastTs = ts;
+        if (autoRotate && mesh && !reduceMotion) mesh.rotation.z += 0.0035;
+        controls.update();
+        renderer.render(scene, camera);
+      }
+      requestAnimationFrame(frame);
+
+      /* ── Barre d'outils ─────────────────────────────────────────────── */
+      var btnWire = document.getElementById('stlBtnWire');
+      var btnReset = document.getElementById('stlBtnReset');
+      var btnRotate = document.getElementById('stlBtnRotate');
+
+      if (btnWire) btnWire.addEventListener('click', function () {
+        if (!mesh) return;
+        mesh.material.wireframe = !mesh.material.wireframe;
+        btnWire.classList.toggle('on', mesh.material.wireframe);
+      });
+      if (btnReset) btnReset.addEventListener('click', function () {
+        if (!mesh) return;
+        var size = new THREE.Vector3();
+        mesh.geometry.boundingBox.getSize(size);
+        frameCamera(Math.max(size.x, size.y, size.z) || 1);
+      });
+      if (btnRotate) {
+        if (reduceMotion) {
+          btnRotate.disabled = true;
+          btnRotate.classList.add('hidden');
+        } else {
+          btnRotate.addEventListener('click', function () {
+            autoRotate = !autoRotate;
+            btnRotate.classList.toggle('on', autoRotate);
+          });
+        }
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+# Costmap commun (global + local) — LEO Rover, "tout tracer, ne rien ignorer".
+#
+# footprint : châssis LEO 447x433 mm, origine base_link au centre.
+footprint: [[-0.23, -0.23], [-0.23, 0.23], [0.23, 0.23], [0.23, -0.23]]
+footprint_padding: 0.02
+
+# Tout marquer : portée d'observation large, raytrace au-delà du marquage
+# pour bien EFFACER l'espace libre (sinon des obstacles fantômes persistent).
+obstacle_layer:
+  observation_sources: depth_scan
+  # RPLidar : ajouter "laser" à observation_sources quand le node sera ressuscité
+  #   laser: {sensor_frame: laser, data_type: LaserScan, topic: /scan,
+  #           marking: true, clearing: true, obstacle_range: 6.0, raytrace_range: 8.0}
+  depth_scan:
+    sensor_frame: camera_depth_frame
+    data_type: LaserScan
+    topic: /depth_scan
+    marking: true
+    clearing: true
+    obstacle_range: 4.0     # D455 fiable jusqu'à ~4 m en intérieur
+    raytrace_range: 4.5
+    inf_is_valid: true
+
+# Inflation serrée : le TEB gère finement les passages étroits ; une inflation
+# excessive "bouche" les portes et laisse des zones inexplorées sur la carte.
+inflation_layer:
+  inflation_radius: 0.35
+  cost_scaling_factor: 5.0

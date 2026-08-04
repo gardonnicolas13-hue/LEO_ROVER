@@ -1,0 +1,19 @@
+global_costmap:
+  global_frame: map
+  robot_base_frame: base_link
+  update_frequency: 2.0
+  publish_frequency: 1.0
+  transform_tolerance: 0.5
+
+  # La carte globale VIENT du SLAM (RTAB-Map /rtabmap/grid_map) : static layer
+  # branchée dessus, l'exploration voit exactement ce que le SLAM a cartographié.
+  static_map: true
+  map_topic: /rtabmap/grid_map
+  # track_unknown_space : indispensable à l'exploration frontière — la
+  # distinction libre/inconnu est ce qui définit les frontières à visiter.
+  track_unknown_space: true
+
+  plugins:
+    - {name: static_layer,    type: "costmap_2d::StaticLayer"}
+    - {name: obstacle_layer,  type: "costmap_2d::ObstacleLayer"}
+    - {name: inflation_layer, type: "costmap_2d::InflationLayer"}

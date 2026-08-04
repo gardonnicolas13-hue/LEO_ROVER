@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark scroll-smooth">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LEO ROVER — Plateforme R&D de navigation autonome · Florida Tech</title>
+<script src="i18n.js?v=r17"></script>
+<script src="vendor/tailwind.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: {
+      fontFamily: {
+        sans: ['Inter','system-ui','sans-serif'],
+        mono: ['"JetBrains Mono"','ui-monospace','monospace'],
+        display: ['Rajdhani','Inter','sans-serif'],
+      },
+      colors: {
+        /* fond institutionnel zinc-950 ; accents EXCLUSIFS : Bleu NASA, Rouge NASA, Crimson Florida Tech */
+        space:  { 950:'#0B0E14', 900:'#10141c', 800:'#161b24' },
+        accent: { DEFAULT:'#22d3ee', soft:'#67e8f9', deep:'#0e7490' }, /* Bleu NASA */
+        plasma: { DEFAULT:'#ff6b35', soft:'#ff8f66', deep:'#c2410c' }, /* Crimson Florida Tech */
+        alert:  { DEFAULT:'#FC3D21' },
+        ok:     { DEFAULT:'#3fdc97' },
+        warn:   { DEFAULT:'#eab308' },                                 /* Rouge NASA */
+      },
+      boxShadow: {
+        glow:'0 0 0 1px rgba(34,211,238,.28), 0 0 40px -10px rgba(34,211,238,.65)',
+        neon:'0 0 6px rgba(34,211,238,.6), 0 0 26px rgba(34,211,238,.45), 0 0 60px rgba(34,211,238,.22)',
+        'neon-plasma':'0 0 6px rgba(192,20,46,.6), 0 0 26px rgba(192,20,46,.4)',
+      },
+      keyframes: {
+        'spin-slow':{ to:{ transform:'rotate(360deg)' } },
+        'spin-rev':{ to:{ transform:'rotate(-360deg)' } },
+        sweep:{ to:{ transform:'rotate(360deg)' } },
+        floaty:{ '0%,100%':{ transform:'translateY(0)' }, '50%':{ transform:'translateY(-14px)' } },
+        'pulse-glow':{ '0%,100%':{ opacity:1 }, '50%':{ opacity:.4 } },
+        blink:{ '0%,100%':{ opacity:1 }, '50%':{ opacity:.25 } },
+        ticker:{ '0%':{ transform:'translateX(0)' }, '100%':{ transform:'translateX(-50%)' } },
+        'fade-up':{ '0%':{ opacity:0, transform:'translateY(20px)' }, '100%':{ opacity:1, transform:'translateY(0)' } },
+      },
+      animation: {
+        'spin-slow':'spin-slow 26s linear infinite',
+        'spin-rev':'spin-rev 40s linear infinite',
+        sweep:'sweep 4s linear infinite',
+        floaty:'floaty 7s ease-in-out infinite',
+        'pulse-glow':'pulse-glow 2.4s ease-in-out infinite',
+        blink:'blink 1.2s step-end infinite',
+        ticker:'ticker 32s linear infinite',
+        'fade-up':'fade-up .8s ease-out both',
+      },
+    }},
+  };
+</script>
+<link rel="stylesheet" href="fonts/fonts.css?v=f1" />
+<link rel="stylesheet" href="mission.css?v=m1" />
+<!-- moteur 3D temps réel : globe technologique filaire animé au défilement -->
+<script src="vendor/three.min.js"></script>
+<script src="vendor/gsap.min.js"></script>
+<script src="vendor/ScrollTrigger.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0B0E14; }
+  .grid-bg { background-image:
+      linear-gradient(rgba(34,211,238,.05) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(34,211,238,.05) 1px,transparent 1px);
+      background-size:46px 46px;
+      -webkit-mask-image:radial-gradient(ellipse at 50% 0,#000 30%,transparent 80%);
+      mask-image:radial-gradient(ellipse at 50% 0,#000 30%,transparent 80%); }
+  .glass { background:rgba(255,255,255,.035); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); }
+  .tile { border:1px solid rgba(255,255,255,.08); border-radius:1.5rem; }
+  .tile:hover { border-color:rgba(34,211,238,.22); }
+  .text-gradient { background:linear-gradient(120deg,#fff,#67e8f9 45%,#ff6b35);
+      -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .text-glow { text-shadow:0 0 22px rgba(34,211,238,.5); }
+  .sweep { background:conic-gradient(from 0deg, rgba(34,211,238,.45), rgba(34,211,238,0) 32%); }
+  ::-webkit-scrollbar{ width:9px; }
+  ::-webkit-scrollbar-thumb{ background:#1c2733; border-radius:5px; }
+</style>
+</head>
+
+<body class="font-sans text-zinc-200 antialiased selection:bg-accent/30">
+  <!-- décors -->
+  <canvas id="stars" class="fixed inset-0 -z-30 h-full w-full"></canvas>
+  <canvas id="bg3d" class="pointer-events-none fixed inset-0 -z-20 h-full w-full"></canvas>
+  <div class="pointer-events-none fixed inset-0 -z-10 grid-bg opacity-60"></div>
+  <div class="pointer-events-none fixed -top-32 left-1/2 -z-10 h-[40rem] w-[40rem] -translate-x-1/2 rounded-full bg-accent/10 blur-[160px]"></div>
+  <div class="pointer-events-none fixed bottom-0 right-0 -z-10 h-[34rem] w-[34rem] rounded-full bg-plasma/10 blur-[160px]"></div>
+
+  <!-- ══════════════════ NAV ══════════════════ -->
+  <header class="sticky top-0 z-50 border-b border-white/5 glass">
+    <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-y-2 px-5 py-3.5">
+      <a href="index.html" class="group flex items-center gap-3">
+        <span class="flex items-center gap-2">
+          <img src="vendor/NASA_logo.svg"
+               alt="NASA" loading="lazy"
+               class="h-8 w-8 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 shadow-glow transition group-hover:scale-105 md:h-9 md:w-9" />
+          <img src="vendor/fit_seal.svg"
+               alt="Florida Institute of Technology" loading="lazy"
+               class="h-8 w-8 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 transition group-hover:scale-105 md:h-9 md:w-9" />
+        </span>
+        <span class="hidden h-7 w-px bg-white/15 sm:block"></span>
+        <span class="font-display text-sm font-bold tracking-widest sm:text-base">LEO<span class="text-accent">·</span>ROVER</span>
+      </a>
+      <nav class="hidden items-center gap-1 md:flex">
+        <a href="#features" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_home">Caractéristiques</a>
+        <a href="#archi" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Architecture</a>
+        <a href="logbook.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_log">Journal</a>
+        <a href="robot_description.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
+        <a href="navigation_modes.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
+          <a href="trajectory.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+          <a href="pid.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_pid">PID</a>
+      </nav>
+      <div class="flex items-center gap-2">
+        <!-- Sélecteur de langue FR/EN -->
+        <div class="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/[.03] p-0.5" title="Language">
+          <button type="button" class="lang-btn" data-lang="fr" onclick="if(window.I18N)I18N.set('fr')">FR</button>
+          <button type="button" class="lang-btn" data-lang="en" onclick="if(window.I18N)I18N.set('en')">EN</button>
+        </div>
+        <a href="ops.html" class="flex items-center gap-2 rounded-xl bg-accent/15 px-3 py-2 text-sm font-semibold text-accent ring-1 ring-accent/30 transition hover:bg-accent/25 hover:shadow-neon sm:px-4">
+          <i data-lucide="gamepad-2" class="h-4 w-4"></i> <span class="hidden sm:inline" data-i18n="nav_cockpit">Cockpit</span>
+        </a>
+        <!-- Bouton menu mobile — la nav du haut est masquée sous md -->
+        <button type="button" id="mobileMenuBtn" aria-label="Menu"
+                class="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/[.03] text-zinc-300 transition hover:bg-white/10 md:hidden"
+                onclick="document.getElementById('mobileMenu').classList.toggle('hidden')">
+          <i data-lucide="menu" class="h-4 w-4"></i>
+        </button>
+      </div>
+    </div>
+    <!-- Panneau nav mobile -->
+    <div id="mobileMenu" class="hidden border-t border-white/5 bg-space-950/95 md:hidden">
+      <nav class="mx-auto flex max-w-7xl flex-col gap-1 px-5 py-3">
+        <a href="#features" onclick="document.getElementById('mobileMenu').classList.add('hidden')" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Caractéristiques</a>
+        <a href="#archi" onclick="document.getElementById('mobileMenu').classList.add('hidden')" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white">Architecture</a>
+        <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Journal</a>
+        <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
+        <a href="navigation_modes.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
+        <a href="trajectory.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+        <a href="pid.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_pid">PID</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ══════════════════ HERO ══════════════════ -->
+  <section class="relative mx-auto grid max-w-7xl grid-cols-1 items-center gap-10 px-5 pb-10 pt-16 lg:grid-cols-2 lg:pt-24">
+    <div class="animate-fade-up" data-parallax="0.22">
+      <div class="mb-6 flex flex-wrap items-center gap-4">
+        <img src="vendor/NASA_logo.svg"
+             alt="NASA" class="h-14 w-14 rounded-full bg-white object-contain p-1.5 ring-1 ring-white/15 shadow-glow" />
+        <img src="vendor/fit_seal.svg"
+             alt="Florida Institute of Technology" class="h-14 w-14 rounded-full bg-white object-contain p-1.5 ring-1 ring-white/15" />
+        <div class="h-10 w-px bg-white/15"></div>
+        <div class="text-xs font-medium leading-tight">
+          <div class="flex items-center gap-2 text-zinc-200"><span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-blink"></span> NASA · FLORIDA TECH</div>
+          <div class="mt-1 font-mono uppercase tracking-[.28em] text-zinc-500" data-i18n="idx_lab_badge">Robotics Lab · R&amp;D</div>
+        </div>
+      </div>
+      <h1 class="font-display text-5xl font-black leading-[1.05] tracking-tight sm:text-6xl xl:text-7xl">
+        <span class="text-gradient text-glow">LEO ROVER</span>
+      </h1>
+      <p class="mt-3 font-display text-lg font-semibold tracking-wide text-accent-soft" data-i18n="idx_h1_sub">
+        Plateforme R&D · Navigation autonome
+      </p>
+      <p class="mt-5 max-w-xl text-base leading-relaxed text-zinc-400" data-i18n="idx_desc">
+        Un rover terrestre AgileX LEO instrumenté pour la recherche en
+        perception et navigation autonome : vision hybride balises + LED, odométrie temps réel et
+        machine d'états embarquée. Le tout piloté depuis un cockpit web
+        de qualité salle de contrôle, sur la pile ROS Noetic.
+      </p>
+      <div class="mt-8 flex flex-wrap items-center gap-4">
+        <a href="ops.html"
+           class="group relative inline-flex items-center gap-3 overflow-hidden rounded-2xl bg-gradient-to-r from-accent-deep via-accent to-accent-deep px-7 py-4 text-base font-extrabold tracking-wide text-white ring-1 ring-accent/50 shadow-neon transition hover:scale-[1.03] hover:shadow-glow">
+          <span class="absolute inset-0 -translate-x-full bg-white/20 transition group-hover:translate-x-full"></span>
+          <i data-lucide="rocket" class="relative h-5 w-5"></i>
+          <span class="relative" data-i18n="idx_btn_main">INITIALISER LES OPÉRATIONS</span>
+          <i data-lucide="arrow-right" class="relative h-5 w-5 transition group-hover:translate-x-1"></i>
+        </a>
+        <a href="logbook.html" class="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-6 py-4 text-sm font-semibold text-zinc-200 transition hover:bg-white/5">
+          <i data-lucide="book-open" class="h-4 w-4 text-plasma"></i> <span data-i18n="idx_btn_log">Journal de bord</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Radar orbital -->
+    <div id="heroOrbit" class="relative mx-auto grid h-[min(78vw,22rem)] w-[min(78vw,22rem)] place-items-center sm:h-[min(78vw,26rem)] sm:w-[min(78vw,26rem)]">
+      <div class="absolute inset-0 animate-spin-slow rounded-full border border-white/10"></div>
+      <div class="absolute inset-6 animate-spin-rev rounded-full border border-dashed border-accent/20"></div>
+      <div class="absolute inset-14 rounded-full border border-white/10"></div>
+      <div class="absolute inset-24 rounded-full border border-white/10"></div>
+      <!-- balayage -->
+      <div class="sweep absolute inset-0 animate-sweep rounded-full opacity-70"></div>
+      <!-- croix -->
+      <div class="absolute inset-x-0 top-1/2 h-px bg-white/10"></div>
+      <div class="absolute inset-y-0 left-1/2 w-px bg-white/10"></div>
+      <!-- cibles -->
+      <span class="absolute left-[30%] top-[34%] h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_#34d399] animate-pulse-glow"></span>
+      <span class="absolute right-[26%] top-[58%] h-2 w-2 rounded-full bg-plasma shadow-[0_0_12px_#ff6b35] animate-pulse-glow"></span>
+      <!-- noyau -->
+      <div class="relative grid h-28 w-28 animate-floaty place-items-center rounded-full bg-space-900/80 ring-1 ring-accent/30 shadow-glow">
+        <i data-lucide="bot" class="h-12 w-12 text-accent"></i>
+      </div>
+      <span data-parallax="1.0" class="absolute bottom-6 rounded-md bg-black/50 px-2.5 py-1 font-mono text-[11px] text-accent ring-1 ring-accent/20">D455 · ROS NOETIC</span>
+    </div>
+  </section>
+
+  <!-- bandeau défilant -->
+  <div class="relative overflow-hidden border-y border-white/5 bg-black/30 py-3">
+    <div class="flex w-max animate-ticker gap-10 whitespace-nowrap font-mono text-xs text-zinc-500">
+      <span class="flex gap-10">
+        <span>● CHÂSSIS AGILEX LEO 4×4 SKID-STEER</span><span>● INTEL REALSENSE D455</span>
+        <span>● ROS NOETIC · ROSBRIDGE</span><span>● VISION HYBRIDE DAMIER + LED</span>
+        <span>● MJPEG TEMPS RÉEL</span><span>● MACHINE D'ÉTATS MANUEL/AUTO/CIBLER/INFINI</span>
+      </span>
+      <span class="flex gap-10" aria-hidden="true">
+        <span>● CHÂSSIS AGILEX LEO 4×4 SKID-STEER</span><span>● INTEL REALSENSE D455</span>
+        <span>● ROS NOETIC · ROSBRIDGE</span><span>● VISION HYBRIDE DAMIER + LED</span>
+        <span>● MJPEG TEMPS RÉEL</span><span>● MACHINE D'ÉTATS MANUEL/AUTO/CIBLER/INFINI</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- ══════════════════ STATS ══════════════════ -->
+  <section class="mx-auto max-w-7xl px-5 py-14">
+    <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div class="tile glass p-5 text-center"><p class="font-display text-3xl font-black text-accent">30</p><p class="mt-1 text-xs uppercase tracking-wider text-zinc-500" data-i18n="idx_stat_fps">FPS vision</p></div>
+      <div class="tile glass p-5 text-center"><p class="font-display text-3xl font-black text-white">4×4</p><p class="mt-1 text-xs uppercase tracking-wider text-zinc-500" data-i18n="idx_stat_wheels">roues motrices</p></div>
+      <div class="tile glass p-5 text-center"><p class="font-display text-3xl font-black text-plasma">6 DOF</p><p class="mt-1 text-xs uppercase tracking-wider text-zinc-500" data-i18n="idx_stat_dof">perception balise</p></div>
+      <div class="tile glass p-5 text-center"><p class="font-display text-3xl font-black text-emerald-400">∞</p><p class="mt-1 text-xs uppercase tracking-wider text-zinc-500" data-i18n="idx_stat_inf">balises en série</p></div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ FEATURES ══════════════════ -->
+  <section id="features" class="mx-auto max-w-7xl px-5 py-10">
+    <div class="mb-10 max-w-2xl">
+      <p class="font-mono text-xs uppercase tracking-[.3em] text-accent" data-i18n="idx_feat_kicker">// systèmes embarqués</p>
+      <h2 class="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl" data-i18n="idx_feat_h2">Une plateforme, des capteurs de pointe</h2>
+      <p class="mt-3 text-zinc-400" data-i18n="idx_feat_sub">Chaque sous-système a été intégré et durci pour la recherche terrain.</p>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <!-- D455 (large) -->
+      <article class="tile glass group relative overflow-hidden p-6 transition md:col-span-2">
+        <div class="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-accent/10 blur-3xl"></div>
+        <div class="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-accent/15 ring-1 ring-accent/30"><i data-lucide="camera" class="h-6 w-6 text-accent"></i></div>
+        <h3 class="text-lg font-semibold text-white">Caméra Intel RealSense D455</h3>
+        <p class="mt-2 max-w-lg text-sm leading-relaxed text-zinc-400">
+          Capteur RGB-D stéréo grand champ en USB3, point d'entrée de toute la perception : flux couleur
+          640×480 à ~30&nbsp;Hz pour la détection de balises, profondeur et IMU intégrée prêts pour la
+          fusion visuelle-inertielle (OpenVINS).
+        </p>
+        <div class="mt-4 flex flex-wrap gap-2 font-mono text-[11px]">
+          <span class="rounded-md bg-white/5 px-2 py-1 text-zinc-300 ring-1 ring-white/10">RGB-D</span>
+          <span class="rounded-md bg-white/5 px-2 py-1 text-zinc-300 ring-1 ring-white/10">IMU 6 axes</span>
+          <span class="rounded-md bg-white/5 px-2 py-1 text-zinc-300 ring-1 ring-white/10">/camera/color/image_raw</span>
+        </div>
+      </article>
+
+      <!-- ROS Noetic -->
+      <article class="tile glass relative overflow-hidden p-6 transition">
+        <div class="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-plasma/15 ring-1 ring-plasma/30"><i data-lucide="network" class="h-6 w-6 text-plasma"></i></div>
+        <h3 class="text-lg font-semibold text-white">ROS Noetic</h3>
+        <p class="mt-2 text-sm leading-relaxed text-zinc-400">
+          Intergiciel temps réel. Nœuds de vision/contrôle, pont <span class="font-mono text-zinc-300">rosbridge</span>
+          WebSocket et <span class="font-mono text-zinc-300">web_video_server</span> exposent le robot au cockpit.
+        </p>
+      </article>
+
+      <!-- Châssis AgileX -->
+      <article class="tile glass relative overflow-hidden p-6 transition">
+        <div class="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-white/10 ring-1 ring-white/15"><i data-lucide="truck" class="h-6 w-6 text-zinc-200"></i></div>
+        <h3 class="text-lg font-semibold text-white">Châssis AgileX LEO</h3>
+        <p class="mt-2 text-sm leading-relaxed text-zinc-400">
+          Plateforme 4×4 skid-steer tout-terrain, firmware embarqué (odométrie de roues, batterie 3S,
+          watchdog <span class="font-mono text-zinc-300">/cmd_vel</span>) piloté en <span class="font-mono text-zinc-300">geometry_msgs/Twist</span>.
+        </p>
+      </article>
+
+      <!-- Vision hybride -->
+      <article class="tile glass relative overflow-hidden p-6 transition">
+        <div class="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-emerald-500/15 ring-1 ring-emerald-400/30"><i data-lucide="scan-search" class="h-6 w-6 text-emerald-400"></i></div>
+        <h3 class="text-lg font-semibold text-white">Vision hybride</h3>
+        <p class="mt-2 text-sm leading-relaxed text-zinc-400">
+          Détection de balise par <b class="text-zinc-200">damier</b> (ancre robuste) + <b class="text-zinc-200">constellation de LED</b>
+          filtrée HSV. Threads décodage/détection séparés pour 30&nbsp;FPS sans gel.
+        </p>
+      </article>
+
+      <!-- Nav autonome -->
+      <article class="tile glass relative overflow-hidden p-6 transition">
+        <div class="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-accent/15 ring-1 ring-accent/30"><i data-lucide="route" class="h-6 w-6 text-accent"></i></div>
+        <h3 class="text-lg font-semibold text-white">Navigation autonome</h3>
+        <p class="mt-2 text-sm leading-relaxed text-zinc-400">
+          Machine d'états <span class="font-mono text-zinc-300">MANUEL · AUTO · CIBLER · INFINI</span> :
+          recherche, centrage, approche, demi-tour et chaînage infini de balises avec reset d'odométrie.
+        </p>
+      </article>
+
+      <!-- Cockpit -->
+      <article class="tile glass relative overflow-hidden p-6 transition">
+        <div class="mb-4 grid h-12 w-12 place-items-center rounded-xl bg-plasma/15 ring-1 ring-plasma/30"><i data-lucide="monitor-dot" class="h-6 w-6 text-plasma"></i></div>
+        <h3 class="text-lg font-semibold text-white">Cockpit web temps réel</h3>
+        <p class="mt-2 text-sm leading-relaxed text-zinc-400">
+          Flux MJPEG annoté, télémétrie JSON ~10&nbsp;Hz, graphiques, carte radar et pilotage — accessible
+          depuis n'importe quel navigateur sur le réseau du robot.
+        </p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ══════════════════ TECH SPECS ══════════════════ -->
+  <section id="specs" class="mx-auto max-w-7xl px-5 py-14">
+    <div class="mb-10 flex flex-wrap items-end justify-between gap-4">
+      <div class="max-w-2xl">
+        <p class="font-mono text-xs uppercase tracking-[.3em] text-accent" data-i18n="idx_specs_kicker">// spécifications officielles · fictionlab</p>
+        <h2 class="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl" data-i18n="idx_specs_h2">Caractéristiques techniques</h2>
+        <p class="mt-3 text-zinc-400" data-i18n="idx_specs_sub">Données issues de la documentation officielle FictionLab, complétées par l'état système en temps réel.</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <a href="robot_description.html"
+           class="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 font-mono text-xs text-accent transition hover:bg-accent/20">
+          <i data-lucide="rotate-3d" class="h-3.5 w-3.5"></i>
+          <span data-i18n="idx_specs_full">Documentation complète · modèle 3D</span>
+        </a>
+        <a href="https://docs.fictionlab.pl/leo-rover/documentation/specification"
+           target="_blank" rel="noopener"
+           class="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 font-mono text-xs text-zinc-400 transition hover:border-accent/40 hover:text-accent">
+          <i data-lucide="external-link" class="h-3.5 w-3.5"></i>
+          <span data-i18n="idx_specs_src">Source officielle</span>
+        </a>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+
+      <!-- Dimensions (large) -->
+      <div class="tile glass col-span-2 flex flex-col justify-between overflow-hidden p-6">
+        <div class="flex items-start justify-between">
+          <div class="grid h-10 w-10 place-items-center rounded-xl bg-accent/15 ring-1 ring-accent/30">
+            <i data-lucide="box" class="h-5 w-5 text-accent"></i>
+          </div>
+          <span class="rounded-md bg-accent/10 px-2 py-0.5 font-mono text-[10px] text-accent ring-1 ring-accent/20">FictionLab official</span>
+        </div>
+        <div class="mt-4">
+          <p class="font-mono text-xs uppercase tracking-widest text-zinc-500" data-i18n="idx_specs_dim">Dimensions</p>
+          <p class="mt-1 font-display text-2xl font-bold text-white">424 × 445 × 303 <span class="text-base font-normal text-zinc-400">mm</span></p>
+          <p class="mt-1 font-mono text-[11px] text-zinc-500">L × l × H · sans caméra</p>
+        </div>
+      </div>
+
+      <!-- Masse -->
+      <div class="tile glass flex flex-col justify-between p-5">
+        <div class="grid h-9 w-9 place-items-center rounded-lg bg-white/[.07] ring-1 ring-white/15">
+          <i data-lucide="weight" class="h-4 w-4 text-zinc-300"></i>
+        </div>
+        <div class="mt-3">
+          <p class="font-mono text-xs uppercase tracking-widest text-zinc-500" data-i18n="idx_specs_mass">Masse</p>
+          <p class="font-display text-2xl font-black text-white">≈7 <span class="text-base font-normal text-zinc-400">kg</span></p>
+        </div>
+      </div>
+
+      <!-- Charge utile -->
+      <div class="tile glass flex flex-col justify-between p-5">
+        <div class="grid h-9 w-9 place-items-center rounded-lg bg-plasma/15 ring-1 ring-plasma/30">
+          <i data-lucide="package-plus" class="h-4 w-4 text-plasma"></i>
+        </div>
+        <div class="mt-3">
+          <p class="font-mono text-xs uppercase tracking-widest text-zinc-500" data-i18n="idx_specs_payload">Charge utile</p>
+          <p class="font-display text-2xl font-black text-plasma">5 <span class="text-base font-normal text-zinc-400">kg</span></p>
+        </div>
+      </div>
+
+      <!-- Vitesse max -->
+      <div class="tile glass flex flex-col justify-between p-5">
+        <div class="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 ring-1 ring-accent/30">
+          <i data-lucide="gauge" class="h-4 w-4 text-accent"></i>
+        </div>
+        <div class="mt-3">
+          <p class="font-mono text-xs uppercase tracking-widest text-zinc-500" data-i18n="idx_specs_speed">Vitesse max</p>
+          <p class="font-display text-2xl font-black text-accent">~0.4 <span class="text-base font-normal text-zinc-400">m/s</span></p>
+        </div>
+      </div>
+
+      <!-- Batterie -->
+      <div class="tile glass flex flex-col justify-between p-5">
+        <div class="grid h-9 w-9 place-items-center rounded-lg bg-emerald-500/15 ring-1 ring-emerald-400/30">
+          <i data-lucide="battery-full" class="h-4 w-4 text-emerald-400"></i>
+        </div>
+        <div class="mt-3">
+          <p class="font-mono text-xs uppercase tracking-widest text-zinc-500" data-i18n="idx_specs_battery">Batterie</p>
+          <p class="font-display text-lg font-bold text-white">10.8 V · 6 800 mAh</p>
+          <p class="font-mono text-[11px] text-zinc-500">Li-Ion 3S2P</p>
+        </div>
+      </div>
+
+      <!-- Autonomie -->
+      <div class="tile glass flex flex-col justify-between p-5">
+        <div class="grid h-9 w-9 place-items-center rounded-lg bg-amber-500/15 ring-1 ring-amber-400/30">
+          <i data-lucide="timer" class="h-4 w-4 text-amber-400"></i>
+        </div>
+        <div class="mt-3">
+          <p class="font-mono text-xs uppercase tracking-widest text-zinc-500" data-i18n="idx_specs_autonomy">Autonomie</p>
+          <p class="font-display text-2xl font-black text-amber-400">~3 <span class="text-base font-normal text-zinc-400">h</span></p>
+        </div>
+      </div>
+
+      <!-- Calculateur -->
+      <div class="tile glass flex flex-col justify-between p-5">
+        <div class="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 ring-1 ring-accent/30">
+          <i data-lucide="cpu" class="h-4 w-4 text-accent"></i>
+        </div>
+        <div class="mt-3">
+          <p class="font-mono text-xs uppercase tracking-widest text-zinc-500" data-i18n="idx_specs_cpu">Calculateur</p>
+          <p class="font-semibold text-white text-sm">Raspberry Pi 4B</p>
+          <p class="font-mono text-[11px] text-zinc-500">8 GB LPDDR4</p>
+        </div>
+      </div>
+
+      <!-- Moteurs -->
+      <div class="tile glass flex flex-col justify-between p-5">
+        <div class="grid h-9 w-9 place-items-center rounded-lg bg-plasma/15 ring-1 ring-plasma/30">
+          <i data-lucide="settings-2" class="h-4 w-4 text-plasma"></i>
+        </div>
+        <div class="mt-3">
+          <p class="font-mono text-xs uppercase tracking-widest text-zinc-500" data-i18n="idx_specs_motors">Moteurs</p>
+          <p class="font-semibold text-white text-sm">4× Bühler DC</p>
+          <p class="font-mono text-[11px] text-zinc-500">brushed + encodeurs</p>
+        </div>
+      </div>
+
+      <!-- Transmission -->
+      <div class="tile glass flex flex-col justify-between p-5">
+        <div class="grid h-9 w-9 place-items-center rounded-lg bg-white/[.07] ring-1 ring-white/15">
+          <i data-lucide="circle-dot" class="h-4 w-4 text-zinc-300"></i>
+        </div>
+        <div class="mt-3">
+          <p class="font-mono text-xs uppercase tracking-widest text-zinc-500" data-i18n="idx_specs_chassis">Transmission</p>
+          <p class="font-semibold text-white text-sm">4WD Skid-Steer</p>
+          <p class="font-mono text-[11px] text-zinc-500">Empattement 295 mm / voie 354 mm</p>
+        </div>
+      </div>
+
+      <!-- OS / ROS -->
+      <div class="tile glass flex flex-col justify-between p-5">
+        <div class="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 ring-1 ring-accent/30">
+          <i data-lucide="terminal" class="h-4 w-4 text-accent"></i>
+        </div>
+        <div class="mt-3">
+          <p class="font-mono text-xs uppercase tracking-widest text-zinc-500" data-i18n="idx_specs_os">OS / Middleware</p>
+          <p class="font-semibold text-white text-sm">Ubuntu 20.04 LTS</p>
+          <p class="font-mono text-[11px] text-zinc-500">ROS Noetic · LEO OS</p>
+        </div>
+      </div>
+
+      <!-- Réseau + IP dynamique (col-span-2) -->
+      <div class="tile glass col-span-2 relative flex items-center gap-5 overflow-hidden p-5">
+        <div class="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-emerald-400/10 blur-2xl"></div>
+        <div class="grid h-12 w-12 flex-none place-items-center rounded-xl bg-emerald-500/15 ring-1 ring-emerald-400/30">
+          <i data-lucide="wifi" class="h-6 w-6 text-emerald-400"></i>
+        </div>
+        <div class="min-w-0">
+          <div class="mb-1 flex items-center gap-2">
+            <span class="h-1.5 w-1.5 flex-none rounded-full bg-emerald-400 animate-blink"></span>
+            <p class="font-mono text-xs uppercase tracking-widest text-emerald-400" data-i18n="idx_specs_network">Réseau · IP</p>
+          </div>
+          <p class="font-semibold text-white">Wi-Fi 802.11 b/g/n/ac · 2.4 / 5 GHz</p>
+          <p class="font-mono text-xs text-zinc-400 mt-0.5">
+            Robot: <span id="specRobotIP" class="text-accent">10.0.0.1</span>
+            &nbsp;·&nbsp; PC: <span id="specPcIP" class="text-zinc-300">—</span>
+          </p>
+        </div>
+        <a href="ops.html"
+           class="ml-auto flex-none flex items-center gap-1.5 rounded-xl bg-accent/15 px-4 py-2 text-xs font-semibold text-accent ring-1 ring-accent/30 transition hover:bg-accent/25 hover:shadow-neon">
+          <i data-lucide="plug-zap" class="h-3.5 w-3.5"></i>
+          <span data-i18n="idx_btn_main">CONNECTER</span>
+        </a>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══════════════════ ARCHITECTURE ══════════════════ -->
+  <section id="archi" class="mx-auto max-w-7xl px-5 py-14">
+    <div class="mb-10 max-w-2xl">
+      <p class="font-mono text-xs uppercase tracking-[.3em] text-plasma" data-i18n="idx_archi_kicker">// chaîne de liaison</p>
+      <h2 class="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl" data-i18n="idx_archi_h2">Du robot à la salle de contrôle</h2>
+    </div>
+    <div class="grid grid-cols-1 items-stretch gap-4 md:grid-cols-3">
+      <div class="tile glass p-6">
+        <div class="flex items-center gap-3"><span class="grid h-10 w-10 place-items-center rounded-lg bg-emerald-500/15 ring-1 ring-emerald-400/30"><i data-lucide="bot" class="h-5 w-5 text-emerald-400"></i></span><h3 class="font-semibold text-white">Robot · 10.0.0.1</h3></div>
+        <ul class="mt-4 space-y-2 font-mono text-xs text-zinc-400">
+          <li>· roscore + firmware LEOCore</li>
+          <li>· realsense2_camera (D455)</li>
+          <li>· odométrie /firmware/*</li>
+        </ul>
+      </div>
+      <div class="tile glass p-6">
+        <div class="flex items-center gap-3"><span class="grid h-10 w-10 place-items-center rounded-lg bg-accent/15 ring-1 ring-accent/30"><i data-lucide="cpu" class="h-5 w-5 text-accent"></i></span><h3 class="font-semibold text-white">PC de mission</h3></div>
+        <ul class="mt-4 space-y-2 font-mono text-xs text-zinc-400">
+          <li>· leo_backend.py (vision + contrôle)</li>
+          <li>· rosbridge_server :9090</li>
+          <li>· web_video_server :8080</li>
+        </ul>
+      </div>
+      <div class="tile glass p-6">
+        <div class="flex items-center gap-3"><span class="grid h-10 w-10 place-items-center rounded-lg bg-plasma/15 ring-1 ring-plasma/30"><i data-lucide="laptop-minimal" class="h-5 w-5 text-plasma"></i></span><h3 class="font-semibold text-white">Navigateur</h3></div>
+        <ul class="mt-4 space-y-2 font-mono text-xs text-zinc-400">
+          <li>· index · ops · logbook</li>
+          <li>· roslibjs + Chart.js</li>
+          <li>· flux MJPEG + télémétrie</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ CTA ══════════════════ -->
+  <section class="mx-auto max-w-7xl px-5 py-16">
+    <div class="tile glass relative overflow-hidden p-10 text-center sm:p-16">
+      <div class="pointer-events-none absolute -left-20 -top-20 h-64 w-64 rounded-full bg-accent/15 blur-[120px]"></div>
+      <div class="pointer-events-none absolute -bottom-20 -right-20 h-64 w-64 rounded-full bg-plasma/15 blur-[120px]"></div>
+      <h2 class="font-display text-3xl font-bold tracking-tight sm:text-5xl" data-i18n="idx_cta_h2">Prêt à prendre les commandes ?</h2>
+      <p class="mx-auto mt-4 max-w-xl text-zinc-400" data-i18n="idx_cta_desc">Connectez-vous au rover et entrez dans le poste de pilotage temps réel.</p>
+      <a href="ops.html" class="group mt-8 inline-flex items-center gap-3 rounded-2xl bg-gradient-to-r from-accent-deep via-accent to-accent-deep px-8 py-4 text-base font-extrabold tracking-wide text-white ring-1 ring-accent/50 shadow-neon transition hover:scale-[1.03] hover:shadow-glow">
+        <i data-lucide="rocket" class="h-5 w-5"></i> <span data-i18n="idx_cta_btn">INITIALISER LES OPÉRATIONS</span>
+        <i data-lucide="arrow-right" class="h-5 w-5 transition group-hover:translate-x-1"></i>
+      </a>
+    </div>
+  </section>
+
+  <footer class="border-t border-white/5">
+    <div class="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-5 py-8 text-xs text-zinc-600 sm:flex-row">
+      <p>© 2026 LEO ROVER · Florida Tech Robotics Lab</p>
+      <p class="font-mono">ROS NOETIC · AGILEX LEO · INTEL D455</p>
+    </div>
+  </footer>
+
+  <script src="vendor/lucide-1.25.0.umd.js?v=v1"></script>
+  <script src="app.js?v=r37"></script>
+  <script src="3d_engine.js?v=r2"></script>
+  <script>
+    lucide.createIcons();
+    if (window.LEO) LEO.starfield('stars', { density: 0.00012 });
+    if (window.I18N) I18N.apply();
+
+    /* ── Tech Specs : IPs dynamiques depuis localStorage / location ── */
+    (function () {
+      var ipEl = document.getElementById('specRobotIP');
+      var pcEl = document.getElementById('specPcIP');
+      if (ipEl) {
+        var stored = localStorage.getItem('leo_host');
+        if (stored) ipEl.textContent = stored;
+      }
+      if (pcEl && location.protocol.startsWith('http') && location.hostname) {
+        pcEl.textContent = location.hostname;
+      }
+    })();
+
+    /* ───────────────────────────────────────────────────────────────
+       SCÈNE 3D D'ARRIÈRE-PLAN PILOTÉE AU DÉFILEMENT  (Three.js + GSAP)
+       Globe technologique filaire + anneaux orbitaux + champ de
+       particules profond. Le scroll fait PIVOTER, ZOOMER et INCLINER
+       l'ensemble (GSAP ScrollTrigger, scrub).
+       Dégradé gracieux : si WebGL / Three.js / GSAP sont indisponibles,
+       la page reste superbe grâce au starfield 2D et au radar CSS.
+       Moteur mutualisé avec ops.html/logbook.html (3d_engine.js,
+       namespace LEO3D) — 2026-07-23, audit W2 : suppression des ~130
+       lignes Three.js dupliquées, mode scroll rendu additif au module
+       partagé pour préserver ce comportement sans le réécrire deux fois.
+       ─────────────────────────────────────────────────────────────── */
+    (function build3D () {
+      if (!window.LEO3D || typeof THREE === 'undefined' || !document.getElementById('bg3d')) return;
+      // Téléphones : GPU/batterie plus faibles -> géométrie et particules allégées.
+      var isMobile = window.innerWidth < 768;
+      LEO3D.initBackground('bg3d', {
+        lite:        isMobile,
+        rings:       isMobile ? 2 : 3,
+        nParticles:  isMobile ? 450 : 1700,
+        targetFps:   isMobile ? 30 : 60,
+        lerpFactor:  0.07,
+        rotAmp:      0.32,
+        zoomRange:   2.2,
+        baseZ:       17,
+        scroll:      true,
+        scrollSpin:  Math.PI * 2.4,
+        scrollTilt:  1,
+        scrollZoom:  7,
+      });
+    })();
+  </script>
+  <script src="mouse_engine.js?v=r1"></script>
+</body>
+</html>

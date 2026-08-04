@@ -1,0 +1,135 @@
+% =============================================================================
+%  Formatting.tex — shared macros, packages, and styles for the report
+% =============================================================================
+
+\usepackage{listings}
+\usepackage{amssymb}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{enumitem}
+\usepackage{siunitx}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta, shapes.geometric, calc, fit, backgrounds}
+
+% ---------------------------------------------------------------------------
+% Table breathing room — prevents wrapped multi-line cells in narrow p{}
+% columns from visually crowding/overlapping adjacent rows.
+% ---------------------------------------------------------------------------
+\renewcommand{\arraystretch}{1.25}
+
+% Ragged-right paragraph column (avoids the huge stretched inter-word gaps
+% that full justification produces in narrow table columns).
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+% ---------------------------------------------------------------------------
+% Colour palette (mission-control theme, used sparingly in print)
+% ---------------------------------------------------------------------------
+\definecolor{codebg}{RGB}{245,245,248}
+\definecolor{codeframe}{RGB}{200,200,210}
+\definecolor{accentblue}{RGB}{59,116,228}
+\definecolor{alertred}{RGB}{192,20,46}
+\definecolor{caseboxbg}{RGB}{240,244,250}
+
+% ---------------------------------------------------------------------------
+% Code listings style (Python / bash / JSON snippets throughout the report)
+% ---------------------------------------------------------------------------
+\lstdefinestyle{codestyle}{
+  backgroundcolor=\color{codebg},
+  rulecolor=\color{codeframe},
+  frame=single,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{accentblue}\bfseries,
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{teal},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=6pt,
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  tabsize=2,
+  captionpos=b,
+  xleftmargin=1.2em,
+  framexleftmargin=1em,
+}
+% ---------------------------------------------------------------------------
+% listings ne fournit pas JavaScript. Defini ici pour l'annexe D (logique de
+% selection du transport WebSocket du cockpit), plutot que de rabattre sur
+% `Java`, dont les mots-cles ne correspondent pas.
+% ---------------------------------------------------------------------------
+\lstdefinelanguage{JavaScript}{
+  keywords={const, let, var, function, return, if, else, for, while, new,
+            typeof, instanceof, this, null, undefined, true, false, async,
+            await, class, extends, import, export, default, try, catch},
+  ndkeywords={window, document, console, location, JSON, Math, Promise},
+  sensitive=true,
+  comment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  morestring=[b]',
+  morestring=[b]",
+  morestring=[b]`,
+}
+
+\lstset{style=codestyle}
+
+% ---------------------------------------------------------------------------
+% Case-study box (used extensively in Chapter 6 — debugging case studies)
+% ---------------------------------------------------------------------------
+\newtcolorbox{casestudy}[1]{
+  breakable, enhanced,
+  colback=caseboxbg, colframe=accentblue,
+  fonttitle=\bfseries, title={#1},
+  boxrule=0.6pt, arc=2pt,
+  left=6pt, right=6pt, top=4pt, bottom=4pt,
+}
+
+% ---------------------------------------------------------------------------
+% Trap box (Appendix D) --- for the failure modes that cost days and whose
+% symptom points at the wrong subsystem. Deliberately red and deliberately
+% distinct from \texttt{casestudy}: a case study narrates a resolved
+% investigation, a trap warns a reader who is about to lose an afternoon.
+% ---------------------------------------------------------------------------
+\newtcolorbox{trapbox}[1]{
+  breakable, enhanced,
+  colback=alertred!4, colframe=alertred,
+  fonttitle=\bfseries, coltitle=white, title={#1},
+  boxrule=0.6pt, arc=2pt,
+  left=6pt, right=6pt, top=4pt, bottom=4pt,
+}
+
+% ---------------------------------------------------------------------------
+% Equation-block macro — for formulas that were laid out as single-cell
+% tables in the source document; rendered here as proper LaTeX math.
+% ---------------------------------------------------------------------------
+\newenvironment{eqblock}
+  {\begin{center}\begin{minipage}{0.92\linewidth}}
+  {\end{minipage}\end{center}}
+
+% ---------------------------------------------------------------------------
+% Short helper macros used throughout
+% ---------------------------------------------------------------------------
+% \code allows LaTeX to break long identifiers (e.g. HEARTBEAT_STALE_S) after
+% each underscore when they don't fit a narrow table column — without this,
+% such unbreakable "words" overflow their column and visually collide with
+% the next one. Locally redefining \_ (rather than using seqsplit, which
+% chokes on the \_ control sequence) keeps every other use of \_ in the
+% document untouched.
+\newcommand{\breakableunderscore}{\textunderscore\penalty0\hskip0pt\relax}
+% \DeclareRobustCommand (not \newcommand) so \code survives moving arguments
+% such as \caption{...} and \section{...}, where a fragile \renewcommand
+% assignment would otherwise raise "Argument ... has an extra }".
+% \texttt (an NFSS text command, not a bare declaration like \ttfamily) is
+% used as the outer wrapper so \code also remains valid inside math mode.
+\DeclareRobustCommand{\code}[1]{\texttt{\renewcommand{\_}{\breakableunderscore}#1}}
+\DeclareRobustCommand{\topic}[1]{\texttt{\renewcommand{\_}{\breakableunderscore}#1}}
+
+% \todo{...} — inline placeholder for a value the operator fills in after a
+% field run (e.g. a measured number not yet available at write time).
+% Renders as a bracketed, coloured tag so it cannot be missed in the
+% compiled PDF, and is easy to grep for in the source ("\todo{").
+\newcommand{\todo}[1]{\textcolor{alertred}{\textbf{[TODO: #1]}}}

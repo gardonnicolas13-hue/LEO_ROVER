@@ -1,0 +1,81 @@
+%YAML:1.0
+# need to specify the file type at the top!
+
+wheel:
+  enabled: true
+  # Wheel2DAng: differential-drive model from two wheel ANGULAR velocities.
+  # LEO is 4-wheel skid-steer; MINS uses the front-left/front-right pair as the
+  # differential approximation. Adequate on flat ground; the online intrinsic/
+  # extrinsic calibration below absorbs the skid-steer mismatch.
+  # Wheel2DAng, Wheel2DLin, Wheel2DCen, Wheel3DAng, ...
+  type: "Wheel2DAng"
+  do_calib_dt: false
+  # refine T_imu_wheel online (hand-measured seed below)
+  do_calib_ext: true
+  # do_calib_int FALSE: online refinement DIVERGED live (2026-07-06, wheel
+  # intrinsics drifted to NEGATIVE radii [-0.004,-0.004,-0.043] after motion
+  # bursts). The nominal values below come from the firmware itself
+  # (rosparam /firmware/diff_drive) and are trustworthy - freeze them.
+  do_calib_int: false
+  # noise_w 0.2 -> 0.8 (2026-07-10, MESURE) : en virage les roues rigides
+  # patinent longitudinalement au lieu de faire tourner le chassis — mesure :
+  # delta_omega roues 3.8 rad/s pour 0.001 rad/s de lacet REEL (cap camera).
+  # Le lacet "roues" est une fiction pendant les virages ; on garde la vitesse
+  # lineaire (noise_v inchange) et on detend fortement la confiance en lacet.
+  noise_w: 0.8
+  # noise_v 0.5 -> 0.2 (2026-07-13) : pendant les coupures caméra le filtre
+  # dérive en inertie pure et le chi2 finit par rejeter les roues (v=0) qui
+  # pourraient l'ancrer. Une confiance vitesse plus serrée tue la dérive
+  # AVANT l'emballement (les encodeurs lineaires sont excellents — mesuré).
+  noise_v: 0.2
+  noise_p: 0.1
+  init_cov_dt: 1e-4
+  init_cov_ex_o: 1e-4
+  init_cov_ex_p: 1e-3
+  init_cov_in_b: 1e-3
+  init_cov_in_r: 1e-3
+  # 5, pas 15 : porte de rejet du patinage (Mahalanobis roue vs IMU).
+  # 15 laissait passer les glissements ; 1 rejetterait les virages
+  # skid-steer normaux. 5 = compromis mesure terrain 2026-07.
+  chi2_mult: 5
+  timeoffset: 0.0
+  # [left_radius, right_radius, base] — REAL LEO firmware diff_drive params
+  # (rosparam /firmware/diff_drive: wheel_radius 0.0625 m, separation 0.358 m).
+  # r MESURE 2026-07-10 (calibration automatisee, 20 fenetres, IQR ±0.0005) :
+  # 0.0622 m — les roues rigides ont quasiment le rayon stock (-0.5 %).
+  # b reste la valeur geometrique 0.358 : le "b effectif" n'existe pas ici
+  # (patinage regime-dependant, voir noise_w) — a re-mesurer au reglet si les
+  # roues rigides ont change la voie.
+  intrinsics: [0.0622, 0.0622, 0.358]
+  reuse_of_information: false
+  # T_imu_wheel: IMU -> wheel-odometry origin (base_link). IMU sits near the
+  # chassis center; base_link is the odom origin. Small offset, refined online.
+  # PLACEHOLDER — measure z/x from CAD or replace with URDF base_link<-imu_frame.
+  # Rz(pi) (2026-07-08, roues rigides) : la transmission remontee a 180°,
+  # le repere roues firmware pointe a l'oppose de la camera/IMU. Sans cette
+  # rotation, chaque mesure roue contredisait la prediction inertielle et le
+  # chi2 les rejetait silencieusement (perte de l'ancrage X/Y).
+  # do_calib_ext:true affine autour de ce seed desormais correct.
+  T_imu_wheel:
+    - [-1.0, 0.0, 0.0, 0.0]
+    - [0.0, -1.0, 0.0, 0.0]
+    - [0.0,  0.0, 1.0, -0.03]
+    - [0.0,  0.0, 0.0, 1.0]
+  # CONFIRMED live (2026-07-03): this rover's /joint_states orders wheels as
+  # [wheel_FL_joint, wheel_RL_joint, wheel_FR_joint, wheel_RR_joint], so
+  # velocity[1] is REAR-left, not front-right — feeding /joint_states straight
+  # to MINS (which reads velocity[0]/[1] by INDEX, not name) would silently use
+  # the wrong wheel. leo_navigation/scripts/wheel_remap.py looks the two front
+  # wheels up BY NAME and republishes them in the order MINS assumes; point
+  # this at ITS output, never at raw /joint_states.
+  topic: "/joint_states_mins"
+  # REQUIRED — silent-drop trap: ROSSubscriber::callback_wheel (ROSSubscriber.cpp:165)
+  # discards every message whose msg->name.at(0) isn't in this list, defaulting
+  # (OptionsWheel.h:48) to "front_left_wheel_joint"/"front_right_wheel_joint" —
+  # generic names that don't match this rover's actual joint names. Without
+  # this field, wheel_remap.py's messages arrive (visible on rostopic hz) but
+  # MINS's internal wheel_up->data_stack silently stays at 0 forever, which
+  # looks exactly like "no wheel data" / "not enough excitation" and is very
+  # easy to mistake for an initialization problem rather than a name mismatch.
+  # Must match wheel_remap.py's ~front_left_name/~front_right_name params.
+  sub_topics: "wheel_FL_joint, wheel_FR_joint"

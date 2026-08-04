@@ -1,0 +1,21 @@
+%YAML:1.0
+# need to specify the file type at the top!
+
+imu:
+  # Noise densities measured on THIS rover's onboard IMU with imu_utils
+  # (Y. Turki's calibration). accel in [m/s^2/sqrt(Hz)] / [m/s^3/sqrt(Hz)],
+  # gyro in [rad/s/sqrt(Hz)] / [rad/s^2/sqrt(Hz)].
+  # accel white noise   (acc_n)
+  accel_noise: 2.3314541632569977e-02
+  # accel bias diffusion (acc_w)
+  accel_bias:  8.9292060085650762e-04
+  # gyro white noise    (gyr_n)
+  gyro_noise:  1.2636973145788728e-03
+  # gyro bias diffusion  (gyr_w)
+  gyro_bias:   3.3010020064503652e-05
+
+  # NOTE: /imu/data_clean, NOT /imu/data_raw. The onboard IMU emits rare
+  # single-sample glitches (up to 5e16 m/s^2) that diverge any inertial
+  # estimator; leo_navigation/imu_sanitizer.py republishes a spike-free stream
+  # on /imu/data_clean. Never point MINS at the raw firmware IMU.
+  topic: "/imu/data_clean"

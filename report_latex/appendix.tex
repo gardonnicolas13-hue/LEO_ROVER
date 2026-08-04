@@ -1,0 +1,3527 @@
+\chapter{Technical Glossary}
+\label{ap:glossary}
+
+Table~\ref{tab:glossary} defines all acronyms and specialized terms used throughout this report.
+
+\begingroup\small
+\begin{longtable}{@{}L{3.6cm}L{10cm}@{}}
+\caption{Technical glossary} \label{tab:glossary} \\
+\toprule
+Term / Acronym & Full Form / Definition \\
+\midrule
+\endfirsthead
+\toprule
+Term / Acronym & Full Form / Definition \\
+\midrule
+\endhead
+AGV & Autonomous Ground Vehicle (self-propelled wheeled robot operating without continuous human teleoperation) \\
+ArUco & Augmented Reality University of C\'ordoba (fiducial marker system for pose estimation) \\
+\code{CALIB\_CB\_FAST\_CHECK} & OpenCV flag enabling coarse histogram pre-check in \code{findChessboardCorners}; fails on non-standard boards \\
+CB & Checkerboard (high-contrast printed calibration and localization target) \\
+Chi-squared ($\chi^2$) gate & Statistical outlier-rejection test comparing a measurement's Mahalanobis distance against its expected covariance; used by the estimators to reject wheel/visual measurements inconsistent with the current state \\
+Curve25519 & Elliptic-curve Diffie--Hellman key-agreement function; the asymmetric primitive underlying WireGuard's key exchange \\
+EKF & Extended Kalman Filter (recursive Bayesian estimator linearizing a nonlinear model at each step; MSCKF is a variant restricted to a sliding window of past poses) \\
+EMA & Exponential Moving Average (first-order IIR low-pass filter for signal smoothing) \\
+FIT & Florida Institute of Technology, Melbourne FL \\
+FSM & Finite State Machine (formal behavioral specification with enumerable states and guarded transitions) \\
+GIL & Global Interpreter Lock (CPython mutex preventing true multicore parallelism in threaded Python) \\
+HMI & Human-Machine Interface (system enabling operator monitoring and control of a robotic system) \\
+IIR & Infinite Impulse Response (digital filter whose current output depends on past outputs, i.e.\ recursive) \\
+IMU & Inertial Measurement Unit (sensor measuring linear acceleration and angular rate) \\
+LERP & Linear Interpolation (smooth blending between two values: $x(t)=x_0+t(x_1-x_0)$, $t\in[0,1]$) \\
+MINS & Multisensor-aided INertial navigation System (open-source tightly-coupled EKF estimator, RPNG/University of Delaware, fusing IMU with camera and other aiding sensors in one filter, \S\ref{sec:fusionarch}) \\
+MJPEG & Motion JPEG (video format where each frame is individually JPEG-compressed; no inter-frame prediction) \\
+MSCKF & Multi-State Constraint Kalman Filter (EKF variant that augments the state with a sliding window of past camera poses instead of 3D landmark positions, avoiding per-feature state growth, \S\ref{sec:fusionarch}) \\
+NAT & Network Address Translation (router/firewall function rewriting private addresses to a shared public one; its UDP mapping timeout motivates WireGuard's keepalive, \S\ref{sec:network}) \\
+OpenVINS & Open-source MSCKF-based Visual-Inertial Navigation System (RPNG/University of Delaware; the ``VINS'' side of this report's VINS/MINS switch, ROS node \code{ov\_msckf}) \\
+PnP & Perspective-n-Point (algorithm computing camera pose from $n$ 3D-2D point correspondences) \\
+RAF & \code{requestAnimationFrame} (Web API for scheduling visual updates synchronized to display refresh rate) \\
+ROI & Region of Interest (rectangular subset of an image processed independently of the full frame) \\
+ROS & Robot Operating System (middleware framework for robotic software: pub/sub, drivers, tools) \\
+\code{rosmon} & ROS process monitor (drop-in replacement for plain \code{roslaunch} node supervision, used on the robot; exposes a \code{start\_stop} service for external start/stop control, used by the watchdog's camera-recovery ladder) \\
+RTB & Return To Base (autonomous navigation back to the mission start position, i.e.\ world origin) \\
+RTK-GPS & Real-Time Kinematic GPS (differential correction achieving cm-level outdoor positioning) \\
+SA & Situation Awareness (Endsley's three-level cognitive model: perception, comprehension, projection) \\
+SB & Sub-Pixel-Befitting (OpenCV's enhanced checkerboard detector using locally adaptive binarization) \\
+SE(3) & Special Euclidean group in three dimensions: the set of rigid-body transformations (rotation + translation); the pose selector's source-switch correction (Eq.~\ref{eq:se3}) is an SE(3) element \\
+SLAM & Simultaneous Localization and Mapping (algorithm building a map while localizing within it) \\
+TCPROS & ROS's default transport protocol: topic data flows over a plain TCP socket whose port is negotiated per connection through an XML-RPC handshake (\S\ref{sec:network}) \\
+TRS & Taux de Rendement Synth\'etique, i.e.\ Overall Equipment Effectiveness (KPI used in Nicolas's prior GVS work) \\
+UBSAN & Undefined Behavior Sanitizer (compiler instrumentation detecting undefined-behavior violations at runtime; surfaced the PC Wi-Fi driver fault of \S\ref{sec:network} via \code{dmesg}) \\
+UGV & Unmanned Ground Vehicle (remotely operated or autonomous wheeled/tracked platform) \\
+UWB & Ultra-Wideband: radio technology (3.1--10.6~GHz) enabling cm-level indoor ranging \\
+VPN & Virtual Private Network (encrypted point-to-point or site-to-site network overlay; WireGuard, \S\ref{sec:network}, is the VPN implementation used in this report) \\
+VSM & Value Stream Mapping (lean manufacturing process analysis tool, Nicolas's GVS background) \\
+WebSocket & RFC~6455 (full-duplex TCP-based protocol for real-time bidirectional browser communication) \\
+WireGuard & Kernel-space VPN protocol using Curve25519 key exchange and ChaCha20-Poly1305 encryption over a single UDP port; replaces \code{sshuttle} as this report's off-site transport (\S\ref{sec:network}) \\
+XML-RPC & Remote Procedure Call protocol encoding requests/responses as XML over HTTP; used by the ROS master for node registration and by TCPROS to negotiate each topic's data port \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\chapter{Hardware Specifications}
+\label{ap:hardware}
+
+\section{LEO Rover Platform}
+
+Table~\ref{tab:leo-specs} summarizes the mechanical and electrical specifications of the LEO Rover platform.
+
+\begin{table}[htbp]
+\centering
+\caption{LEO Rover mechanical and electrical specifications}
+\label{tab:leo-specs}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Parameter & Value \\
+\midrule
+Manufacturer & Husarion (Warsaw, Poland) \\
+Kinematics & 4-wheel \textbf{mecanum} (FictionLab roller set); driven
+  through a differential-drive odometry approximation, \emph{not} native
+  omnidirectional kinematics --- see \S\ref{sec:wheels} and
+  \S\ref{ap:roadmap-kinematics} \\
+Drive motors & 4$\times$ BLDC with Hall-effect encoders \\
+Max speed (linear) & $\sim$0.5~m/s (firmware-limited; operational limit 0.2~m/s) \\
+Max speed (angular) & $\sim$1.5~rad/s (operational limit 0.5~rad/s) \\
+Chassis material & Aluminium alloy, IP44 rated \\
+Battery & 14.4~V Li-ion, 7800~mAh (112~Wh) \\
+Nominal run time & $\sim$4~h at slow patrol speed \\
+Communication & ROS Noetic over Wi-Fi; robot AP (\code{wlan\_ext}, \code{10.0.0.1}) or, since 2026-07-20, campus Wi-Fi + WireGuard tunnel for building-wide range (Ch.~\ref{ch:fusion}, \S\ref{sec:network}) \\
+Firmware & AgileX \code{leo\_firmware} on Raspberry Pi CM4 (onboard) \\
+Odometry & Wheel encoder ticks $\to$ \code{/firmware/wheel\_odom} at $\sim$8~Hz \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Intel RealSense D455 Camera}
+
+Table~\ref{tab:d455-specs} summarizes the D455 depth camera specifications relevant to this project.
+
+\begin{table}[htbp]
+\centering
+\caption{Intel RealSense D455 specifications}
+\label{tab:d455-specs}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Parameter & Value \\
+\midrule
+Depth technology & Active IR stereo (structured light projector + 2$\times$ IR imagers) \\
+IR stereo baseline & 95~mm \\
+Depth range & 0.4~m--6~m (nominal); 0.1~m--8~m (extended) \\
+Depth resolution & $848\times480$~px \\
+Depth accuracy & $<$2\% at 4~m under controlled illumination \\
+RGB resolution & $1280\times720$~px (subscribed) / $640\times480$ (compressed) \\
+RGB frame rate & 30~Hz maximum; \textbf{15~Hz nominal} (lab config; measured $14.9$~Hz) \\
+RGB intrinsics (measured) & $f_x=380.25$, $f_y=379.26$, $c_x=320.40$, $c_y=243.72$~px at $640\times480$ \\
+IR intrinsics (measured) & $f_x=f_y=386.79$, $c_x=320.06$, $c_y=236.77$~px at $640\times480$ \\
+Constant used in code & $\code{CAM\_FX}=384.65$~px (see note below) \\
+Interface & USB 3.2 Gen~1 (5~Gbps) \\
+SDK & Intel RealSense SDK 2.0 (\code{librealsense2}) \\
+ROS driver & \code{realsense2\_camera} (ROS Noetic, \code{realsense2\_camera\_manager} node) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{trapbox}{Do not set the colour stream to 10\,Hz}
+Earlier revisions of this table listed $10$~Hz as the nominal frame rate. That
+configuration \textbf{does not exist on this sensor}. The D455 supports
+$6/15/30/60/90$~Hz at $640\times480$, and the attempted change on 2026-07-08
+was accepted silently by the driver, which then fell back to a depth-only
+default profile and \textbf{disabled every infrared stream}. The result was a
+complete vision outage that persisted until the change was reverted, with no
+error message at any point. See registry item~4
+(Table~\ref{tab:openitems}). \textbf{Validate any profile change against
+\code{rs-enumerate-devices} before deploying it.}
+\end{trapbox}
+
+\paragraph{On the $384.65$ constant, and why it differs from both rows above.}
+\code{leo\_backend.py} estimates beacon range with a single focal length,
+\code{CAM\_FX} $=384.65$~px, together with an optical centre placed at the
+frame centre ($320.0$, $240.0$). Neither figure is the measured calibration of
+either stream. It sits $1.16\,\%$ above the measured colour $f_x$ and
+$0.55\,\%$ below the measured infrared $f_x$, which is consistent with its
+having been derived from the infrared sensor at a time when beacon detection
+ran on the infrared stream, and then carried over unchanged when the colour
+stream was adopted.
+
+The consequence is bounded and the code says so in its own comment: the
+approximation is good to roughly $1$--$2\,\%$ for navigation at $\leq 3$~m,
+which is well inside the other error sources in the beacon pipeline. It is
+nonetheless a constant with no single defensible provenance, and $384.65$
+propagates into derived results elsewhere in this report, including the LOCK
+controller's loop gain and the range estimate. Treat it as a historical
+working value, not as a calibration.
+
+\begin{trapbox}{This is a different problem from the detector intrinsics}
+Do not confuse the $1$--$2\,\%$ approximation described here with the defect
+of \S\ref{sec:july30intrinsics}, where \code{carolus\_astrobee\_rex} runs with
+$f_x = 644.12$ and $c_x = 643.47$, calibrated at $1280\times720$ and applied
+to a $640\times480$ stream. That one places the principal point outside the
+image and inflates every range by $69.3\,\%$. The two are unrelated in cause
+and differ by nearly two orders of magnitude in effect.
+\end{trapbox}
+
+\section{Operator Workstation}
+
+Table~\ref{tab:workstation-specs} summarizes the operator workstation configuration used for all development and validation.
+
+\begin{table}[htbp]
+\centering
+\caption{Operator workstation specifications}
+\label{tab:workstation-specs}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Parameter & Value \\
+\midrule
+OS & Ubuntu 20.04.6 LTS (Focal Fossa), kernel 5.15 \\
+ROS distribution & Noetic Ninjemys (Python 3.8) \\
+CPU & Intel Core i7-10700K (8 cores, 16 threads, 3.8--5.1~GHz) \\
+RAM & 32~GB DDR4-3200 \\
+GPU & NVIDIA GeForce RTX~2060 (6~GB VRAM; unused for vision) \\
+Network & Intel Wi-Fi 6 AX200 (802.11ax); dedicated AP for robot link \\
+Python packages & \code{rospy}, \code{cv2} (4.2.0), \code{numpy} (1.17.4), \code{psutil}, \code{threading}, \code{multiprocessing} \\
+Browser (cockpit) & Google Chrome 124+ / Firefox 125+ (tested); any modern WebKit/Blink \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\chapter{Bibliography, Figure Index, and Notation}
+\label{ap:biblio}
+
+\section{Annotated Bibliography}
+
+The following bibliography lists all works referenced in this report, organized thematically. Citations follow the IEEE reference format; the full formatted reference list appears in the References section at the end of this document. Each entry below is accompanied by a brief annotation describing its specific relevance to the LEO Rover Mission Control project.
+
+\subsection{Robot Operating System and Middleware}
+
+\textbf{\cite{quigley2009ros}} Quigley et al.\ (2009) introduced the Robot Operating System (ROS), the middleware framework upon which the entire LEO Rover Mission Control system is built. The paper establishes the publish-subscribe communication model, the \code{rosmaster} name resolution service, and the package management paradigm that define ROS's architecture. The \code{/mission/telemetry}, \code{/mission/command}, and \code{/cmd\_vel} topics described in Chapter~\ref{ch:methodology} directly implement the inter-node communication protocol defined in this foundational work.
+
+\textbf{\cite{crick2012rosbridge}} The rosbridge paper introduced the bidirectional JSON-over-WebSocket protocol that enables browser-based operator interfaces to subscribe and publish to ROS topics without requiring a ROS installation on the client. The \code{rosbridge\_websocket} server used in this project is the production implementation of the protocol described by Crick et al. The generation counter pattern (\code{currentGen}) and the \code{/mission/command} topic subscription are direct implementations of the rosbridge protocol specification (version 2.0).
+
+\textbf{\cite{openrobotics2020noetic}} This release document specifies ROS Noetic as the final Long-Term Support (LTS) release of ROS~1, supported on Ubuntu 20.04 with Python 3.8. The platform constraints documented here: particularly the Python 3.8 compatibility requirement: governed the choice of \code{multiprocessing.get\_context('spawn')} over alternatives that may behave differently under Python 3.9+. The EOL date of May 2025 motivates the ROS~2 migration discussion in Chapter~\ref{ch:conclusion}.
+
+\textbf{\cite{openrobotics2013rosbridgeproto}} The rosbridge protocol specification defines the JSON message format for topic advertisement, subscription, publication, and service calls over WebSocket. The \code{/mission/command} message format (\code{action}, \code{mode}, \code{lin}, \code{ang} fields) and the telemetry subscription JSON are direct implementations of the rosbridge v2.0 protocol message schema.
+
+\subsection{Computer Vision and Image Processing}
+
+\textbf{\cite{otsu1979threshold}} Otsu's seminal 1979 paper formalized the inter-class variance maximization criterion for automatic global threshold selection, establishing the theoretical benchmark against which the LED pipeline's fixed threshold (\code{LED\_BRIGHT\_THRESH}=220) is compared. The analysis demonstrates that Otsu's method is sub-optimal for the trimodal intensity histogram produced by LED beacons under fluorescent laboratory lighting.
+
+\textbf{\cite{niblack1986digital}} Niblack's 1986 textbook chapter on locally adaptive thresholding introduced the formula $T(x,y)=\mu(x,y)+k\sigma(x,y)$ that forms the mathematical foundation of the adaptive binarization used inside OpenCV's \code{findChessboardCornersSB} function.
+
+\textbf{\cite{sauvola2000adaptive}} Sauvola and Pietik\"ainen (2000) refined Niblack's formula with a normalization that makes the threshold less sensitive to absolute intensity levels and more responsive to local contrast: the specific property that enables robust checkerboard corner detection under the non-uniform fluorescent illumination in the FIT laboratory.
+
+\textbf{\cite{viola2001rapid}} While primarily known for its face detection cascade, the Viola--Jones paper's central contribution to this project is the integral image data structure, which reduces the computation of any rectangular region sum from $O(|W|)$ to $O(1)$ after an $O(N)$ preprocessing pass.
+
+\textbf{\cite{bradski2000opencv}} The OpenCV library, documented in Bradski's 2000 publication, provides all the computer vision primitives used in the \code{leo\_backend.py} vision subprocess: \code{cv2.threshold}, \code{cv2.morphologyEx}, \code{cv2.findContours}, \code{cv2.findChessboardCornersSB}, \code{cv2.moments}, and \code{cv2.imdecode}.
+
+\textbf{\cite{opencv2023sb}} The OpenCV 4.x documentation for \code{findChessboardCornersSB} describes the Sub-Pixel Befitting algorithm, which uses locally adaptive binarization and direct corner-finding rather than the saddle-point detector used by \code{findChessboardCorners}.
+
+\textbf{\cite{suzuki1985topological}} Suzuki and Abe's border-following algorithm is the basis for OpenCV's \code{findContours} function used in the LED detection pipeline, tracing external boundaries in a single $O(N)$ pass.
+
+\textbf{\cite{matheron1975random}} Matheron's 1975 monograph established mathematical morphology as a rigorous set-theoretic framework. The formal definitions of dilation, erosion, opening, and closing follow Matheron's original notation and proofs.
+
+\textbf{\cite{serra1982image}} Serra's 1982 textbook provided the computational framework for applying Matheron's abstract morphological theory to digital images, including the discrete approximation of the Euclidean disk as an elliptical structuring element.
+
+\subsection{Indoor Localization and Autonomous Navigation}
+
+\textbf{\cite{thrun2005probabilistic}} Thrun, Burgard, and Fox's foundational textbook provides the theoretical framework for understanding the limitations of wheel odometry and the motivation for landmark-based localization correction.
+
+\textbf{\cite{murartal2017orbslam2}} ORB-SLAM2, representing the state of the art for visual SLAM, was evaluated but not selected for the LEO Rover platform: its computational profile (2--4 CPU cores) would have saturated the laboratory workstation.
+
+\textbf{\cite{garridojurado2014automatic}} Garrido-Jurado et al.\ introduced the ArUco fiducial marker system. The checkerboard landmark used in the present project is conceptually related: both rely on the Perspective-n-Point algorithm for pose estimation.
+
+\textbf{\cite{olson2011apriltag}} AprilTag provides improved robustness over ArUco under partial occlusion and at long distances. Chapter~\ref{ch:conclusion} identifies AprilTag as a potential upgrade path for the landmark detection system.
+
+\textbf{\cite{zhang2000flexible}} Zhang's planar calibration technique is the basis for all single-camera calibration in OpenCV, including the factory calibration of the D455's intrinsic parameters used throughout Chapter~\ref{ch:vision-math}.
+
+\textbf{\cite{ester1996density}} Ester et al.'s DBSCAN algorithm is the formal predecessor to the density-based LED cluster anchor selection implemented in the vision pipeline.
+
+\subsection{Signal Processing and Estimation Theory}
+
+\textbf{\cite{kalman1960new}} Kalman's 1960 paper establishes the theoretical framework within which the EMA filter can be understood: the steady-state Kalman gain equals the EMA smoothing factor $\alpha$, providing a formal optimality interpretation.
+
+\textbf{\cite{wiener1949extrapolation}} Wiener's seminal work established the minimum mean-squared-error estimator for stationary processes, providing the comparison baseline used to quantify the EMA filter's $\sim$29\% suboptimality at the signal bandwidth edge.
+
+\textbf{\cite{xu2007enhanced}} Xu and Li analyzed higher-order cascade EMA implementations achieving sharper frequency cutoffs, motivating a possible future 2nd-order EMA improvement for the LED centroid pipeline.
+
+\textbf{\cite{tukey1977exploratory}} Tukey's foundational work on robust statistics provides the theoretical basis for the choice of the 5th percentile as the obstacle detection statistic, rather than the mean or minimum.
+
+\subsection{Control Theory and Stability Analysis}
+
+\textbf{\cite{ziegler1942optimum}} Ziegler and Nichols' ultimate gain and ultimate period tuning method underlies the frequency-domain stability analysis of the LOCK state P-controller.
+
+\textbf{\cite{zames1966inputoutput}} Zames' Circle Criterion provides the frequency-domain sufficient condition applied to prove that the velocity saturation nonlinearity cannot destabilize a system stable in its linear operating region.
+
+\textbf{\cite{alur1994theory}} Alur and Dill's timed automata formalism provides the mathematical framework for formally specifying and verifying the LEO Rover's autonomous FSM with time-based guards and invariants.
+
+\subsection{Safety Engineering and Standards}
+
+\textbf{\cite{iec61508}} IEC~61508 is the foundational international standard for functional safety of programmable electronic systems; the SIL classification and six-layer defense-in-depth architecture both follow this standard's recommendations.
+
+\textbf{\cite{nasa8719}} The NASA Software Safety Standard defines the framework for classifying software hazardous functions; the heartbeat deadman switch addresses the highest-risk function identified under this framework.
+
+\textbf{\cite{isa182}} ISA-18.2 is the process industry standard for alarm system design; the cockpit's alert system implements several ISA-18.2 best practices including hysteresis bands and alarm muting.
+
+\textbf{\cite{sobczak1962fault}} The Fault Tree Analysis technique, developed for the Minuteman ICBM program, provides the top-down deductive methodology applied to derive the combined top-level failure probability.
+
+\subsection{Human Factors and Interface Design}
+
+\textbf{\cite{endsley1988design}} Endsley's three-level model of situation awareness is the foundational human factors reference directly applied to the cockpit's telemetry panels, canvas overlays, and trajectory map.
+
+\textbf{\cite{endsley1995toward}} Endsley's expanded theory identifies the factors that degrade situation awareness, motivating the alert system's negative-attention design.
+
+\textbf{\cite{sanders1993human}} Sanders and McCormick's textbook provides the empirical data on display luminance ratios that directly motivated the cockpit's dark background design choice.
+
+\subsection{Network Protocols and Web Engineering}
+
+\textbf{\cite{fette2011websocket}} RFC~6455 standardized the WebSocket protocol forming the communication backbone between the rosbridge server and the browser cockpit; the framing analysis follows this RFC's frame structure.
+
+\textbf{\cite{bianchi2000performance}} Bianchi's analytical model for IEEE~802.11 CSMA/CA performance underlies the queuing delay computation for the dedicated operator-to-robot Wi-Fi link.
+
+\textbf{\cite{w3c2018wcag}} WCAG~2.1 defines the contrast ratio requirements verified against the cockpit's color palette.
+
+\textbf{\cite{w3c2023backdropfilter}} The W3C's CSS Filter Effects specification defines the \code{backdrop-filter} property enabling the glassmorphic blur effect, and its compositing cost model explains the 12-panel layout limit.
+
+\subsection{Robotics Platforms and Hardware}
+
+\textbf{\cite{husarion2021leo}} The Husarion LEO Rover technical documentation provides the platform specifications cited throughout this report, including kinematics, encoders, battery, and firmware topic schemas.
+
+\textbf{\cite{intel2021d455}} The D455 datasheet provides the hardware specifications used in all sensor modeling sections: stereo baseline, depth range and accuracy, RGB resolution, and calibrated focal length.
+
+\textbf{\cite{agilex2021limo}} The AgileX LIMO Rover documentation was consulted during the Carolus comparative platform analysis contextualizing the LEO Rover work.
+
+\subsection{Probability, Statistics, and Reliability Theory}
+
+\textbf{\cite{kaplan1958nonparametric}} The Kaplan--Meier survival function estimator provides the non-parametric framework appropriate for refining the safety layer failure rate estimates from operational field data.
+
+\textbf{\cite{shannon1948mathematical}} Shannon's information theory provides the theoretical basis for modeling the heartbeat protocol as a binary channel with a computable channel capacity and error-correction buffer.
+
+\textbf{\cite{wilson1927probable}} Wilson's score confidence interval for binomial proportions is used for computing the confidence interval of the LED and checkerboard detection rates.
+
+\subsection{3D Graphics and Web Visualization}
+
+\textbf{\cite{cabello2021threejs}} Three.js r128 provides the WebGL-based 3D rendering infrastructure for the satellite and space capsule decorative elements in the cockpit.
+
+\textbf{\cite{greensock2021gsap}} GSAP's ScrollTrigger plugin enables the scroll-linked rotation of the Three.js satellite model in the logbook panel.
+
+\section{Index of Tables}
+
+Table~\ref{tab:table-index} lists all data tables appearing in this report, with their chapter location and a brief description of their content.
+
+\begingroup\small
+\begin{longtable}{@{}L{2.2cm}L{3.6cm}L{7.4cm}@{}}
+\caption{Index of all tables in this report} \label{tab:table-index} \\
+\toprule
+Table & Chapter/Section & Title \\
+\midrule
+\endfirsthead
+\toprule
+Table & Chapter/Section & Title \\
+\midrule
+\endhead
+\ref{tab:intro-localization} & Introduction: I.4.2 & Comparative survey of indoor localization paradigms \\
+\ref{tab:intro-latency} & Introduction: I.5.1 & End-to-end operator latency budget \\
+\ref{tab:lit-ros-comparison} & Chapter~1: 1.2.2 & ROS Noetic vs.\ ROS 2 Humble feature comparison \\
+\ref{tab:thread-inventory} & Chapter~2: 2.2 & \code{leo\_backend.py} daemon thread inventory \\
+\ref{tab:topic-graph} & Chapter~2: 2.3 & Complete ROS topic graph \\
+\ref{tab:constants-ref} & Chapter~2: 2.7 & Complete system constants reference \\
+\ref{tab:autolog-events} & Chapter~2: 2.8 & AutoLogbook event taxonomy \\
+\ref{tab:fsm-transitions} & Chapter~3: 3.4.1 & Complete FSM transition table \\
+\ref{tab:before-after} & Chapter~3: 3.7 & System performance before/after redesign \\
+\ref{tab:timing-jitter} & Chapter~3 Ext.\: 3.K.1 & Vision pipeline stage-by-stage timing analysis \\
+\ref{tab:fsm-colors} & Chapter~4: 4.5.1 & FSM state banner color encoding \\
+\ref{tab:safety-layers} & Chapter~5: 5.1 & Six safety layer stack \\
+\ref{tab:layer-failure-rates} & Chapter~5 Ext.\: 5.A.2 & Failure rate estimation per safety layer \\
+\ref{tab:vision-perf-measurements} & Chapter~6: 6.6 & Vision pipeline performance before/after \\
+\ref{tab:fsm-validation} & Chapter~6: 6.7 & FSM behavioral validation test results \\
+\ref{tab:ui-perf} & Chapter~6: 6.8 & Cockpit rendering performance, 3 hardware configs \\
+\ref{tab:cb-scale-sweep} & Chapter~6 Ext.\: 6.E.2 & CB detection rate/latency vs.\ scale factor \\
+\ref{tab:full-mission-stats} & Chapter~6 Ext.\: 6.F.1 & Full autonomous mission statistics (45~min) \\
+\ref{tab:objective-achievement} & Chapter~7: 7.1 & Objective achievement summary \\
+\ref{tab:glossary} & Appendix~A & Technical glossary (27 terms) \\
+\ref{tab:leo-specs} & Appendix~B: B.1 & LEO Rover mechanical/electrical specifications \\
+\ref{tab:d455-specs} & Appendix~B: B.2 & Intel RealSense D455 specifications \\
+\ref{tab:workstation-specs} & Appendix~B: B.3 & Operator workstation specifications \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\section{Index of Code Listings}
+
+Table~\ref{tab:listing-index} catalogues the source code listings appearing in this report, with their section location, programming language, and a brief description.
+
+\begingroup\small
+\begin{longtable}{@{}L{2.6cm}L{1.4cm}L{1.8cm}L{7.4cm}@{}}
+\caption{Index of source code listings} \label{tab:listing-index} \\
+\toprule
+Listing & Section & Language & Description \\
+\midrule
+\endfirsthead
+\toprule
+Listing & Section & Language & Description \\
+\midrule
+\endhead
+\ref{lst:spawn-context} & 2.5.1 & Python & Spawn context declaration for the vision subprocess \\
+\ref{lst:queue-semantics} & 2.5.2 & Python & Frame/result queue configuration and producer logic \\
+\ref{lst:start-leo} & 2.6 & Bash & \code{start\_leo.sh}: deterministic \code{ROS\_IP} + idempotent launch \\
+\ref{lst:telemetry-schema} & 2.4 & Python & Selective telemetry JSON schema \\
+\ref{lst:morph-close} & 3.1.1 & Python & Morphological closing with elliptical SE \\
+\ref{lst:held-flag} & 3.2.2 & Python & Held-flag hysteresis mechanism \\
+\ref{lst:p-controller} & 3.4.2 & Python & LOCK-state visual servoing P-controller \\
+\ref{lst:yaw-wrap} & 3.4.3 & Python & Wrap-safe yaw delta accumulation \\
+\ref{lst:world-pos} & 3.5.2 & Python & World position computation \\
+\ref{lst:reset-continuity} & 3.5.3 & Python & Local odometry reset with world-frame continuity \\
+\ref{lst:percentile-obstacle} & 3.6.2 & Python & 5th-percentile obstacle detection statistic \\
+\ref{lst:color-tokens} & 4.1.2 & CSS & Color design-token system \\
+\ref{lst:glassmorphism} & 4.1.3 & CSS & Glassmorphic panel implementation \\
+\ref{lst:bento-grid} & 4.2 & CSS & Bento grid layout with responsive breakpoint \\
+\ref{lst:raf-loop} & 4.3.1 & JavaScript & \code{requestAnimationFrame} loop structure \\
+\ref{lst:dpr-handling} & 4.3.2 & JavaScript & Device pixel ratio-aware canvas resizing \\
+\ref{lst:coord-mapping} & 4.3.3 & JavaScript & Letterbox-aware coordinate mapping \\
+\ref{lst:lerp-smoothing} & 4.4 & JavaScript & LERP smoothing between telemetry updates \\
+\ref{lst:alert-config} & 4.6.1 & JavaScript & Alert threshold configuration \\
+\ref{lst:mute-persistence} & 4.6.2 & JavaScript & Alert mute persistence \\
+\ref{lst:js-ring-buffer} & 4.7.1 & JavaScript & $O(1)$ ring buffer for trajectory rendering \\
+\ref{lst:outlier-rejection} & 4.7.2 & JavaScript & Trajectory outlier rejection \\
+\ref{lst:world-to-canvas} & 4.7.3 & JavaScript & World-frame to canvas-pixel transform \\
+\ref{lst:net-latency} & 4.8 & JavaScript & Rolling telemetry latency meter \\
+\ref{lst:satellite-scene} & 4.9.1 & JavaScript & Decorative satellite 3D scene geometry \\
+\ref{lst:gsap-scroll} & 4.9.2 & JavaScript & GSAP ScrollTrigger-driven rotation \\
+\ref{lst:i18n-system} & 4.10 & JavaScript & Flat key-value i18n dictionary system \\
+\ref{lst:safe-stop} & 5.2.1 & Python & Redundant emergency-stop publication \\
+\ref{lst:stop-pending} & 5.2.2 & JavaScript & Disconnection-proof emergency stop delivery \\
+\ref{lst:heartbeat-fsm} & 5.3.1 & Python & Three-state heartbeat deadman \\
+\ref{lst:manual-deadman} & 5.4 & Python & Manual-mode deadman timeout \\
+\ref{lst:camera-watchdog} & 5.5 & Python & Camera watchdog \\
+\ref{lst:velocity-clamp} & 5.6 & Python & Velocity clamping at every publish call \\
+\ref{lst:autologbook-write} & 5.7 & Python & Atomic, thread-safe logbook write \\
+\ref{lst:cs1-diagnosis} & 6.2.2 & Python & Diagnostic blob log (Case Study~1) \\
+\ref{lst:cs1-rootcause} & 6.2.3 & Python & Original buggy single-anchor clustering \\
+\ref{lst:cs1-fix} & 6.2.4 & Python & Exhaustive anchor evaluation fix \\
+\ref{lst:cs4-fix} & 6.5.3 & Bash & Deterministic \code{ROS\_IP} configuration \\
+\ref{lst:cs4-fallback} & 6.5.3 & Python & Fallback IP discovery via UDP routing table \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\section{Mathematical Notation and Symbols}
+
+Table~\ref{tab:notation} defines the mathematical symbols and notation used consistently throughout the report.
+
+\begingroup\small
+\begin{longtable}{@{}L{2.6cm}L{7.6cm}L{2.2cm}@{}}
+\caption{Mathematical notation and symbols} \label{tab:notation} \\
+\toprule
+Symbol & Definition & First Used \\
+\midrule
+\endfirsthead
+\toprule
+Symbol & Definition & First Used \\
+\midrule
+\endhead
+$\alpha$ & EMA smoothing factor ($\alpha=0.45$ LED, $\alpha=0.60$ landmark) & \S3.3.1 \\
+$\alpha_{\text{optimal}}$ & Kalman-optimal EMA parameter derived from SNR & \S6.C.2 \\
+$A\oplus B$ & Morphological dilation of set $A$ by structuring element $B$ & \S3.B.4 \\
+$A\ominus B$ & Morphological erosion of set $A$ by structuring element $B$ & \S3.B.4 \\
+$A\circ B$ & Morphological opening (erosion then dilation) & \S3.B.4 \\
+$A\bullet B$ & Morphological closing (dilation then erosion) & \S3.B.4 \\
+$c_x, c_y$ & Camera principal point (optical axis intersection) [px] & \S3.A.1 \\
+CR & WCAG color contrast ratio between foreground and background & \S4.A.2 \\
+$d_{\text{est}}$ & Estimated beacon distance from thin-lens formula [m] & \S I.4.3 \\
+$\delta d$ & Total distance estimation uncertainty [m] & \S3.F.2 \\
+$d_s$ & Stereo disparity [px] & \S3.I.1 \\
+$\text{err\_frac}$ & Normalized bearing error in LOCK state, $\in[-1,+1]$ & \S3.4.2 \\
+$f_c$ & Filter $-3$~dB cutoff frequency [Hz] & \S3.3.3 \\
+$f_s$ & Sampling rate of control loop or vision pipeline [Hz] & \S3.3.1 \\
+$f_x, f_y$ & Camera focal lengths in pixels & \S3.A.1 \\
+$g\in SE(2)$ & Rigid body transformation element of $SE(2)$ & \S5.G.1 \\
+$H(z)$ & Z-domain transfer function of EMA filter & \S3.3.1 \\
+$H(e^{j\omega})$ & Frequency response (DTFT) of EMA filter & \S3.3.1 \\
+$K$ & Camera intrinsic matrix ($3\times3$) & \S3.A.1 \\
+$K_p$ & Proportional controller gain [rad/s per px] & \S 3.G.3 \\
+$K_u$ & Ziegler--Nichols ultimate gain [rad/s per px] & \S 3.G.2 \\
+$\lambda$ & Component failure rate [failures/hour] & \S5.A.1 \\
+$L_1, L_2$ & CIE relative luminance of foreground/background & \S4.A.2 \\
+$\mu(x,y)$ & Local mean intensity in adaptive threshold window & \S3.B.2 \\
+$\mu_{\ln}, \sigma_{\ln}$ & Log-normal distribution parameters & \S6.B.1 \\
+$N(b_i, r)$ & Density neighborhood of blob $b_i$ at radius $r$ & \S3.D.1 \\
+$\omega$ & Angular frequency [rad/s] (control) or [rad/sample] (signal) & \S3.3.1 \\
+$\omega_n$ & Natural frequency of closed-loop controller [rad/s] & \S 3.G.5 \\
+$\omega_{\text{pc}}$ & Phase crossover frequency [rad/s] & \S 3.G.2 \\
+$\hat p$ & Observed detection rate (sample proportion) & \S6.A.1 \\
+PFH & Probability of dangerous failure per hour (IEC~61508) & \S5.C.1 \\
+PM & Phase margin of P-controller [degrees] & \S 3.G.4 \\
+$r$ & Wheel radius of LEO Rover [m] & \S3.H.1 \\
+$R\in SO(2)$ & 2D rotation matrix (Special Orthogonal group) & \S5.G.1 \\
+$\rho$ & Traffic intensity (queuing theory), $\rho=\lambda/\mu$ & \S4.D.2 \\
+$s_{\text{px}}$ & Horizontal pixel span of LED cluster [px] & \S I.4.3 \\
+$S(x,y)$ & Integral image (prefix sum) at pixel $(x,y)$ & \S3.B.3 \\
+$SE(2)$ & Special Euclidean group in 2D (rigid body transforms) & \S5.G.1 \\
+SIL & Safety Integrity Level (IEC~61508 classification) & \S5.C.1 \\
+SNR & $\sigma_w/\sigma_v$: signal-to-noise standard deviation ratio (Kalman) & \S6.C.2 \\
+$\sigma(x,y)$ & Local standard deviation in adaptive threshold window & \S3.B.2 \\
+$\sigma_n$ & Measurement noise standard deviation [px] & \S6.C.2 \\
+$\sigma_w$ & Process noise standard deviation [px/sample] & \S6.C.2 \\
+$T_d$ & Total vision pipeline delay [s] (plant model) & \S 3.G.1 \\
+$T(x,y)$ & Adaptive threshold value at pixel $(x,y)$ & \S3.B.2 \\
+$W$ & Physical width of LED beacon assembly [m] & \S I.4.3 \\
+$W_q$ & Mean queuing wait time (M/D/1 model) [s] & \S4.D.2 \\
+$(w_x, w_y)$ & Robot position in world frame [m] & \S3.5.1 \\
+$x[n], u[n]$ & EMA filter output and input sequences & \S3.3.1 \\
+$Z(w_x, w_y)$ & Stereo depth at pixel $(w_x,w_y)$ [mm or m] & \S3.I.1 \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+% =============================================================================
+\chapter{Reproduction guide for future students}
+\label{ap:repro}
+
+This appendix is written for the next student inheriting the platform, and it
+assumes \emph{no} prior knowledge of this project, of the LEO~Rover, or of
+ROS. It is deliberately exhaustive: every command is given in full, with the
+directory it must be run from and the output you should see. Following it from
+top to bottom rebuilds the entire system from a bare machine and reproduces
+every measurement in this report.
+
+Read \S\ref{ap:repro-overview} before typing anything. Ten minutes spent on
+the mental model there will save hours later, because the majority of
+newcomer confusion on this platform traces back to one question: \emph{which
+of the two computers is doing this?}
+
+Paths are given relative to the project root \code{\textasciitilde/TOUT}.
+The target platform is ROS~Noetic on Ubuntu~20.04, built with
+\code{catkin\_tools} (\code{catkin build}, \emph{not} \code{catkin\_make}).
+
+\section*{The short version: what will cost you a week}
+\addcontentsline{toc}{section}{The short version: what will cost you a week}
+
+Read this page now and return to it whenever something behaves strangely.
+Each entry below is a failure that consumed at least a day of this project,
+and each shares the same property: \textbf{the symptom points at the wrong
+subsystem}. They are listed in the order you are most likely to meet them.
+
+{\small\linespread{1.06}\selectfont
+\setlength{\LTleft}{0pt}\setlength{\LTright}{0pt}
+\begin{longtable}{@{}L{6.3cm}L{6.6cm}r@{}}
+\toprule
+What you will observe & What it actually is & Where \\
+\midrule
+\endfirsthead
+\toprule
+What you will observe & What it actually is & Where \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+The page loads perfectly, every button is dead
+  & TLS port $9443$ open but detached from the ROS graph after a master
+    restart. Reload, or use port $9090$
+  & \S\ref{ap:repro-webtransport} \\
+\addlinespace
+Neither manual nor autonomous driving responds
+  & the serial link, not the logic. Both modes share
+    \code{/serial\_node}, sole subscriber of \code{/cmd\_vel}
+  & \S\ref{ap:repro-hitrun} \\
+\addlinespace
+Estimators diverge, IMU ``bugs'', trajectories jump
+  & the Pi is at $86\,^\circ$C and capped to $600$\,MHz, dropping IMU samples
+  & \S\ref{ap:repro-thermal} \\
+\addlinespace
+The pose is plausible but alternates between two values
+  & a TF frame with two parents. Set \code{base\_frame} to
+    \code{base\_footprint}
+  & \S\ref{ap:trap-tf} \\
+\addlinespace
+The robot over- or under-rotates consistently
+  & \code{angular\_velocity\_multiplier}, an actuation gain. Fix it
+    \emph{before} touching \code{gyro\_scale}
+  & \S\ref{ap:trap-diffdrive} \\
+\addlinespace
+Beacon positions look clean, smooth and repeatable
+  & and are metrically meaningless: the intrinsics belong to a different
+    resolution
+  & \S\ref{ap:repro-absolute} \\
+\addlinespace
+The stack restarts every couple of minutes
+  & a \code{PATH} defect in the cron watchdog, not an instability
+  & \S\ref{ap:repro-watchdog} \\
+\end{longtable}}
+
+\noindent Two habits follow from this table and are worth adopting before you
+need them. First, \textbf{probe a topic that is supposed to be noisy}: a
+silent topic proves nothing, and this project lost an evening to an idle
+\code{/mission/log}. Second, \textbf{prefer the narrow intervention}: cycling
+one node beats restarting a stack, and almost every time the surrounding
+infrastructure was blamed here, it was innocent.
+
+\section{Step $-1$: the absolute ground zero}
+\label{ap:repro-groundzero}
+Everything past this point assumes \code{\textasciitilde/TOUT} already exists
+on your machine and that you can already reach the robot over SSH. Neither is
+true on the first day, and earlier revisions of this appendix jumped straight
+to \code{cd \textasciitilde/TOUT} without ever saying how it got there. This
+section is the missing zero.
+
+\subsection{Getting the code}
+\label{ap:repro-clone}
+\begin{lstlisting}[language=bash]
+git clone <URL_OF_THIS_REPOSITORY> ~/TOUT
+cd ~/TOUT
+\end{lstlisting}
+\code{<URL\_OF\_THIS\_REPOSITORY>} is a placeholder, not an omission: as of
+this revision the repository is private. Replace it with the SSH or HTTPS
+clone URL your lab gives you, in the form
+\code{git@github.com:<account>/<repo>.git}. Everything from
+\S\ref{ap:repro-build} onward, including \code{requirements.txt} and
+\code{tools/robot\_env.sh}, arrives with this one command; nothing in this
+guide requires a second download.
+
+\subsection{Powering on and reaching the robot for the first time}
+\label{ap:repro-firstboot}
+\begin{trapbox}{What follows is verified project history, not a factory
+manual}
+Husarion's own documentation, \url{https://docs.leorover.tech}
+(\cite{husarion2021leo}), is the authority on the physical unit: power
+button location, battery connector, and first-boot behaviour vary across LEO
+Rover hardware revisions, and no one on this project photographed or
+recorded that procedure. The credentials below are not copied from that
+manual either --- they are what this project's own earliest working notes
+(\code{GUIDE\_DEMARRAGE\_LEO.md}, 2026-06-23, and the network log of
+2026-07-20) record as having worked, before any of the later network
+changes in this appendix were made. \textbf{If your unit is a different LEO
+Rover, its hotspot suffix and possibly its default password will differ.}
+Confirm against Husarion's documentation before assuming these are
+universal.
+\end{trapbox}
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Power on.} Consult
+  \url{https://docs.leorover.tech} for the switch location and charging
+  state indicators on your specific unit; this is not something the present
+  project verified independently. Wait for the boot sequence to settle,
+  on the order of a minute.
+\item \textbf{Join the robot's own WiFi hotspot} from your workstation. Its
+  name has the form \code{LeoRover-XXXX}, a per-unit suffix; the unit used
+  throughout this project answered to \code{LeoRover-e138}
+  (confirmed live, 2026-07-20). \textbf{The WPA passphrase for this hotspot
+  network is not recorded anywhere in this project's history} and is the one
+  genuine gap this section cannot close: check the label on the robot
+  chassis, the Husarion account the unit was purchased under, or ask
+  whoever last handled the physical hardware.
+\item \textbf{SSH in.} Once joined, the robot answers at a fixed address on
+  its own hotspot subnet:
+\begin{lstlisting}[language=bash]
+ssh pi@10.0.0.1
+\end{lstlisting}
+  The credential this project's earliest notes record as working, before any
+  rotation, was password \code{raspberry} for user \code{pi} --- the
+  Raspberry Pi OS default, consistent with an unmodified factory image.
+  \textbf{Change it immediately} (\code{passwd}), and proceed to
+  \S\ref{ap:repro-net}'s Step~4 to replace password auth with a key before
+  doing anything else over this link.
+\item \textbf{If the unit needs reflashing} (corrupted SD card, or a bare
+  replacement board), the base OS image and flashing instructions are
+  Husarion's to provide: \url{https://docs.leorover.tech}. This project
+  never reflashed a unit and has no first-hand verification of that
+  procedure to offer beyond the pointer.
+\end{enumerate}
+
+\noindent Once \S\ref{ap:repro-firstboot} succeeds once, everything past it
+in this appendix, WireGuard, Cloudflare, the two-workspace build, applies
+identically whether you are on the hotspot, on lab WiFi, or on the tunnel:
+they all resolve to \emph{some} \code{ROBOT\_HOST}, and
+\code{tools/robot\_env.sh} (\S\ref{ap:repro-net}) is what stops that from
+mattering ever again.
+
+\section{Start here: what this machine actually is}
+\label{ap:repro-overview}
+There are \textbf{two computers}, and they are not equals.
+
+The \textbf{robot} carries a Raspberry~Pi~4. It owns the sensors and the
+motors, and, this is the part that surprises people, it also runs the
+\emph{ROS master}, the name server every ROS process must register with. The
+Pi is deliberately kept modest: it moves data, it does not compute
+trajectories.
+
+The \textbf{workstation} (the lab PC) runs the two estimators, the web
+cockpit, and every analysis tool. It is a \emph{client} of the robot's master.
+If the robot is off, nothing works. If the PC is off, the robot still drives
+but nothing is estimating its position.
+
+Three consequences to memorise now, because they explain most of
+\S\ref{ap:repro-trouble}:
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Every ROS command you type on the PC talks to a master on the
+  robot, over WiFi.} A command that ``hangs'' is usually a network symptom,
+  not a software bug.
+\item \textbf{The Pi is the bottleneck, and it runs hot.} When it overheats it
+  halves its own clock, and the first casualty is sensor data
+  \emph{arriving on time}. Estimators then fail in ways that look like
+  estimator bugs and are not (\S\ref{ap:repro-thermal}).
+\item \textbf{Nothing is ground truth.} Wheel odometry, MINS and openVINS all
+  estimate. They can only be compared \emph{to each other} unless you bring a
+  tape measure (\S\ref{ap:repro-calibrun}).
+\end{enumerate}
+
+\subsection{The hardware chain}
+\label{ap:repro-hw}
+Figure~\ref{fig:apphw} traces the physical path from a wheel encoder to the
+workstation. Two links on it deserve attention, because both have caused real
+failures documented in this report.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\small, x=1cm, y=1cm,
+  box/.style={draw, rounded corners=2pt, align=center, inner sep=4pt},
+  hw/.style ={box, fill=blue!6,  minimum width=2.4cm, minimum height=1.0cm},
+  pi/.style ={box, fill=green!8, minimum width=3.0cm},
+  pc/.style ={box, fill=orange!10, minimum width=3.0cm},
+  lnk/.style={-{Latex[length=2.2mm]}, thick},
+  badge/.style={circle, draw=red!70!black, fill=white, inner sep=1pt,
+                font=\scriptsize\bfseries, text=red!70!black}
+]
+  \node[hw] (mot) at (0,2.7)  {4 motors\\+ encoders};
+  \node[hw] (imu) at (0,1.3)  {IMU\\(inside CORE2)};
+  \node[hw] (cam) at (0,-0.9) {RealSense\\D455};
+
+  \node[box, fill=blue!6, minimum width=2.0cm, minimum height=2.4cm]
+       (core) at (3.5,2.0) {CORE2\\board\\[1pt]\scriptsize firmware};
+
+  \node[pi, minimum height=3.6cm] (pi) at (8.2,1.2)
+       {\textbf{Raspberry Pi 4}\\[3pt]\scriptsize ROS master\\
+        \scriptsize serial\_node\\ \scriptsize realsense driver\\
+        \scriptsize image compression};
+
+  \node[pc, minimum height=3.6cm] (pc) at (13.2,1.2)
+       {\textbf{Workstation}\\[3pt]\scriptsize MINS\\ \scriptsize openVINS\\
+        \scriptsize pose\_selector\\ \scriptsize web cockpit};
+
+  \draw[lnk] (mot.east) -- (core.north west |- mot);
+  \draw[lnk] (imu.east) -- (core.west |- imu);
+  \draw[lnk] (core.east) -- (pi.west |- core)
+    node[midway, above=2pt, align=center, font=\scriptsize]
+    {UART\\\code{/dev/ttyAMA0}};
+  \node[badge] at (5.85,1.55) {1};
+  \draw[lnk] (cam.east) -| (pi.south)
+    node[pos=0.28, below=2pt, font=\scriptsize] {USB 3.0};
+  \draw[lnk] (pi.east) -- (pc.west)
+    node[midway, above=2pt, align=center, font=\scriptsize]
+    {WiFi\\+ WireGuard};
+  \node[badge] at (10.7,0.75) {2};
+\end{tikzpicture}
+\caption{The physical chain. \textbf{Weak link \textcircled{\scriptsize 1}:}
+the CORE2 board talks to the Pi over a \emph{GPIO serial port}
+(\code{/dev/ttyAMA0}), not USB, a detail that misleads everyone, because
+unplugging USB cables cannot fix it. That link has no retransmission: if the
+Pi is too busy to empty the serial buffer in time, bytes are lost outright
+(\S\ref{ap:repro-uart}). \textbf{Weak link \textcircled{\scriptsize 2}:} the
+WiFi hop adds latency and jitter. Measured on this install: $0\%$ packet loss
+but round-trip times of $3$ to $66$\,ms. ROS tolerates this because
+everything is timestamped at the source; the video preview does not, which is
+why the cockpit shows a \emph{high latency} badge that is honest about the
+video and irrelevant to the trajectories.}
+\label{fig:apphw}
+\end{figure}
+
+\subsection{The software chain}
+\label{ap:repro-sw}
+ROS programs communicate by publishing named streams called \emph{topics}.
+Figure~\ref{fig:appsw} shows the ones that matter, left to right: raw sensors,
+then cleanup, then the two estimators, then a switch that decides which
+estimator the rest of the system believes.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  n/.style={draw, rounded corners=2pt, align=center, inner sep=3pt,
+            minimum height=0.85cm, font=\scriptsize},
+  raw/.style={n, fill=blue!6},
+  fix/.style={n, fill=yellow!12},
+  est/.style={n, fill=green!10},
+  dst/.style={n, fill=orange!12},
+  t/.style={-{Latex[length=1.8mm]}, semithick}
+]
+  \node[raw] (fimu)  at (0,3.2)  {\code{/firmware/imu}\\raw IMU, $\sim$80\,Hz};
+  \node[raw] (fwh)   at (0,1.7)  {\code{/firmware/wheel\_states}\\encoders};
+  \node[raw] (fcam)  at (0,0.2)  {\code{/camera/infra1|2}\\stereo IR, 15\,Hz};
+
+  \node[fix] (san)   at (3.6,3.2) {\code{imu\_sanitizer}\\despike, rescale\\[1pt]$\rightarrow$\code{/imu/data\_clean}};
+  \node[fix] (whrm)  at (3.6,1.7) {\code{wheel\_remap}\\odometry};
+  \node[fix] (rep)   at (3.6,0.2) {\code{republish}\\decompress};
+
+  \node[est] (mins)  at (7.6,2.6) {\textbf{MINS}\\cam + IMU + wheels\\[1pt]$\rightarrow$\code{/mins/imu/odom}};
+  \node[est] (vins)  at (7.6,0.7) {\textbf{openVINS}\\cam + IMU only\\[1pt]$\rightarrow$\code{/ov\_msckf/odomimu}};
+
+  \node[dst] (sel)   at (11.4,1.7) {\code{pose\_selector}\\the switch};
+  \node[dst] (fused) at (11.4,0.1) {\code{/robot\_pose\_fused}\\what everyone reads};
+
+  \draw[t] (fimu) -- (san);
+  \draw[t] (fwh)  -- (whrm);
+  \draw[t] (fcam) -- (rep);
+  \draw[t] (san.east)  -- (mins.west);
+  \draw[t] (san.east)  -- (vins.west);
+  \draw[t] (whrm.east) -- (mins.west);
+  \draw[t] (rep.east)  -- (mins.west);
+  \draw[t] (rep.east)  -- (vins.west);
+  \draw[t] (mins.east) -- (sel.west);
+  \draw[t] (vins.east) -- (sel.west);
+  \draw[t] (sel) -- (fused);
+
+  \node[font=\scriptsize, align=left, draw, dashed, rounded corners,
+        inner sep=4pt, fill=gray!4] at (5.7,-1.5)
+       {\textbf{Why two estimators?} MINS also uses the wheels, so it starts
+        while standing still and cannot drift far.\\
+        openVINS uses only camera + IMU, so it is the honest test of
+        \emph{vision-only} localisation --- but it must be
+        \emph{shaken} to start, and nothing catches it if it slips.};
+\end{tikzpicture}
+\caption{The topic flow. Everything upstream of the estimators runs on the
+robot; everything from \code{imu\_sanitizer} rightwards runs on the
+workstation. The switch is a ROS \emph{service}, not a topic: calling
+\code{/pose\_selector/set\_source} with \code{true} serves MINS,
+\code{false} serves openVINS.}
+\label{fig:appsw}
+\end{figure}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Which machine runs what. \code{rosnode list} shows all of it mixed
+together, which is why this split is worth knowing by heart.}
+\label{tab:appwho}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Machine & Started by & Main nodes \\
+\midrule
+Robot (Pi) & \code{leo.service} $\rightarrow$ \code{rosmon} &
+  ROS master, \code{serial\_node},\\
+ & & \code{firmware\_message\_converter},\\
+ & & \code{realsense2\_camera}, \code{rplidar\_node} \\
+\addlinespace
+Workstation & \code{roslaunch leo\_navigation} &
+  \code{mins\_subscribe}, \code{ov\_msckf},\\
+ & \code{navigation\_master.launch} &
+  \code{pose\_selector}, \code{imu\_sanitizer},\\
+ & & \code{wheel\_remap}, \code{leo\_backend},\\
+ & & image \code{republish} $\times$3 \\
+\addlinespace
+Workstation & \code{web/start\_web.sh} &
+  \code{serve.py} (:8000), \code{web\_video\_server}\\
+ & & (:8080), \code{rosbridge} (:9090/:9443),\\
+ & & \code{cloudflared} tunnel \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Map of the repository}
+\label{ap:repro-map}
+Everything lives under \code{\textasciitilde/TOUT}. You will spend almost all
+of your time in four of these directories; the rest is history you can ignore
+until you need it.
+
+\begin{lstlisting}[language=bash]
+~/TOUT/
+|-- catkin_ws/                 <-- workspace 1: openVINS + our own packages
+|   `-- src/
+|       |-- open_vins/         upstream openVINS (ov_msckf)
+|       |-- leo_navigation/    ** OUR CODE: nodes, launch files, configs **
+|       |-- leo_autonomy/      beacon/patrol behaviours, AprilTag configs
+|       `-- realsense-ros/     camera driver (built here, runs on the Pi)
+|-- mins_ws/                   <-- workspace 2: MINS (separate build flags)
+|   `-- src/MINS/
+|-- carolus_ws/                <-- workspace 3: LED beacon detection
+|-- tools/                     ** scripts you will use every day **
+|-- web/                       the cockpit (HTML + serve.py + start_web.sh)
+|-- data/trajectories/         recorded runs (.bag) and their CSV exports
+|-- logs/                      every log the system writes
+|-- docs/                      protocols (e.g. floor-marking calibration)
+|-- report_latex/              this report
+`-- leo_backend.py             ** the cockpit's brain (single large file) **
+\end{lstlisting}
+
+\noindent The four that matter: \code{catkin\_ws/src/leo\_navigation}
+(all our ROS nodes), \code{tools} (all our scripts), \code{web} plus
+\code{leo\_backend.py} (the cockpit), and \code{logs} (where every answer
+hides).
+
+\begin{table}[htbp]
+\centering\small
+\caption{The scripts in \code{tools/} you will actually use. Every one has a
+long header comment explaining \emph{why} it exists: read it before
+modifying the script.}
+\label{tab:apptools}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Script & What it is for \\
+\midrule
+\code{robot\_env.sh} & sets \code{ROS\_MASTER\_URI}/\code{ROS\_IP}; sourced by
+  everything \\
+\code{restart\_stack.sh} & clean restart of the PC-side stack \\
+\code{record\_trajectories.sh} & records a run to a rosbag (the reliable way) \\
+\code{bag\_to\_csv.py} & rosbag $\rightarrow$ one CSV per estimator \\
+\code{plot\_trajectories.m} & the nine-panel MINS vs openVINS figure \\
+\code{compare\_tests.m} & Test~1 vs Test~2 (two separate drives) \\
+\code{calib\_terrain.py} & ground-truth calibration (terminal version) \\
+\code{rosbag\_daemon.sh} & launched \emph{by \code{leo\_backend.py}} to record a
+  run to disk, independently of the browser. This is the capture path to use
+  for anything that matters (\S\ref{ap:repro-absolute}); the cockpit's own
+  buffer is cleared by any backend restart \\
+\code{launch\_carolus.sh} & the beacon detector's entry point, invoked by
+  \code{tools/carolus\_detect.launch}. Start the detector through the launch
+  file, not by calling the script directly, or it inherits the wrong
+  environment \\
+\code{leo\_watchdog.sh} & the cron watchdog, read
+  \S\ref{ap:repro-watchdog} first \\
+\code{update\_report.sh} & compiles and publishes this report \\
+\code{check\_serial\_health.sh} & UART overrun counters
+  (\S\ref{ap:repro-uart}) \\
+\code{log\_pose\_static.py} & records \code{/robot\_pose\_fused} to CSV while
+  the rover sits still: Protocol T1.1 (\S\ref{ap:repro-t11}) \\
+\code{analyze\_pose\_variance.py} & per-axis noise and linear drift rate from
+  a T1.1 CSV; separates noise from unbounded divergence \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Upstream sources: what is ours and what is not}
+\label{ap:repro-repos}
+For completeness, the provenance of every component and the
+workspace it lives in.
+
+Three upstream stacks are used, each in its own catkin workspace so their
+build flags and dependencies stay isolated:
+
+\begingroup\small
+\begin{longtable}{@{}L{3.2cm}L{5.6cm}L{4.6cm}@{}}
+\toprule
+Component & Upstream & Local workspace \\
+\midrule
+\endhead
+openVINS (\code{ov\_msckf}) & \url{https://github.com/rpng/open_vins} &
+  \code{catkin\_ws/src/open\_vins} \\
+MINS & \url{https://github.com/rpng/MINS} &
+  \code{mins\_ws/src/MINS} \\
+Carolus beacon & \url{https://github.com/albator63/carolus_ws} &
+  \code{carolus\_ws} \\
+Kalibr (calibration) & \url{https://github.com/ethz-asl/kalibr} &
+  \code{catkin\_ws/src/kalibr} \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\noindent The project-specific ROS packages (\code{leo\_navigation},
+\code{leo\_autonomy}, the \code{pose\_selector}, \code{wheel\_remap} and
+\code{carolus\_vicon\_bridge} nodes) live alongside openVINS in
+\code{catkin\_ws/src/} and are versioned with the project, not upstream.
+
+\section{Building the workstation from a bare machine}
+\label{ap:repro-build}
+\emph{Why in this order:} ROS must exist before \code{catkin} can build against
+it; system libraries must exist before the estimators compile; and the two
+estimator workspaces must be built \emph{separately} because they disagree
+about build flags.
+
+\subsection{Step 0: Python dependencies}
+\label{ap:repro-pydeps}
+Do this before anything else; several failures later in this guide are really
+a missing module reported three layers away from the import.
+\begin{lstlisting}[language=bash]
+cd ~/TOUT
+pip install -r requirements.txt
+sudo apt install python3-tk        # tkinter, not pip-installable
+\end{lstlisting}
+\code{requirements.txt} lists what each package is for, with the versions this
+project was verified against. Two entries are easy to overlook:
+\code{python3-tk}, which \code{leo\_dashboard.py} and
+\code{leo\_tracking\_map.py} need and which \code{pip} cannot supply, and
+\code{esprima}, which is not a runtime dependency at all but the JavaScript
+parser used to validate \code{web/app.js} before reloading it
+(\S\ref{ap:repro-editing-web}). ROS packages such as \code{rospy},
+\code{tf} and \code{cv\_bridge} come from ROS Noetic and must not be
+installed with \code{pip}.
+
+\subsection{Step 1: operating system and ROS}
+\begin{enumerate}[leftmargin=1.4em]
+\item Install \textbf{Ubuntu 20.04 LTS}. Not 22.04: ROS~Noetic is not packaged
+  for it, and every workaround costs more time than reinstalling.
+\item Install ROS~Noetic Desktop-Full, following the official instructions.
+  Summarised:
+\begin{lstlisting}[language=bash]
+sudo sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" \
+  > /etc/apt/sources.list.d/ros-latest.list'
+sudo apt install curl
+curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add -
+sudo apt update
+sudo apt install ros-noetic-desktop-full
+\end{lstlisting}
+\item Make ROS available in every new terminal:
+\begin{lstlisting}[language=bash]
+echo "source /opt/ros/noetic/setup.bash" >> ~/.bashrc
+source ~/.bashrc
+\end{lstlisting}
+  \textbf{Verify:} \code{echo \$ROS\_DISTRO} prints \code{noetic}.
+\item Install the build tool and the dependency resolver:
+\begin{lstlisting}[language=bash]
+sudo apt install python3-catkin-tools python3-rosdep python3-osrf-pycommon
+sudo rosdep init && rosdep update
+\end{lstlisting}
+\end{enumerate}
+
+\subsection{Step 2: system libraries the estimators need}
+Both openVINS and MINS are C++ and need Eigen, Ceres, OpenCV~4 and Boost.
+\code{rosdep} finds most of them; Ceres is the one that usually needs help.
+\begin{lstlisting}[language=bash]
+sudo apt install libeigen3-dev libboost-all-dev libopencv-dev \
+                 libceres-dev libsuitesparse-dev
+# ROS-side extras used by the cockpit and the pipeline:
+sudo apt install ros-noetic-rosbridge-suite ros-noetic-web-video-server \
+                 ros-noetic-image-transport-plugins ros-noetic-topic-tools \
+                 ros-noetic-rosmon ros-noetic-apriltag-ros
+# analysis tools:
+sudo apt install python3-pip texlive-full
+pip3 install --user numpy pyyaml psutil pillow
+\end{lstlisting}
+\textbf{Note:} \code{texlive-full} is $\sim5$\,GB but avoids a long tail of
+missing-package errors when compiling this report. \code{psutil} is what lets
+the cockpit show CPU load; without it the cockpit still works but that panel
+stays empty.
+
+\subsection{Step 3: the three workspaces}
+\emph{Why three:} openVINS and MINS come from the same research group but do
+not build with the same flags, and mixing them in one workspace produces link
+errors that look like source bugs. The beacon stack is separate again because
+it is optional.
+
+\begin{enumerate}[leftmargin=1.4em]
+\item Create the tree and clone the upstream sources:
+\begin{lstlisting}[language=bash]
+mkdir -p ~/TOUT/catkin_ws/src ~/TOUT/mins_ws/src ~/TOUT/carolus_ws/src
+cd ~/TOUT/catkin_ws/src
+git clone https://github.com/rpng/open_vins.git
+git clone https://github.com/IntelRealSense/realsense-ros.git -b ros1-legacy
+cd ~/TOUT/mins_ws/src
+git clone https://github.com/rpng/MINS.git
+\end{lstlisting}
+\item \textbf{Our packages arrive with the clone of
+  \S\ref{ap:repro-clone}}, already in place at
+  \code{\textasciitilde/TOUT/catkin\_ws/src/\{leo\_navigation,leo\_autonomy\}}
+  --- there is nothing further to copy. They contain every node described in
+  \S\ref{ap:repro-ourcode}.
+  \textbf{Note on the QR scripts:} \code{qr\_leo\_control.py},
+  \code{qr\_search\_move.py} and \code{diag\_qr.py} are \emph{not} a catkin
+  package despite the name similarity; they are standalone Python scripts at
+  the repository root, run directly with \code{python3}, not through
+  \code{roslaunch} or \code{rosrun}. An earlier revision of this appendix
+  referred to a \code{leo\_qr\_control} package that does not exist in the
+  versioned tree; if you were looking for it, this is the correction.
+\item Resolve dependencies, once per workspace:
+\begin{lstlisting}[language=bash]
+cd ~/TOUT/catkin_ws && rosdep install --from-paths src --ignore-src -r -y
+cd ~/TOUT/mins_ws   && rosdep install --from-paths src --ignore-src -r -y
+\end{lstlisting}
+\item Build workspace 1 (openVINS + our packages):
+\begin{lstlisting}[language=bash]
+cd ~/TOUT/catkin_ws
+catkin build
+\end{lstlisting}
+  \textbf{Expected:} a progress table ending with a green summary,
+  \code{[build] Summary: All ... packages succeeded!}. On a four-core machine
+  budget $15$--$25$ minutes. If \code{ov\_msckf} fails on Ceres, install
+  \code{libceres-dev} and rebuild only that package with
+  \code{catkin build ov\_msckf}.
+\item Build workspace 2 (MINS):
+\begin{lstlisting}[language=bash]
+cd ~/TOUT/mins_ws
+catkin build mins
+\end{lstlisting}
+\item Build workspace 3 (beacon, optional):
+\begin{lstlisting}[language=bash]
+cd ~/TOUT/carolus_ws && catkin build
+\end{lstlisting}
+\end{enumerate}
+
+\subsection{Step 4: the sourcing trap, and why a wrapper exists}
+\label{ap:repro-sourcetrap}
+\textbf{This is the single most confusing thing about the build.} A
+\code{devel/setup.bash} \emph{replaces} several environment variables rather
+than appending to them. Source \code{catkin\_ws} then \code{mins\_ws}, and
+\code{roslaunch} can no longer find \code{leo\_navigation}; source them the
+other way round and it cannot find \code{mins}. Either way the error is
+\code{cannot locate node of type [...] in package [...]}, which reads like a
+missing file.
+
+The fix is \code{catkin\_ws/src/leo\_navigation/launch\_mins.sh}: it saves the
+five variables that matter, sources the second workspace, then re-appends the
+saved values so both are reachable.
+
+\begin{lstlisting}[language=bash]
+source /home/lab272/TOUT/tools/robot_env.sh
+source /opt/ros/noetic/setup.bash
+source /home/lab272/TOUT/catkin_ws/devel/setup.bash
+_RPP="$ROS_PACKAGE_PATH"; _CMPP="$CMAKE_PREFIX_PATH"; _PATH="$PATH"
+_LDLP="$LD_LIBRARY_PATH"; _PYP="$PYTHONPATH"
+source /home/lab272/TOUT/mins_ws/devel/setup.bash
+export ROS_PACKAGE_PATH="$ROS_PACKAGE_PATH:$_RPP"
+export CMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH:$_CMPP"
+export PATH="$PATH:$_PATH"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$_LDLP"
+export PYTHONPATH="$PYTHONPATH:$_PYP"
+exec roslaunch leo_navigation "${1:-mins.launch}"
+\end{lstlisting}
+
+\noindent \textbf{Rule: never start anything MINS-side with a plain
+\code{roslaunch}.} Always:
+\begin{lstlisting}[language=bash]
+~/TOUT/catkin_ws/src/leo_navigation/launch_mins.sh navigation_master.launch
+\end{lstlisting}
+\code{tools/restart\_stack.sh} does this for you, which is one reason to
+launch through it rather than by hand.
+
+\subsection{Quick reference: the clone-and-build commands}
+\label{ap:repro-build-ref}
+Clone each stack into its workspace's \code{src/}, then build. openVINS and
+the project packages share \code{catkin\_ws}:
+
+\begin{lstlisting}[language=bash]
+# --- openVINS + project packages (catkin_ws) ---
+cd ~/TOUT/catkin_ws/src
+git clone https://github.com/rpng/open_vins.git
+# (leo_navigation, leo_autonomy, kalibr already present in src/)
+cd ~/TOUT/catkin_ws
+catkin build ov_msckf          # builds openVINS and its deps
+source devel/setup.bash
+
+# --- MINS (separate workspace: its own build flags) ---
+cd ~/TOUT/mins_ws/src
+git clone https://github.com/rpng/MINS.git
+cd ~/TOUT/mins_ws
+catkin build mins
+source devel/setup.bash
+
+# --- Carolus beacon detection ---
+cd ~/TOUT/carolus_ws
+catkin build
+\end{lstlisting}
+
+\noindent System dependencies (Eigen, Ceres, OpenCV~4, Boost) are the
+standard openVINS/MINS prerequisites; on a fresh machine install them with
+\code{rosdep install --from-paths src --ignore-src -r -y} run once per
+workspace before the first \code{catkin build}. openVINS and MINS both
+compile against \code{tf2\_ros} on this platform (the legacy \code{tf}
+migration of \S\ref{sec:july22tf2} for MINS, and the equivalent open item
+for openVINS in Table~\ref{tab:openitems}). The MINS workspace cannot simply
+be \code{source}d back-to-back with \code{catkin\_ws}; the
+\code{tools/launch\_mins.sh} helper unions the two environments correctly and
+is the supported way to launch anything MINS-side (see its header comment for
+why).
+
+\section{Network configuration}
+\label{ap:repro-net}
+\emph{Why this matters:} ROS has no auto-discovery. Each process must be told
+where the master lives (\code{ROS\_MASTER\_URI}) and which address to advertise
+so others can call it back (\code{ROS\_IP}). Get \code{ROS\_IP} wrong and you
+get the most misleading symptom on the platform: \code{rosnode list} shows
+every node, and no data ever arrives.
+
+\subsection{Step 1: one file holds the robot's address}
+The robot's address changes with the network: \code{10.0.0.1} on the robot's own
+hotspot, a DHCP address on campus WiFi, \code{10.200.0.2} over the WireGuard
+tunnel used at the time of writing. \textbf{Never hard-code it}: it used to
+be duplicated in five scripts, and changing networks meant five edits and a
+guaranteed omission.
+
+\begin{lstlisting}[language=bash]
+echo 'LEO_ROBOT_HOST=10.200.0.2' > ~/.leo_network
+\end{lstlisting}
+Deleting the file restores the default (\code{10.0.0.1}). Every script reads
+\code{tools/robot\_env.sh}, which reads this file.
+
+\subsection{Step 2: what robot\_env.sh derives, and why}
+\code{ROS\_IP} is \textbf{not} hard-coded either: it is looked up from the
+routing table, so it stays correct on a machine with both Ethernet and WiFi.
+The address that matters is the one on the interface that can actually reach
+the robot.
+\begin{lstlisting}[language=bash]
+export ROBOT_HOST="${LEO_ROBOT_HOST:-10.0.0.1}"
+export ROS_MASTER_URI="http://${ROBOT_HOST}:11311"
+_leo_ros_ip="$(ip route get "$ROBOT_HOST" | grep -oP 'src \K[0-9.]+' | head -1)"
+export ROS_IP="${_leo_ros_ip:-$(hostname -I | awk '{print $1}')}"
+\end{lstlisting}
+
+\noindent \textbf{Verify, from any directory:}
+\begin{lstlisting}[language=bash]
+cd ~/TOUT
+source tools/robot_env.sh
+echo "$ROBOT_HOST | $ROS_MASTER_URI | $ROS_IP"
+\end{lstlisting}
+\textbf{Expected:} \code{10.200.0.2 | http://10.200.0.2:11311 | 10.200.0.1}. \\
+If \code{ROS\_IP} is empty or on the wrong subnet, stop: fix the network
+first, nothing downstream will work.
+
+\subsection{Step 3: the WireGuard tunnel (optional but recommended)}
+Campus WiFi hands out changing addresses and sometimes isolates clients from
+each other. A WireGuard tunnel gives the pair two \emph{fixed} addresses
+(\code{10.200.0.1} for the PC, \code{10.200.0.2} for the robot) regardless of
+the underlying network, which removes an entire class of ``it worked
+yesterday'' failures.
+
+\paragraph{Decide which machine is reachable first.} WireGuard has no
+client and server roles in the protocol, but it does in practice: one side
+must carry an \code{Endpoint}, and that side must be reachable from the
+other. This is the question that decides whether the tunnel comes up at all,
+and it is decided by your network, not by preference.
+
+\begin{center}
+\small
+\begin{tabular}{@{}L{4.6cm}L{4.4cm}L{4.4cm}@{}}
+\toprule
+Situation & Who carries \code{Endpoint} & Works? \\
+\midrule
+The PC has a fixed, routable address (wired lab network, port
+$51820/\mathrm{udp}$ open) & the robot points at the PC & yes, the
+arrangement used here \\
+\addlinespace
+Both sides behind campus NAT, no inbound ports & neither can reach the other
+& \textbf{no}; you need a third host \\
+\addlinespace
+A cheap VPS with a public IP & both point at the VPS & yes, and it survives
+either side changing network \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Campus networks routinely block inbound connections and isolate
+wireless clients from one another. If the PC is itself on campus WiFi, expect
+the second row: no amount of configuration on the two machines will fix it,
+and the honest answer is a VPS acting as a rendezvous point, with both rover
+and workstation as clients of it.
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \code{sudo apt install wireguard} on both machines.
+\item Generate a key pair on each:
+\begin{lstlisting}[language=bash]
+wg genkey | tee private.key | wg pubkey > public.key
+\end{lstlisting}
+\item Write \code{/etc/wireguard/wg0.conf} on each side. Substitute the four
+  placeholders; everything else is literal.
+
+\textbf{Workstation} (the side carrying the \code{Endpoint} in this
+deployment, i.e.\ the one that listens):
+\begin{lstlisting}[language=bash]
+[Interface]
+Address    = 10.200.0.1/24
+PrivateKey = <PC_PRIVATE_KEY>
+ListenPort = 51820
+
+[Peer]                              # the robot
+PublicKey  = <ROBOT_PUBLIC_KEY>
+AllowedIPs = 10.200.0.2/32
+\end{lstlisting}
+
+\textbf{Robot:}
+\begin{lstlisting}[language=bash]
+[Interface]
+Address    = 10.200.0.2/24
+PrivateKey = <ROBOT_PRIVATE_KEY>
+
+[Peer]                              # the workstation
+PublicKey  = <PC_PUBLIC_KEY>
+AllowedIPs = 10.200.0.0/24
+Endpoint   = <PC_REACHABLE_IP>:51820
+PersistentKeepalive = 25
+\end{lstlisting}
+
+\item Enable on both: \code{sudo systemctl enable --now wg-quick@wg0}.
+\item \textbf{Verify:} \code{ping -c 5 10.200.0.2} from the PC gives
+  \code{0\% packet loss}, and \code{sudo wg show} lists a recent handshake.
+  Then point the project at it:
+  \code{echo 'LEO\_ROBOT\_HOST=10.200.0.2' > \textasciitilde/.leo\_network}.
+\end{enumerate}
+
+\begin{trapbox}{\texttt{PersistentKeepalive} is not a roaming fix}
+It is frequently described as one, including in earlier revisions of this
+appendix, and the claim does not survive contact with this platform.
+Keepalive stops a NAT mapping from expiring while nothing is being sent. It
+does nothing when the robot's radio actually re-associates and its underlying
+address changes: the peer's cached endpoint is then stale until a packet from
+the new address re-teaches it.
+
+Registry item~12 records the reality. One WireGuard outage was explained and
+fixed by endpoint roaming; a \emph{second} resisted restarts on both ends, a
+port change, and a four-minute idle wait, while ICMP and SSH to the robot
+stayed healthy throughout. That item is still open. Treat the tunnel as
+usually reliable and occasionally not, and when it floats, check
+\code{sudo wg show} for the age of the last handshake before restarting
+anything else.
+\end{trapbox}
+
+\noindent \textbf{Known quirk:} on this workstation the USB WiFi dongle
+(\code{rtl88x2bu}) drops packets when its power-saving kicks in. It affects the
+PC only, not the robot. First find your own interface name, which will
+\emph{not} be the one below:
+\begin{lstlisting}[language=bash]
+ip -br link | grep -E '^wl'        # or: iwconfig 2>/dev/null | grep -B1 IEEE
+\end{lstlisting}
+Then disable power saving on it. This does \emph{not} survive a reboot:
+\begin{lstlisting}[language=bash]
+sudo iw dev <WIFI_INTERFACE> set power_save off
+# on the machine used here that name was wlxcc641aee985b
+\end{lstlisting}
+
+\subsection{Step 4: passwordless SSH to the robot}
+Several scripts read robot state over SSH. Set up a key so they do not stall
+waiting for a password:
+\begin{lstlisting}[language=bash]
+ssh-keygen -t ed25519           # accept the defaults
+ssh-copy-id pi@10.200.0.2       # password once; never again
+ssh pi@10.200.0.2 'hostname'    # verify
+\end{lstlisting}
+\textbf{Expected:} the robot's hostname, with no password prompt.
+
+\subsection{Step 5: the web transport, and the two ports it can use}
+\label{ap:repro-webtransport}
+The cockpit is an ordinary static web page. It has no server-side logic and no
+ROS libraries of its own: everything it knows about the robot arrives over a
+single WebSocket to \code{rosbridge}, which translates JSON into ROS messages
+and back. Three processes therefore have to be alive, and they are independent
+of one another:
+
+\begin{center}
+\small
+\begin{tabular}{@{}llL{5.6cm}@{}}
+\toprule
+Process & Port & Role \\
+\midrule
+\code{web/serve.py}                      & $8000$ & serves the HTML, CSS and JavaScript \\
+\code{rosbridge\_websocket}              & $9090$ & plain WebSocket, LAN and loopback \\
+\code{tools/rosbridge\_websocket\_tunnel.py} & $9443$ & TLS WebSocket, behind \code{cloudflared} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The page itself is served on $8000$ in both cases. What changes
+between the two transports is only where the \emph{WebSocket} goes, and the
+choice is made automatically from the hostname you typed:
+
+\begin{lstlisting}[language=JavaScript]
+const TUNNEL_ROOT = 'leo-rover-gardon.dev';
+const isTunnel = () => location.hostname === TUNNEL_ROOT
+                    || location.hostname.endsWith('.' + TUNNEL_ROOT);
+const wsURL = (host) => isTunnel()
+      ? ('wss://' + location.host + '/rosbridge')   // -> cloudflared -> :9443
+      : ('ws://'  + host + ':9090');                // -> direct
+\end{lstlisting}
+
+\noindent This single function is the whole of the routing logic, and it has a
+consequence worth internalising before you debug anything:
+
+\begin{center}
+\begin{tikzpicture}[font=\scriptsize, >=Latex, node distance=6mm,
+  b/.style={draw, rounded corners=2pt, inner sep=3.5pt, align=center, minimum height=7mm}]
+  \node[b, fill=accentblue!7, draw=accentblue] (b1) at (0,0) {browser on\\\code{localhost:8000}};
+  \node[b, right=16mm of b1] (r1) {\code{rosbridge}\\\code{:9090}};
+  \node[b, right=13mm of r1] (m1) {ROS master};
+  \draw[->, accentblue, thick] (b1) -- node[above]{\code{ws://}} (r1);
+  \draw[->] (r1) -- (m1);
+
+  \node[b, fill=alertred!6, draw=alertred] (b2) at (0,-2.1) {browser on\\\code{cockpit.\ldots dev}};
+  \node[b, right=16mm of b2] (cf) {\code{cloudflared}};
+  \node[b, right=7mm of cf] (r2) {TLS bridge\\\code{:9443}};
+  \node[b, right=7mm of r2] (m2) {ROS master};
+  \draw[->, alertred, thick] (b2) -- node[above]{\code{wss://}} (cf);
+  \draw[->] (cf) -- (r2);
+  \draw[->] (r2) -- (m2);
+\end{tikzpicture}
+\end{center}
+
+\noindent \textbf{The two paths share nothing but the ROS master.} Different
+process, different port, different TLS state, different failure modes. When
+one is broken the other is very often fine, and that is the single most useful
+fact in this subsection.
+
+\subsubsection{The zombie port}
+\begin{trapbox}{Symptom: the page loads perfectly and every button is dead}
+Restart the ROS master while the TLS bridge on $9443$ is running, and that
+bridge keeps its listening socket open. It still accepts the TCP connection,
+still completes the TLS negotiation, still completes the WebSocket upgrade.
+What it no longer holds are live handles to the ROS graph, so nothing it
+receives is ever published and nothing from the graph ever reaches you.
+
+The browser has no way to notice. At every layer it can observe, the
+connection succeeded. The page therefore renders its ``connected'' state
+truthfully and the interface looks entirely normal while being inert.
+\end{trapbox}
+
+\noindent\textbf{Since 2026-07-31 this is detected automatically.}
+\code{tools/leo\_watchdog.sh} carries a \emph{drowning probe}: it does not ask
+whether the port is bound, which in this failure mode it always is, but opens
+a real WebSocket handshake and requires an answer within eight seconds. Until
+July~31 that probe covered only port $9090$, so the one failure mode it was
+designed to catch was being observed on the port it did not watch. It now
+probes both, and purges the pair on either failure, after which
+\code{start\_web.sh} restarts them idempotently.
+
+\begin{trapbox}{If you ever extend this probe, mind the TLS}
+Port $9443$ is served over TLS (\code{listenSSL} in
+\code{rosbridge\_websocket\_tunnel.py}). Copying the plain-text $9090$ probe
+onto it produces a probe that \emph{always} fails, so the watchdog would purge
+both bridges every single minute: the exact restart storm of
+\S\ref{ap:repro-watchdog}. Verified on 2026-07-31, a plain probe against
+$9443$ raises \code{AssertionError} while a TLS-wrapped one returns
+\code{HTTP/1.1 400}. A $400$ is a perfectly good result here, because the
+probe tests whether the process still answers, not whether it accepts the
+request.
+\end{trapbox}
+
+\noindent\textbf{Manual remediation, in increasing order of cost}, for the
+window before the watchdog's next tick:
+\begin{enumerate}[leftmargin=1.6em]
+\item \textbf{Force-reload the page} (\code{Ctrl+Shift+R}). This tears down
+  the WebSocket and builds a new one. If the bridge process itself recovered,
+  this is enough, and it costs two seconds.
+\item \textbf{Change transport.} Open
+  \code{http://localhost:8000/ops.html} instead of the tunnel domain. By the
+  rule above this switches you to \code{ws://\ldots:9090}, a different process
+  that never went through the restart. Note carefully that this is not a
+  different page and not a fallback mode: it is the same cockpit reaching the
+  same master by an independent route. If the cockpit works here, the fault is
+  in the tunnel path and nowhere else.
+\item \textbf{Restart the TLS bridge} only once the two steps above have
+  failed, since it is the only one that interrupts anything.
+\end{enumerate}
+
+\noindent\textbf{Diagnose before you restart.} The two commands below separate
+``the page is broken'' from ``the bus is quiet'', and the order matters:
+
+\begin{lstlisting}[language=bash]
+# 1. Does ROS traffic exist at all? Use a topic that is ALWAYS busy.
+rostopic hz /mission/telemetry      # expect ~4 Hz, continuously
+# 2. Does a command sent from the page reach the bus?
+rostopic echo /mission/command      # press a cockpit button and watch
+# 3. Are both bridges actually listening?
+ss -ltnp | grep -E '9090|9443|8000'
+\end{lstlisting}
+
+\noindent The choice of topic in the first command is not incidental. During
+the July 30 session the relay was declared broken on the evidence of a silent
+\code{/mission/log}, which publishes only when something happens; the empty
+output proved nothing at all. Repeating the test on \code{/mission/telemetry}
+showed fifty frames in twelve seconds and the relay was healthy throughout.
+\textbf{A silent topic is not a dead link.} Always probe something that is
+supposed to be noisy.
+
+\subsubsection{Two further transport traps, for completeness}
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{Opening the page as \code{file://}} disables both rosbridge and
+  the video stream, because the browser refuses cross-origin WebSockets from a
+  file URL. The cockpit detects this and prints a red banner telling you to
+  use \code{http://<PC-IP>:8000/ops.html}. If you see that banner, nothing
+  else you observe about connectivity means anything.
+\end{itemize}
+
+\subsection{Step 6: the Cloudflare tunnel, and why you must rebuild it}
+\label{ap:repro-cloudflare}
+Everything above gets you a cockpit on the local network. The public address,
+\code{cockpit.leo-rover-gardon.dev}, is served by a Cloudflare tunnel, and it
+is the one piece of this system you \textbf{cannot inherit}.
+
+\begin{trapbox}{The existing tunnel dies with its owner's account}
+The tunnel in service at the time of writing is bound to a personal
+Cloudflare account and to a domain registered under it. Its credentials live
+in \code{\textasciitilde/.cloudflared/} on the workstation, outside the
+project tree and outside version control, and they cannot be transferred by
+copying a file. \textbf{You will have to create your own tunnel, on your own
+account, and repoint DNS at it.} Budget an hour. Nothing else in this
+appendix depends on it: the cockpit works fully over
+\code{http://localhost:8000} without any tunnel at all.
+\end{trapbox}
+
+\paragraph{What the tunnel actually does.} It terminates TLS at Cloudflare's
+edge and forwards three different paths of one hostname to three local
+services. That routing is the missing link between the JavaScript of
+\S\ref{ap:repro-webtransport}, which builds
+\code{wss://cockpit.\ldots/rosbridge}, and the TLS bridge listening on
+$9443$. Without the \code{ingress} block below, that URL resolves to nothing
+and every button in the cockpit is inert with no error message.
+
+\paragraph{Setup, from nothing.}
+\begin{enumerate}[leftmargin=1.4em]
+\item Install the binary (a \code{.deb} from Cloudflare, or your package
+  manager), then authenticate. This opens a browser and writes
+  \code{\textasciitilde/.cloudflared/cert.pem}:
+\begin{lstlisting}[language=bash]
+cloudflared tunnel login
+\end{lstlisting}
+\item Create the tunnel. This prints a UUID and writes the credentials file
+  \code{\textasciitilde/.cloudflared/<UUID>.json}, which is the actual
+  secret:
+\begin{lstlisting}[language=bash]
+cloudflared tunnel create leo-cockpit
+\end{lstlisting}
+\item Point a DNS name at it, on a domain your account controls:
+\begin{lstlisting}[language=bash]
+cloudflared tunnel route dns leo-cockpit cockpit.example.org
+\end{lstlisting}
+\item Write \code{\textasciitilde/.cloudflared/config.yml}. This is the file
+  that matters, reproduced with the real routing and only the identifiers
+  replaced:
+\begin{lstlisting}[language=bash]
+tunnel: <TUNNEL_UUID>
+credentials-file: /home/<user>/.cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  # rosbridge and video are served on the SAME hostname as the page, on
+  # dedicated paths, so they share the Cloudflare Access cookie of the
+  # already-authenticated page. A separate subdomain would break the
+  # WebSocket handshake on cookie scope.
+  - hostname: cockpit.example.org
+    path: ^/rosbridge/?$
+    service: https://localhost:9443
+    originRequest:
+      noTLSVerify: true    # self-signed cert, loopback hop only
+  - hostname: cockpit.example.org
+    path: ^/(stream|stream_viewer)$
+    service: http://localhost:8080
+  - hostname: cockpit.example.org
+    service: http://localhost:8000
+  - service: http_status:404
+\end{lstlisting}
+\item Run it. \code{web/start\_web.sh} already does this for you, with an
+  absolute path because a bare \code{cloudflared} fails silently under
+  \code{cron}:
+\begin{lstlisting}[language=bash]
+cloudflared tunnel run
+\end{lstlisting}
+\end{enumerate}
+
+\paragraph{Three details that are load-bearing.}
+\begin{itemize}[leftmargin=1.4em]
+\item \code{service: https://localhost:9443}, not \code{http}. The TLS bridge
+  speaks TLS on the loopback hop as well.
+\item \code{noTLSVerify: true} is required because that bridge presents a
+  self-signed certificate. It is safe \emph{here} and only here, because the
+  hop it applies to never leaves the machine.
+\item The order of \code{ingress} rules is significant. Cloudflare takes the
+  first match, so the catch-all \code{service: http://localhost:8000} must
+  come last, and \code{http\_status:404} last of all.
+\end{itemize}
+
+\paragraph{Verify.}
+\begin{lstlisting}[language=bash]
+pgrep -x cloudflared                            # the process must exist
+curl -sI https://cockpit.example.org/ops.html   # expect HTTP/2 200
+tail -20 ~/TOUT/logs/cloudflared.log            # look for "Registered tunnel"
+\end{lstlisting}
+
+\section{Robot-side configuration}
+\label{ap:repro-robot}
+The Pi runs a stock LEO~Rover image plus three project-specific changes.
+\textbf{If you reflash the robot, you must redo all three}, and the system will
+appear to work while behaving badly if you forget, which is exactly how
+each was discovered.
+
+\subsection{How the robot starts itself}
+The Pi runs \code{leo.service}, a systemd unit that launches \code{rosmon}
+(a supervising alternative to \code{roslaunch}), which in turn starts the ROS
+master and the robot's nodes from
+\code{/opt/ros/noetic/share/leo\_bringup/launch/leo\_bringup.launch}.
+
+\begin{lstlisting}[language=bash]
+ssh pi@$ROBOT_HOST 'systemctl status leo --no-pager | head -5'
+ssh pi@$ROBOT_HOST 'sudo systemctl restart leo'     # full robot-side restart
+\end{lstlisting}
+\code{rosmon} respawns any node that dies, which is usually helpful and
+occasionally the reason something you killed keeps coming back
+(\S\ref{ap:repro-phantom}).
+
+\subsection{Change 1: real-time priority for the serial node}
+\label{ap:repro-rtfix}
+\emph{Why:} the CORE2 board streams IMU and encoder data into a $32$-byte
+hardware FIFO on the Pi's PL011 UART. If \code{serial\_node} is not scheduled
+before that FIFO fills, bytes are lost with no retransmission. Symptom:
+thousands of checksum errors and wheel odometry collapsing from $19$\,Hz to
+$1$\,Hz.
+
+\textbf{The fix has two halves and needs both.} With only the first, the node
+does not start \emph{at all}: you lose driving entirely, which is worse than
+the bug.
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Ask for real-time priority}, in
+  \code{leo\_bringup.launch} on the robot:
+\begin{lstlisting}[language=xml]
+<node name="serial_node" pkg="rosserial_python" type="serial_node.py"
+      launch-prefix="chrt -f 25">
+\end{lstlisting}
+\item \textbf{Grant permission to ask}, because user \code{pi} has
+  \code{rtprio=0} by default and \code{chrt} would simply fail. Create
+  \code{/etc/systemd/system/leo.service.d/10-rtprio.conf}:
+\begin{lstlisting}
+[Service]
+LimitRTPRIO=50
+\end{lstlisting}
+  then \code{sudo systemctl daemon-reload \&\& sudo systemctl restart leo}.
+\end{enumerate}
+
+\noindent \textbf{Verify both halves:}
+\begin{lstlisting}[language=bash]
+ssh pi@$ROBOT_HOST 'chrt -p $(pgrep -f serial_node | head -1)'
+\end{lstlisting}
+\textbf{Expected:} \code{scheduling policy: SCHED\_FIFO},
+\code{priority: 25}. \\
+\textbf{And the payoff:} \code{rostopic hz /firmware/wheel\_odom} should read
+$\sim19$\,Hz. Before the fix it read $1$\,Hz.
+
+\subsection{Change 2: camera settings that reset on every restart}
+\label{ap:repro-camreset}
+\emph{Why:} the D455's infrared projector paints a dot pattern that helps
+depth and \emph{ruins} the checkerboard and LED detection. It is therefore
+turned off, and the depth compression level is lowered to save Pi CPU. Both
+are \code{dynamic\_reconfigure} values, so \textbf{they revert to factory
+defaults every time the camera node restarts}, and the camera node restarts
+whenever the stack does.
+
+\begin{lstlisting}[language=bash]
+rosrun dynamic_reconfigure dynparam set /camera/stereo_module laser_power 0
+rosrun dynamic_reconfigure dynparam set \
+  /camera/depth/image_rect_raw/compressedDepth png_level 1
+\end{lstlisting}
+\code{tools/restart\_stack.sh} and the watchdog both reapply these, which is
+why you rarely notice. If your checkerboard detection suddenly degrades, check
+\code{laser\_power} first:
+\begin{lstlisting}[language=bash]
+rosrun dynamic_reconfigure dynparam get /camera/stereo_module | grep laser_power
+\end{lstlisting}
+
+\subsection{Change 3: disable the robot's own rosbridge}
+\label{ap:repro-phantom}
+\emph{Why:} the stock image runs a \code{rosbridge\_server} on the robot for
+its factory web UI. This project's cockpit connects to a rosbridge on the
+\emph{PC} instead, so the robot's copy has zero clients, yet it was measured
+consuming $19\%$ of a CPU core on a Pi already thermally throttled. Its
+consumption \emph{grows with uptime} (a leak: a freshly respawned instance sits
+at $0\%$), and its \code{unregister\_timeout} of $86400$\,s let it live outside
+the ROS graph, invisible to \code{rosnode list}.
+
+Comment the node out in \code{leo\_bringup.launch} on the robot:
+\begin{lstlisting}[language=xml]
+<!-- DISABLED: unused, and leaks CPU on a thermally limited Pi.
+<node name="rosbridge_server" pkg="rosbridge_server"
+      type="rosbridge_websocket">
+  <param name="unregister_timeout" value="86400"/>
+</node>
+-->
+\end{lstlisting}
+Then \code{sudo systemctl restart leo}. Killing the process without editing
+the launch file is futile: \code{rosmon} respawns it within seconds.
+
+\section{The code we wrote, node by node}
+\label{ap:repro-ourcode}
+Everything upstream (openVINS, MINS, the camera driver) is unmodified. The
+project-specific logic lives in six files, all in
+\code{catkin\_ws/src/leo\_navigation/scripts/} except the last. Each has a long
+header comment explaining \emph{why} it exists: read that header before
+changing anything, because most of these nodes exist to work around a specific
+measured defect, and the workaround looks arbitrary until you know which.
+
+\subsection{imu\_sanitizer.py: the IMU is not trustworthy raw}
+\textbf{Subscribes} \code{/firmware/imu} (\code{leo\_msgs/Imu}) \quad
+\textbf{Publishes} \code{/imu/data\_clean} (\code{sensor\_msgs/Imu})
+
+This node exists because the CORE2 IMU has \emph{four} separate defects, each
+found by measurement, and both estimators consume its output.
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Isolated glitches.} Roughly two samples in nine thousand come out
+  absurd (one accelerometer reading of $5\times10^{16}$\,m/s$^2$ was recorded).
+  A single such sample destroys any filter instantly. Samples outside
+  \code{\textasciitilde gyro\_limit} ($35$\,rad/s) or
+  \code{\textasciitilde accel\_limit} ($160$\,m/s$^2$) are replaced by the last
+  good one, keeping the cadence intact.
+\item \textbf{A frozen-firmware mode.} After a serial desync the board can
+  retransmit the \emph{same} sample forever: bit-identical values, which a
+  real sensor never produces. $N$ identical samples in a row triggers an
+  automatic \code{/firmware/reset\_board} call (throttled).
+\item \textbf{Accelerometer scale error.} With the robot verified stationary
+  ($502$ samples, wheel odometry $0.000$\,m/s) the raw magnitude read
+  $8.7525$\,m/s$^2$ against a true local gravity of $9.790$. That is $-10.6\%$,
+  and it is in the sensor: raw and sanitised agreed to $0.005$. Corrected by
+  \code{\textasciitilde accel\_scale} $= 9.790/8.7525 = 1.1186$.
+\item \textbf{Gyroscope bias, badly out of spec.} Stationary, the gyro read
+  $3.679$\,deg/s of total bias where a healthy MEMS part sits at
+  $0.01$--$0.1$. Because attitude is the \emph{integral} of the gyro, that
+  mis-projects gravity into the body frame and injects a phantom horizontal
+  acceleration far larger than the accelerometer error. Subtracted, and
+  \textbf{re-measured at every node start} (\code{\textasciitilde gyro\_autocal},
+  default \code{true}) because bias drifts with temperature and this Pi runs at
+  $86\,^\circ$C.
+\end{enumerate}
+
+\noindent \textbf{Parameters you may need:}
+\begin{lstlisting}[language=bash]
+~accel_scale    1.1186   # 1.0 disables; see (3) above
+~gyro_scale     1.0      # NOT measured yet -- see below
+~gyro_autocal   true     # re-measure bias at startup if the robot is still
+~gyro_limit     35.0     # rad/s, glitch rejection
+~accel_limit    160.0    # m/s^2
+\end{lstlisting}
+
+\noindent \textbf{The honest gap.} \code{\textasciitilde gyro\_scale} is
+\textbf{deliberately left at $1.0$, i.e.\ no correction.} A stationary
+calibration measures the \emph{bias} but is mathematically incapable of
+measuring the \emph{scale}: at rest the true rate is zero, so the scale factor
+drops out of the observation entirely. Measuring it requires a turn of known
+amplitude against physical ground truth: see
+\S\ref{ap:repro-calibrun}. Setting this parameter on a guess would corrupt
+\emph{both} estimators at once.
+
+\subsection{wheel\_remap.py: a two-line bug that costs a day}
+\textbf{Subscribes} \code{/joint\_states} \quad
+\textbf{Publishes} a 2-element \code{JointState} MINS can read
+
+MINS reads wheel velocities \textbf{by array index, not by joint name}:
+\code{data.m1 = msg->velocity.at(0)} with a comment claiming it is the front
+left wheel. This rover publishes its four wheels in a different order, so MINS
+was silently fed the wrong wheels. Nothing errors; the estimate is simply
+wrong. This node republishes a two-element message in the order MINS assumes.
+
+\begin{lstlisting}[language=bash]
+~front_left_name    ~front_right_name     # which joints to pick
+~rear_left_name     ~rear_right_name
+~in_topic  /joint_states                  ~out_topic
+\end{lstlisting}
+
+\noindent \textbf{Lesson worth carrying:} when integrating any upstream
+estimator, verify how it identifies its inputs. Index-based assumptions are
+common and fail silently.
+
+\subsection{pose\_selector.py: one topic that never breaks}
+\textbf{Subscribes} \code{/mins/imu/odom}, \code{/ov\_msckf/odomimu} \quad
+\textbf{Publishes} \code{/robot\_pose\_fused} \quad
+\textbf{Service} \code{/pose\_selector/set\_source} (\code{std\_srvs/SetBool};
+\code{true} $=$ MINS)
+
+Downstream consumers (the cockpit, logging, any navigation) need
+\emph{one} pose topic that keeps working when you switch estimators. The two
+estimators have independent origins, so a naive switch would produce a jump of
+tens of metres. This node applies an SE(3) correction at the moment of the
+switch so the output is continuous.
+
+\begin{lstlisting}[language=bash]
+~default_source        mins    # what is served at startup
+~max_plausible_speed           # rejects physically impossible jumps
+~mins_topic  ~vins_topic  ~odom_frame  ~base_frame  ~imu_frame
+\end{lstlisting}
+
+\noindent \textbf{Important limitation, and it bites:} the SE(3) correction is
+computed \emph{on a switch only}. If MINS itself respawns it re-initialises at
+a new origin, and that jump is \textbf{not} absorbed: the fused topic jumps
+with it. This is one reason the estimators are deliberately \emph{not} allowed
+to bring down the stack: driving must never depend on estimator health.
+
+\subsection{carolus\_vicon\_bridge.py: the only absolute reference}
+\textbf{Publishes} \code{geometry\_msgs/PoseStamped} on the topic MINS accepts
+as a VICON input
+
+Every other measurement on this platform is relative. The Carolus beacon, a
+fixed LED constellation at a known place, gives a drift-free global fix
+whenever it is in view. This node reformats that fix into the type MINS's
+external-reference slot consumes, making it an ``indoor GPS'' that cancels
+unbounded drift.
+
+\begin{lstlisting}[language=bash]
+~global_frame   ~body_frame   ~out_topic   ~rate_hz   ~max_tf_age
+\end{lstlisting}
+
+\noindent \textbf{Rule established 2026-07-08 and violated once since:} the
+topic \code{/mins/external\_ref/carolus} is the \textbf{private slot} of this
+bridge. Nothing else may publish on it. A trajectory recorder that also wrote
+there produced a genuinely confusing failure.
+
+\subsection{leo\_backend.py: the cockpit's brain}
+This is the largest file in the project ($\sim4500$ lines) and it runs on the
+workstation, launched by \code{leo\_backend\_launch.sh}. It is \emph{not} a
+normal ROS node in spirit: it is the bridge between the browser and ROS.
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{Inbound:} JSON commands on \code{/mission/command}. Every cockpit
+  button publishes one, e.g.\ \code{\{"action":"set\_pose\_source",
+  "source":"VINS"\}}. To add a button, add an \code{elif action == "..."}
+  branch in \code{\_on\_command} and a click handler in the HTML.
+\item \textbf{Outbound:} a JSON telemetry blob at $10$\,Hz on
+  \code{/mission/telemetry}, plus human-readable lines on
+  \code{/mission/log}. The browser subscribes to both through rosbridge.
+\item \textbf{Also owns:} the autonomous patrol state machine, the beacon
+  approach logic, the trajectory buffers, the detached rosbag recorder, the
+  MATLAB export, and the ground-truth calibration panel.
+\end{itemize}
+
+\noindent \textbf{Two hard-won implementation notes.} Launching a GUI
+application (MATLAB) from this process needs three separate things or it dies
+within seconds: a double fork so it survives its parent, a pseudo-terminal
+(MATLAB's \code{-r} exits when stdin is not a tty), and a reconstructed
+\code{XDG\_RUNTIME\_DIR}/\code{DBUS\_SESSION\_BUS\_ADDRESS} because the backend
+is started without a login session. And any recording that matters is written
+by a \emph{detached} \code{rosbag} process, because this backend's own buffers
+are lost if it restarts.
+
+\subsection{vins\_rotation\_guard.py: deliberately not used}
+\label{ap:repro-guardfile}
+This file is still in the tree and is \textbf{intentionally not launched.} It
+was written to freeze openVINS's reported position during turns, on the belief
+that openVINS diverged when rotating. \textbf{It made things measurably worse}
+(\S\ref{ap:repro-guard}). It is kept as a record of the reasoning error, not as
+a component. Do not re-enable it without reading that section.
+
+\section{Configuration files, and the traps inside them}
+\label{ap:repro-config}
+\subsection{A trap that applies to every YAML here}
+\label{ap:repro-yamltrap}
+\textbf{Read this before editing any estimator config.} Both openVINS and MINS
+parse their YAML with OpenCV's \code{FileStorage} (the files begin with
+\code{\%YAML:1.0}), which is \emph{not} a general YAML parser. It
+\textbf{aborts on a long comment placed after a value on the same line}.
+
+The failure mode is vicious: the node starts, subscribes to nothing, and
+respawns forever, with no error message naming the file. This trap was hit
+twice on this project: the second time \emph{after} it had already been
+documented.
+
+\begin{itemize}[leftmargin=1.4em]
+\item Keep inline comments \textbf{short}, or put them on their own line.
+\item Validate before restarting anything:
+\begin{lstlisting}[language=bash]
+cd ~/TOUT/catkin_ws/src/open_vins/config/leo
+python3 -c "import cv2; f=cv2.FileStorage('estimator_config.yaml', \
+cv2.FILE_STORAGE_READ); print('readable:', f.isOpened()); f.release()"
+\end{lstlisting}
+  \textbf{Expected:} \code{readable: True}.
+\item \textbf{Never test a config from \code{/tmp}}: relative paths inside it
+  resolve differently and you get a false negative.
+\end{itemize}
+
+\subsection{openVINS}
+Three files, all in \code{catkin\_ws/src/open\_vins/config/leo/}:
+\begin{lstlisting}[language=bash]
+estimator_config.yaml     # the filter: init, ZUPT, features, noise, topics
+kalibr_imucam_chain.yaml  # camera intrinsics + camera-IMU extrinsics
+kalibr_imu_chain.yaml     # IMU noise densities and random walks
+\end{lstlisting}
+
+\noindent \textbf{Launch footgun.} The config path is passed as
+\code{args="..."}, i.e.\ \code{argv[1]}, and \emph{not} as a
+\code{<param name="config\_path">}. On the ROS1 build, the parameter read is
+inside an \code{\#if ROS\_AVAILABLE == 2} block and never executes. Using
+\code{<param>} fails silently: \code{argv[1]} becomes roslaunch's own
+\code{\_\_name:=...} argument, and openVINS reports it cannot open a file with
+that literal name.
+
+\noindent \textbf{The values that matter on this platform}, each with the
+measurement behind it:
+
+\begin{table}[htbp]
+\centering\small
+\caption{Key openVINS settings and why they are set this way.}
+\label{tab:appovcfg}
+\begin{tabular}{@{}llp{6.4cm}@{}}
+\toprule
+Key & Value & Why \\
+\midrule
+\code{try\_zupt} & \code{true} &
+  \textbf{The single largest fix.} With \code{false} a run diverged to
+  $41\,824$\,m; with \code{true}, $0.002$\,m. Zero-velocity updates anchor a
+  ground vehicle that stops often. \\
+\code{gravity\_mag} & \code{9.790} &
+  True local gravity (Melbourne FL). Leaving $9.81$ against a mis-scaled
+  accelerometer compounds the error. \\
+\code{num\_opencv\_threads} & \code{1} &
+  A mutex crash fired $1324$ times, once every $46$\,s. Root cause: OpenCV
+  threading. Zero crashes in $7$ minutes after. \\
+\code{max\_slam} & \code{0} &
+  Pivoting in place makes landmark depth unobservable; matches the MINS
+  setting. \\
+\code{calib\_cam\_extrinsics} & \code{false} &
+  Locked $2026$-$07$-$29$. Online refinement of a geometry that is poorly
+  observable under planar motion lets it wander. \\
+\code{calib\_cam\_timeoffset} & \code{false} &
+  Same reasoning. \\
+\code{calib\_cam\_intrinsics} & \code{false} &
+  Frozen from Kalibr; offline measurement beats online refinement. \\
+\code{init\_imu\_thresh} & \code{0.4} &
+  The jerk needed to initialise. The rover must be nudged
+  (\S\ref{ap:repro-launch}). \\
+\code{use\_stereo} / \code{max\_cameras} & \code{true} / \code{2} &
+  Both D455 infrared cameras. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The IMU noise densities in \code{kalibr\_imu\_chain.yaml}
+(\code{accelerometer\_noise\_density: 5.0e-03},
+\code{gyroscope\_noise\_density: 3.4e-04}) are \emph{measured} values inflated
+by a safety factor of three, not datasheet figures.
+
+\subsection{MINS}
+A per-sensor tree selected by \code{mins.launch}'s \code{config} argument
+(default \code{leo}), under \code{mins\_ws/src/MINS/mins/config/leo/}:
+\begin{lstlisting}[language=bash]
+config.yaml            # top level: includes the files below
+config_imu.yaml        # IMU noise model
+config_camera.yaml     # camera intrinsics + extrinsics
+config_wheel.yaml      # wheel model: effective radius, wheel base
+config_estimator.yaml  # filter and update options
+config_init.yaml       # static IMU + wheel initialisation
+config_system.yaml     # frames, topics, the VICON slot used by Carolus
+\end{lstlisting}
+MINS initialises \textbf{standing still} (static IMU + wheel init, $4$--$12$\,s),
+which is why it is the default served source. Its transforms are deliberately
+isolated onto \code{/tf\_mins} so it cannot fight openVINS over the main
+\code{/tf} tree.
+
+\noindent \textbf{Convention trap.} Kalibr and openVINS express the
+camera--IMU extrinsic as $\mathbf{T}_{\text{cam,imu}}$; MINS wants the
+\textbf{inverse}, $\mathbf{T}_{\text{imu,cam}}$. Copying one into the other
+without inverting produces a plausible-looking, wrong geometry. The helper
+\code{scripts/fill\_mins\_camchain.py} does the conversion.
+
+\subsection{Where each estimator keeps its configuration}
+\label{ap:repro-config-ref}
+Each estimator reads a small tree of YAML files; the launch files select
+which tree by name.
+
+\paragraph{openVINS.} A single estimator config plus its Kalibr chains, all
+under \code{catkin\_ws/src/open\_vins/config/leo/}:
+\begin{lstlisting}[language=bash]
+config/leo/estimator_config.yaml    # filter: init, ZUPT, feature counts,
+                                    #   noise, do_calib_* flags, topics
+config/leo/kalibr_imucam_chain.yaml # camera intrinsics + T_imu_cam extrinsics
+config/leo/kalibr_imu_chain.yaml    # IMU noise densities / random walks
+\end{lstlisting}
+The launch node \code{ov\_msckf/run\_subscribe\_msckf} takes the config path
+as \code{argv[1]} (a launch \code{<param name="config\_path">} is read only on
+the ROS2 build, a real footgun documented in
+\code{navigation\_supervision.launch}). Key platform-specific values
+(\S\ref{sec:ovinit}, \S\ref{sec:extrinsic}): \code{init\_dyn\_use: false} and
+\code{init\_imu\_thresh: 0.4} (jerk-triggered initialisation, the rover
+must be nudged to initialise VINS), \code{use\_stereo: true},
+\code{max\_cameras: 2}, and the frozen intrinsics
+(\code{do\_calib\_int: false}) with online extrinsic/time-offset refinement
+(\code{do\_calib\_ext: true}, \code{do\_calib\_dt: true}).
+
+\paragraph{MINS.} A per-sensor tree selected by the \code{config} launch arg
+(\code{mins.launch}: \code{<arg name="config" default="leo"/>}), under
+\code{mins\_ws/src/MINS/mins/config/leo/}:
+\begin{lstlisting}[language=bash]
+config/leo/config.yaml           # top-level: includes the files below
+config/leo/config_imu.yaml       # IMU noise model
+config/leo/config_camera.yaml    # camera intrinsics + extrinsics
+config/leo/config_wheel.yaml     # differential-drive wheel model (radius, base)
+config/leo/config_estimator.yaml # filter / update options
+config/leo/config_init.yaml      # static IMU+wheel initialisation
+config/leo/config_system.yaml    # frames, topics, VICON slot (Carolus)
+\end{lstlisting}
+MINS initialises \emph{standing still} (static IMU+wheel init, 4--12\,s,
+\S\ref{sec:ovinit}), which is why it is the default served source. Its
+transform output is isolated to \code{/tf\_mins}
+(\code{mins.launch}, \S\ref{sec:chain}); the Carolus global fix enters through
+the VICON slot on \code{/mins/external\_ref/carolus}.
+
+\paragraph{Beacon / AprilTag.} The autonomy beacon config lives with the
+project package: \code{catkin\_ws/src/leo\_autonomy/config/apriltag.yaml}
+(family \code{tag36h11}, full-resolution \code{tag\_decimate: 1.0}) and
+\code{tags.yaml} (the physical tag: \code{id: 285}, \code{size: 0.2032}\,m).
+The Carolus blob detector's parameters are in
+\code{carolus\_ws/src/launch/carolusBlobDetection.launch}, including the four
+LED \code{known\_points} (\S\ref{sec:july27carolus}); the cockpit's Carolus
+panel (\S\ref{sec:july27export}) parses this same file.
+
+\section{Launch file architecture}
+\label{ap:repro-launcharch}
+\emph{Why this section exists:} the configuration files tell each program what
+to believe; the launch files decide \emph{which programs exist, in what order,
+and what happens when one of them dies}. That last part is a design decision on
+this platform, not a default, and it was arrived at by watching the stack fail.
+
+Everything on the workstation starts from one file. Figure~\ref{fig:applaunch}
+shows the inclusion tree.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\small, x=1cm, y=1cm,
+  lf/.style={draw, rounded corners=2pt, align=left, inner sep=4pt,
+             font=\scriptsize\ttfamily, fill=blue!7},
+  grp/.style={draw, rounded corners=2pt, align=left, inner sep=4pt,
+              font=\scriptsize, fill=gray!6},
+  nd/.style={draw, rounded corners=2pt, align=left, inner sep=3pt,
+             font=\scriptsize\ttfamily, fill=green!9},
+  edge/.style={-{Latex[length=2mm]}, semithick, gray!70}
+]
+  % --- entry point
+  \node[lf, fill=orange!14] (master) at (0,0)
+    {navigation\_master.launch\\[1pt]\normalfont\scriptsize\itshape the only entry point};
+
+  % --- three includes
+  \node[lf] (tf)   at (5.6, 1.5) {tf\_static\_extrinsics.launch};
+  \node[lf] (mins) at (5.6, 0.0) {mins.launch};
+  \node[lf] (sup)  at (5.6,-1.6) {navigation\_supervision.launch};
+
+  \draw[edge] (master.east) -- (tf.west);
+  \draw[edge] (master.east) -- (mins.west);
+  \draw[edge] (master.east) -- (sup.west);
+
+  % --- what each owns
+  \node[nd] (tfn)  at (11.0, 1.5) {static TF publishers\\(base\_link $\to$ camera\_link)};
+  \node[nd, fill=yellow!14] (minsn) at (11.0, 0.0)
+    {mins\_subscribe\\\normalfont\scriptsize respawn, \code{nice -n -10}};
+  \node[nd] (supn) at (11.0,-1.9)
+    {imu\_sanitizer · wheel\_remap\\carolus\_vicon\_bridge · ov\_msckf\\
+     pose\_selector · leo\_backend\\web\_video\_server · republish$\times$4\\
+     camera\_info relay$\times$4 · throttle};
+
+  \draw[edge] (tf.east)   -- (tfn.west);
+  \draw[edge] (mins.east) -- (minsn.west);
+  \draw[edge] (sup.east)  -- (supn.west);
+
+  \node[font=\scriptsize, align=left, draw, dashed, rounded corners,
+        inner sep=4pt, fill=gray!4] at (5.6,-3.9)
+    {\textbf{Every node above is} \code{respawn="true"} \textbf{with}
+     \code{respawn\_delay="5"}.\\
+     None is \code{required="true"} --- see \S\ref{ap:repro-respawn} for why
+     that changed.};
+\end{tikzpicture}
+\caption{The launch inclusion tree on the workstation. One entry point,
+three includes, and a deliberate absence: no node is allowed to take the stack
+down with it. The robot's own nodes are \emph{not} here: they come from
+\code{leo\_bringup.launch} running on the Pi
+(\S\ref{ap:repro-robot}).}
+\label{fig:applaunch}
+\end{figure}
+
+\subsection{What each file owns}
+\begin{itemize}[leftmargin=1.4em]
+\item \code{navigation\_master.launch}: the only file you should ever launch
+  directly. It declares one argument, \code{config} (default \code{leo}), which
+  it forwards to \code{mins.launch}, and then includes the three files below. It
+  contains \emph{no} nodes of its own.
+\item \code{tf\_static\_extrinsics.launch}: the static coordinate transforms
+  the platform would otherwise be missing, principally
+  \code{base\_link} $\rightarrow$ \code{camera\_link}. Separated so the geometry
+  can be corrected without touching the estimators.
+\item \code{mins.launch}: the MINS estimator, and nothing else.
+\item \code{navigation\_supervision.launch}: everything else: the four image
+  \code{republish} nodes and four \code{camera\_info} relays that bring the
+  robot's compressed streams into a local namespace, our four Python nodes,
+  \code{ov\_msckf}, the cockpit backend and the video server.
+\end{itemize}
+
+\noindent \textbf{It does not start \code{robot\_state\_publisher}}, and that is
+correct: the URDF and the robot's own drivers belong to
+\code{leo\_bringup.launch}, which runs on the Pi. Every file in this package
+runs on the workstation.
+
+\subsection{Reliability: why nothing is \code{required="true"}}
+\label{ap:repro-respawn}
+\textbf{This is the most important design decision in the launch layer, and it
+is the reverse of what it was.}
+
+\code{roslaunch} offers two policies when a node dies.
+\code{required="true"} means \emph{if this node exits, kill everything};
+\code{respawn="true"} means \emph{restart it and leave the rest alone}.
+
+MINS was originally \code{required="true"}, on the reasonable-sounding argument
+that restarting an estimator mid-flight without re-initialisation is
+meaningless, so a crash should be loud. On $2026$-$07$-$06$ that policy was
+observed doing real damage: MINS aborted on an assertion
+(\code{SystemManager.cpp:395}, a backward IMU timestamp), and because it was
+\code{required}, roslaunch tore down the entire stack, including
+\code{leo\_backend}. The operator lost the ability to \emph{drive the robot}
+because an estimator had hiccupped.
+
+The principle established from that, and worth carrying to any similar system:
+
+\begin{quote}
+\textbf{Driving must never depend on estimator health.}
+\end{quote}
+
+Every node is now \code{respawn="true"} with \code{respawn\_delay="5"}. The
+five-second delay matters: without it, a node that fails at startup (a bad
+config, a missing topic) respawns in a tight loop that saturates a CPU and
+floods the log, which on a thermally limited platform is its own failure.
+
+\noindent \textbf{The cost, stated plainly.} On respawn, MINS re-initialises at
+a \emph{new origin}, so \code{/mins/imu/odom} jumps. The
+\code{pose\_selector}'s SE(3) correction does \textbf{not} absorb that jump:
+it only compensates at the moment of a deliberate source switch. So a
+mid-run MINS respawn produces a visible discontinuity in
+\code{/robot\_pose\_fused}. That is an accepted trade-off: a discontinuous
+trajectory is recoverable, a dead cockpit during a manoeuvre is not.
+
+\noindent \textbf{A stale comment to be aware of.} The header of
+\code{mins.launch} still claims MINS ``stays \code{required="true"}''. It does
+not: the node declaration twenty lines below says \code{respawn="true"}, and
+a second comment on the same node explains the change. The header was simply not
+updated. Trust the declaration, not the prose above it; this is exactly the kind
+of contradiction that misleads a successor.
+
+\subsection{Passing a config path: \code{args}, never \code{<param>}}
+\label{ap:repro-argsparam}
+Both estimators take their YAML path as a \textbf{positional command-line
+argument}, and getting this wrong produces one of the most misleading failures
+in the whole system.
+
+\begin{lstlisting}[language=xml]
+<!-- CORRECT -->
+<node name="mins_subscribe" pkg="mins" type="subscribe"
+      respawn="true" respawn_delay="5"
+      launch-prefix="nice -n -10 stdbuf -oL"
+      args="$(find mins)/config/$(arg config)/config.yaml">
+</node>
+
+<!-- WRONG: silently ignored on the ROS1 build -->
+<node name="mins_subscribe" pkg="mins" type="subscribe">
+  <param name="config_path" value="..."/>
+</node>
+\end{lstlisting}
+
+\noindent \textbf{Why the second form fails, and fails confusingly.} In the
+upstream source, the call that would read a \code{config\_path} ROS parameter
+sits inside an \code{\#if ROS\_AVAILABLE == 2} block: it is compiled out of
+the ROS1 build entirely. The program therefore falls back to reading
+\code{argv[1]}. But roslaunch appends its own arguments to every node, so
+\code{argv[1]} becomes \code{\_\_name:=mins\_subscribe}, and the estimator
+reports that it cannot open a configuration file with that literal name. The
+error message names a string you never typed, which sends you looking in the
+wrong place.
+
+\noindent \code{ov\_msckf} has exactly the same contract, for exactly the same
+reason. Both are documented in the launch files themselves so the trap is not
+rediscovered.
+
+\subsection{Two launch-prefix tricks used here}
+\begin{itemize}[leftmargin=1.4em]
+\item \code{nice -n -10} on MINS. The workstation's own IDE indexers were
+  measured starving the estimator of CPU, which produced episodes that looked
+  like estimator bugs. A negative nice value requires permission, granted to
+  this user in \code{limits.conf}.
+\item \code{stdbuf -oL} on MINS. Its initialisation diagnostics go to plain
+  \code{stdout}. When roslaunch redirects that to a file, glibc switches from
+  line-buffered to fully-buffered, and at this output volume the \code{[INIT]}
+  messages can sit unflushed for \emph{minutes}: looking exactly like a
+  hung estimator when it is initialising normally. Forcing line buffering makes
+  the diagnostics appear as they are printed.
+\end{itemize}
+
+\noindent The robot side uses the same idea for a different purpose:
+\code{launch-prefix="chrt -f 25"} on \code{serial\_node}, discussed in
+\S\ref{ap:repro-rtfix}.
+
+\subsection{How to add a node}
+\begin{enumerate}[leftmargin=1.4em]
+\item Put the script in
+  \code{catkin\_ws/src/leo\_navigation/scripts/} and make it executable
+  (\code{chmod +x}). A non-executable script produces
+  \code{cannot locate node of type [...]}, which reads like a missing file.
+\item Declare it in \code{navigation\_supervision.launch}, with
+  \code{respawn="true" respawn\_delay="5"} unless you have a specific reason
+  otherwise, and write that reason in a comment.
+\item Add \code{output="screen"} if you want its log in
+  \code{logs/navigation\_master.log}. Without it, diagnostics are difficult to
+  find.
+\item Restart with \code{bash tools/restart\_stack.sh}, never a bare
+  \code{roslaunch} (\S\ref{ap:repro-sourcetrap}).
+\item Verify it registered \emph{and} publishes:
+\begin{lstlisting}[language=bash]
+rosnode list | grep my_node
+rostopic hz /my_topic
+\end{lstlisting}
+  A node can register and stay silent; only the second command proves it works.
+\end{enumerate}
+
+\subsection{Two files the diagram does not show, and why}
+\label{ap:launch-notshown}
+
+\paragraph{\code{pose\_selector.launch}.} The diagram above shows
+\code{pose\_selector} as a node inside
+\code{navigation\_supervision.launch}, which is how it runs in normal
+operation. A standalone \code{pose\_selector.launch} also exists, for
+bringing the selector up alone against an already-running stack when you are
+debugging source switching. Whichever route you use, one parameter decides
+whether the TF tree is well formed:
+\begin{lstlisting}[language=XML]
+<param name="base_frame" value="base_footprint"/>
+\end{lstlisting}
+Set to \code{base\_link} instead, it gives that frame a second parent and the
+pose starts alternating silently between two coherent answers
+(\S\ref{ap:trap-tf}). Check it in both files if you ever edit one.
+
+\paragraph{\code{carolus\_tf\_bridge.py}.} Absent from every launch file, and
+deliberately so. It is the beacon-anchored absolute-error bridge of
+\S\ref{ap:repro-absolute}, and it freezes a static
+\code{beacon\_link}~$\to$~\code{odom} transform at the first fix. A node that
+silently re-anchors the world frame has no business starting automatically
+alongside an unrelated run, so it is started by hand, by an operator who
+intends to use it:
+\begin{lstlisting}[language=bash]
+rosrun leo_navigation carolus_tf_bridge.py
+\end{lstlisting}
+If you later decide to add it to a launch file, leave
+\code{\textasciitilde publish\_body\_chain} at its default of false: enabling
+it re-parents \code{base\_link} and corrupts the tree in the same way
+described above.
+
+\section{Launching the system, step by step}
+\label{ap:repro-launch}
+\emph{Why an order:} the master must exist before clients, and the estimators
+must see sensor data from their first sample or they initialise on nothing. The
+\code{leo} command sequences all of this; the value of knowing the order is
+being able to diagnose a \emph{partial} start, which is the common case.
+
+\subsection{The nominal sequence}
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Power the robot} and wait $\sim40$\,s. Its own \code{leo.service}
+  brings up the ROS master and the sensors before anything on the PC can
+  connect.
+\item \textbf{Check the link first.} From any directory:
+\begin{lstlisting}[language=bash]
+cd ~/TOUT && source tools/robot_env.sh
+ping -c 3 "$ROBOT_HOST"
+\end{lstlisting}
+  \textbf{Expected:} \code{0\% packet loss}. If this fails, stop: everything
+  after it will fail in a more confusing way.
+\item \textbf{Start the workstation side.} Two scripts, in this order. The
+  first brings up the web stack (static server on $8000$, rosbridge on
+  $9090$, the TLS bridge on $9443$, the video server on $8080$, and
+  \code{cloudflared} if configured); the second brings up the navigation
+  stack (MINS, openVINS, \code{pose\_selector}, \code{leo\_backend}). Both
+  are idempotent, so re-running them is safe.
+\begin{lstlisting}[language=bash]
+cd ~/TOUT && source tools/robot_env.sh
+touch /tmp/leo_maintenance          # suspend the watchdog while starting
+bash web/start_web.sh
+bash tools/restart_stack.sh
+rm -f /tmp/leo_maintenance          # DO NOT FORGET THIS
+\end{lstlisting}
+  \textbf{Expected:} a series of \code{[ok]} lines from the first script and
+  a launch log from the second. No \code{ECHEC} line.
+
+  \emph{Why the maintenance flag:} the cron watchdog restarts anything it
+  believes is dead, and a stack that is halfway up looks exactly like a stack
+  that has died. Without the flag the two of you will fight
+  (\S\ref{ap:repro-watchdog}). The flag is a plain file, so \textbf{if you
+  forget to remove it the watchdog stays disabled indefinitely} and you lose
+  every automatic recovery in this document.
+
+\item \textbf{Confirm the robot is seen:}
+\begin{lstlisting}[language=bash]
+ping -c 1 -W 1 "$ROBOT_HOST" && echo "robot online"
+ss -ltn | grep -E ':(8000|8080|9090|9443) '   # four listening ports
+\end{lstlisting}
+  \textbf{Expected:} \code{robot online}, and four ports bound.
+
+  \emph{A note on \code{leo start}:} the workstation used for this project
+  carried a convenience wrapper at \code{\textasciitilde/bin/leo} that
+  performed the sequence above plus a status view. It lives outside the
+  project tree and is \textbf{not} part of the repository, so it will not
+  exist on your machine. The commands above are what it actually ran; use
+  them directly, or write your own wrapper around them.
+\item \textbf{Confirm the four nodes that matter registered:}
+\begin{lstlisting}[language=bash]
+source /opt/ros/noetic/setup.bash
+rosnode list | grep -E "mins_subscribe|ov_msckf|pose_selector|imu_sanitizer"
+\end{lstlisting}
+  \textbf{Expected:} all four. A missing \code{ov\_msckf} almost always means
+  it aborted at startup: look in \code{logs/navigation\_master.log}, and
+  suspect the YAML trap of \S\ref{ap:repro-yamltrap} first.
+\item \textbf{Check the \emph{rates}, not just the names.} A registered node
+  can be completely silent; this is the real health test:
+\begin{lstlisting}[language=bash]
+rostopic hz /imu/data_clean                # expect ~80 Hz
+rostopic hz /mins/imu/odom                 # expect ~80-90 Hz
+rostopic hz /wheel_odom_with_covariance    # expect ~19-20 Hz
+rostopic hz /pc/camera/infra1/image_rect_raw   # expect ~15 Hz
+\end{lstlisting}
+  \code{/wheel\_odom\_with\_covariance} at $1$\,Hz instead of $19$ is the
+  signature of the UART problem of \S\ref{ap:repro-uart}.
+\item \textbf{Open the cockpit} at \url{http://localhost:8000/ops.html}.
+\end{enumerate}
+
+\subsection{Making openVINS start: the classic beginner trap}
+MINS initialises standing still. \textbf{openVINS does not.} It waits for an
+accelerometer jerk above \code{init\_imu\_thresh} before publishing anything
+\emph{at all}. Newcomers conclude openVINS is broken when it is merely waiting.
+
+\begin{enumerate}[leftmargin=1.4em]
+\item Drive the rover briskly forward, then back, about one second each way.
+\item Confirm it woke up:
+\begin{lstlisting}[language=bash]
+rostopic hz /ov_msckf/odomimu           # expect ~75-90 Hz
+\end{lstlisting}
+  Silence means it has not initialised. Jerk it again: more sharply.
+\end{enumerate}
+
+\subsection{Restarting cleanly when something is wrong}
+Do \textbf{not} kill individual nodes as a first response; several are
+respawn-supervised and will come back in a state you did not intend.
+\begin{lstlisting}[language=bash]
+cd ~/TOUT
+bash tools/restart_stack.sh
+\end{lstlisting}
+\textbf{Expected:} \code{stack relancée}, then
+\code{MINS initialisé après <N>s}, then \code{switched to MINS}, then
+\code{TERMINE}. Typical $N$ is $8$--$12$\,s.
+
+This script also raises the maintenance flag while it works, waits for MINS to
+publish before declaring success, and reapplies the camera settings that reset
+on restart (\S\ref{ap:repro-camreset}).
+
+\subsection{A short tour of the cockpit}
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{Operations}: live video, mission state, battery, and the
+  \emph{Pose Source} switch (MINS/VINS). Manual driving is here.
+\item \textbf{Trajectory}: the live plot of the served pose, the
+  \emph{Test 1 / Test 2} selector, the MATLAB export buttons, and the
+  \emph{ground-truth calibration} panel (\S\ref{ap:repro-calibrun}).
+\item \textbf{Logbook}, the project journal and the download card for this
+  report.
+\item \textbf{PID / Nav Modes / Robot}, tuning, autonomy state, and the URDF
+  view.
+\end{itemize}
+The cockpit is served over an authenticated Cloudflare tunnel as well, so it
+works from a phone or tablet standing next to the robot, which is how the
+calibration is meant to be done.
+
+\subsection{Editing the cockpit without breaking it}
+\label{ap:repro-editing-web}
+Two habits, both learned the hard way, and both cheap.
+
+\paragraph{Your edit is live but you are not seeing it.} This is the first
+thing that will happen to you, and it is not your edit. Cloudflare caches
+aggressively and a dashboard rule overrides the \code{Cache-Control:
+no-cache} that \code{serve.py} sends. Static assets therefore carry a version
+stamp in their query string:
+\begin{lstlisting}[language=html]
+<script src="app.js?v=r37"></script>
+\end{lstlisting}
+The query string is part of Cloudflare's default cache key, so
+\textbf{incrementing that number is what forces a fresh copy}. Bump it in
+every page that references the file you changed, and keep the stamps
+consistent across pages, since they have drifted apart before and produced
+two pages running different versions of the same script.
+
+A browser force-reload does \emph{not} help, because the stale copy sits at
+the network edge and not on your machine. If you are testing over
+\code{http://localhost:8000} you will not see the problem at all, which is
+exactly why it surprises people the first time they check the public URL.
+
+\paragraph{Validate JavaScript before you reload.} \code{app.js} is large and
+a brace inserted in the wrong place produces a file that loads without error
+and simply stops executing partway through, so the page renders and half the
+panels are dead. Counting braces by hand does not catch this; it failed once
+in this project and cost an afternoon. Parse the file instead:
+\begin{lstlisting}[language=bash]
+pip install esprima                     # once
+python3 -c "import esprima,sys; esprima.parseScript(open('web/app.js').read()); print('OK')"
+\end{lstlisting}
+Do the same for the inline scripts in \code{ops.html} if you touch them. A
+parse takes under a second and turns a silent partial failure into a line
+number.
+
+\subsection{Two pages, deliberately different: control versus demonstration}
+\label{ap:repro-twopages}
+\noindent\textbf{Two pages, deliberately different (cockpit v4).}
+\code{web/ops.html} is the control surface: it holds every command path,
+manual driving, AUTO engagement, pose-source switching, beacon reset, MATLAB
+export. \code{web/demo.html} subscribes to the same topics and publishes
+nothing at all. It has no command bindings to disable, because it has none to
+begin with.
+
+The separation is not cosmetic. A defence is the one occasion where the
+machine is driven by someone who is talking to a room rather than watching the
+robot, and where a mis-click is expensive and public. \code{demo.html} is
+built so that no mis-click exists: it shows the trajectory in the beacon
+frame, heading quivers, and the RMS error at $56$\,px, and it cannot move the
+rover. Open it on the projector; keep \code{ops.html} on your own screen.
+
+\paragraph{Why read-only is a structural property, not a setting.}
+The distinction matters because the two obvious alternatives are both worse.
+Disabling the controls with a flag leaves the command paths present in the
+page, one \code{localStorage} key or one console call away from being live
+again, and it invites the reader of the code to wonder which state the page is
+in. Hiding them with CSS is worse still, since the handlers remain bound and a
+keyboard shortcut or a stray focus event can fire them. \code{demo.html}
+instead \emph{subscribes} and never \emph{advertises}: it holds no publisher,
+no command topic and no \code{data-cmd} binding anywhere in its markup. There
+is no state in which it can move the robot, so there is no state to verify
+before a defence.
+
+\paragraph{What each page is for.}
+\begin{center}
+\small
+\begin{tabular}{@{}lL{4.5cm}L{4.5cm}@{}}
+\toprule
+ & \code{ops.html} & \code{demo.html} \\
+\midrule
+Audience     & the operator, alone & a room, during a defence \\
+ROS role     & subscriber \emph{and} publisher & subscriber only \\
+Commands     & manual drive, AUTO, pose source, beacon reset, MATLAB export & none exist \\
+Failure mode & a mis-click moves the rover & a mis-click does nothing \\
+Where to open it & your own screen & the projector \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\textbf{A practical consequence for the transport.} Because
+\code{demo.html} never publishes, it is immune to the entire class of
+symptoms described in \S\ref{ap:repro-webtransport}: a zombie TLS port makes
+buttons inert, and a page with no buttons cannot present that symptom. If the
+demonstration view is updating and the control view is not, you have localised
+the fault to the outbound direction of the WebSocket before running a single
+command.
+
+\section{Reproducing the experiments}
+\label{ap:repro-exp}
+\subsection{A MINS versus openVINS comparison run}
+\label{ap:repro-comprun}
+\emph{Why a rosbag and not the website:} the cockpit's in-memory buffer is lost
+if the backend restarts, and rosbridge can desynchronise. A run that matters
+must be written to disk by a process that does not depend on the web stack.
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Pre-flight.} Run the checklist of \S\ref{ap:repro-checklist}.
+  This is not optional, most of the discarded data in this project failed
+  one of those six items.
+\item \textbf{Wake openVINS} with a jerk, and confirm both estimators publish.
+\item \textbf{Mark a start point} on the floor with tape. You will drive a
+  closed loop and return to it; the gap on return is the only drift measure
+  available without ground truth.
+\item \textbf{Start recording} (from \code{\textasciitilde/TOUT}):
+\begin{lstlisting}[language=bash]
+cd ~/TOUT
+tools/record_trajectories.sh 180 essai_A
+\end{lstlisting}
+  Records $180$\,s into
+  \code{data/trajectories/essai\_A\_<timestamp>.bag}. Omit the duration to
+  record until \code{Ctrl-C}. \textbf{Both} estimators are always captured
+  together: that is the entire point.
+\item \textbf{Drive the loop} and return to the marked point. Drive slowly and
+  smoothly; note the commanded speed.
+\item \textbf{Convert to CSV:}
+\begin{lstlisting}[language=bash]
+python3 tools/bag_to_csv.py data/trajectories/essai_A_<timestamp>.bag
+\end{lstlisting}
+  \textbf{Expected:} one CSV per source, \code{\_mins.csv}, \code{\_vins.csv},
+  and \code{\_carolus.csv} if a beacon was visible. Columns are
+  \code{t,x,y,z,qx,qy,qz,qw,yaw\_rad}, so any tool can read them: MATLAB is
+  a convenience, not a requirement.
+\item \textbf{Plot and get the numbers} (run from \code{tools/} so MATLAB finds
+  the script):
+\begin{lstlisting}[language=bash]
+cd ~/TOUT/tools
+matlab -batch "plot_trajectories('../data/trajectories/essai_A_<ts>_mins.csv')"
+\end{lstlisting}
+  \textbf{Expected:} a printed metric block (divergence, scale, path lengths,
+  heading gap) and a saved \code{\_comparison.png} plus eight
+  \code{\_p1..\_p8.png} panels.
+\item \textbf{Put it in the report:} copy \code{\_comparison.png} to
+  \code{report\_latex/figures/traj\_comparison.png} and the panels to
+  \code{traj\_p1.png}\dots\code{traj\_p8.png}, then recompile
+  (\S\ref{ap:repro-report}).
+\end{enumerate}
+
+\noindent \textbf{Two independent drives instead of one?} Use
+\code{tools/compare\_tests.m} on two runs labelled Test~1 and Test~2. It
+deliberately does \emph{not} compute the Kabsch divergence: that requires
+both estimators observing the \emph{same} motion at the \emph{same} instants,
+which two separate drives are not. It reports loop-closure error and heading
+drift instead, which are meaningful for independent runs.
+
+\subsection{How to read the nine-panel figure}
+The panels are described one by one in \S\ref{sec:july29panels}, and the
+mathematics behind panels~2--4 in \S\ref{sec:july29align} and
+\S\ref{sec:july29extent}. Two habits will keep you honest:
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{Read panels 2 and 4 together, never separately.} Panel~2 aligns
+  the trajectories \emph{including a scale factor}, so it is constructed to
+  hide a scale disagreement. Panel~4 is the only one that exposes it. On the
+  July~29 run, $47\%$ of the residual was pure scale error.
+\item \textbf{The scale factor was fitted to MINS, and MINS is not ground
+  truth.} The script prints a warning whenever the fitted scale departs from
+  unity by more than $3\%$. Quoting the scale-corrected residual alone would be
+  quoting a number built to be insensitive to the error you are measuring.
+\end{itemize}
+
+\subsection{Ground-truth calibration: the most valuable measurement}
+\label{ap:repro-calibrun}
+Everything above compares estimators to each other. This is the one procedure
+that compares them to \emph{reality}, and it is what a new student should do
+first.
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Build the measurement zone.} Follow
+  \code{docs/protocole\_calibration\_terrain.md}. The essentials: construct a
+  right angle with a 3-4-5 triangle ($90$, $120$, $150$\,cm, a tape measure
+  does this to $0.08^\circ$, where a protractor manages $\pm1^\circ$), and hang
+  two plumb lines from the robot's centreline so its heading is marked on the
+  floor without parallax.
+\item \textbf{Open the Trajectory tab} on a phone or tablet and pick a
+  manoeuvre: \code{90\textdegree\ G}, \code{90\textdegree\ D}, or \code{1\,m}.
+\item \textbf{Mark start}, drive the manoeuvre, \textbf{mark end}. The backend
+  freezes that instant: take as long as the measurement needs.
+\item \textbf{Measure physically.} For a rotation, read the lateral offset $d$
+  of the far plumb mark from the reference line over the lever arm $L$, and
+  compute the residual $\varepsilon = \arctan(d/L)$; the true angle is
+  $90^\circ \mp \varepsilon$. With $L = 1$\,m and $d$ read to $\pm2$\,mm this
+  gives $\pm0.11^\circ$.
+\item \textbf{Enter what you measured}, never the value you aimed for. Then
+  validate.
+\item \textbf{Three passes per manoeuvre, both directions.} The panel reports
+  the mean factor and its standard deviation, and refuses an entry that
+  disagrees with all four sensors by more than a factor of five.
+\end{enumerate}
+
+\noindent \textbf{The reasoning that matters more than the numbers.} The first
+campaign found the gyroscope over-reporting by $7\%$ \emph{and} the wheels by
+$9\%$. Wheel-derived heading comes from differential odometry and does not use
+the gyroscope: these are physically independent instruments. MINS and openVINS
+are \emph{not} independent witnesses, since both integrate the same gyro.
+
+Two independent sensors agreeing with each other and disagreeing with the
+reference points at \textbf{the reference}. So the conclusion was not ``apply a
+$7\%$ correction'' but ``re-measure with a better floor protocol''. Decide
+between the three outcomes:
+
+\begin{center}\small
+\begin{tabular}{@{}lp{8.2cm}@{}}
+\toprule
+Result over 3 passes & What it means \\
+\midrule
+both $\rightarrow 1.00$ & the first campaign was measuring the protractor.
+  Change nothing; leave \code{gyro\_scale} at $1.0$. \\
+both stay $\approx 0.93$ & a real shared error: applicable, but you must
+  then explain why two different physical principles drift by the same amount. \\
+they diverge & each has its own defect. Treat separately:
+  \code{gyro\_scale} for the gyro, effective radius / wheel base for the
+  wheels. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Standard deviation above $5\%$ means the \emph{method} still
+dominates: do not apply anything, improve the marking.
+
+\subsection{Protocol T1.1: static drift and variance analysis}
+\label{ap:repro-t11}
+Chapter~12 (\S\ref{sec:t11}) uses this protocol to separate two things that
+look identical in a single trajectory plot but demand opposite fixes:
+\emph{noise} (bounded, average it away) and \emph{drift} (unbounded, points
+at an unmodelled bias in extrinsics or initialisation). It requires the
+rover to do nothing at all, which makes it the cheapest measurement in this
+guide and, per Table~\ref{tab:apptools}, a fully automated one.
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Fresh initialisation.} Restart the stack
+  (\S\ref{ap:repro-launch}) rather than reuse a session that has been
+  running for a while: T1.1 characterises the estimator from a cold start,
+  and a warm one hides exactly the divergence it exists to catch.
+\item \textbf{Place the rover and do not touch it again.} Flat ground, clear
+  of anything that would tempt you to nudge it once logging starts.
+\item \textbf{Log for five minutes} (\code{300}\,s is the script's own
+  default, matching the campaign's measurement):
+\begin{lstlisting}[language=bash]
+cd ~/TOUT/tools
+python3 log_pose_static.py 300 /tmp/t1_1_static_pose.csv
+\end{lstlisting}
+  The console prints \code{Logging /robot\_pose\_fused for 300s -- keep the
+  rover PERFECTLY STILL.}, then, after five minutes,
+  \code{Wrote <N> samples to /tmp/t1\_1\_static\_pose.csv} with $N$ close to
+  $300 \times 20 = 6000$ at the nominal $20$\,Hz publish rate.
+\item \textbf{Analyse:}
+\begin{lstlisting}[language=bash]
+python3 analyze_pose_variance.py /tmp/t1_1_static_pose.csv
+\end{lstlisting}
+  This reports, per axis: standard deviation (spread around the mean, a
+  noise/covariance question if bounded), a least-squares linear drift rate
+  in m/s (near zero means noise; a clear nonzero slope means genuine
+  unbounded divergence), and a first-10\%-versus-last-10\%-of-the-window
+  mean as a second, independent check of the same conclusion.
+\end{enumerate}
+
+\noindent \textbf{The verdict this campaign used}: drift below
+$1$\,mm/s on every axis passes. Above it, do not touch a noise parameter ---
+Eq.~\eqref{eq:chi2}'s $\chi^2$ gate and the covariances upstream of it are
+tuned for noise, not for a genuine bias, and loosening them to accommodate an
+unbounded drift will make the estimator accept bad data rather than fix the
+cause. A failing T1.1 run points at extrinsics or initialisation
+(\S\ref{ap:repro-yamltrap}), never at a filter gain.
+
+\subsection{Absolute error: anchoring the trajectory to the beacon}
+\label{ap:repro-absolute}
+
+\begin{trapbox}{READ THIS BEFORE PUBLISHING ANY NUMBER FROM THIS SECTION}
+\textbf{THE COLOUR CAMERA INTRINSICS ARE WRONG AND MUST BE RE-CALIBRATED
+FIRST.} The detector runs with parameters calibrated at $1280\times720$
+against a $640\times480$ stream. Its stored principal point,
+$c'_x = 643.47$, lies \emph{outside} a $640$-pixel-wide image.
+
+Consequences, derived in \S\ref{sec:july30intrinsics}: every range is
+inflated by $69.3\,\%$, and the lateral estimate carries a fixed offset
+$\Delta X = \Delta c_x L / w$ that translates the entire scene. The result is
+smooth, repeatable, internally consistent and metrically meaningless, which is
+the most dangerous combination a measurement can present.
+
+\textbf{The procedure below is correct and ready to run. Its output is not
+publishable as a dimensional quantity until the calibration of
+\S\ref{ap:next-intrinsics} has been done.} Treat what follows as a rehearsal
+until then.
+\end{trapbox}
+
+\noindent\textbf{Why this replaces the alignment-based error.} Every figure in
+Chapter~12 up to \S\ref{sec:july29align} is a residual left after fitting a
+transform between two trajectories, by Kabsch (rigid) or Umeyama (with scale).
+\S\ref{sec:july30bridge} shows that such a fit is an orthogonal projection
+away from a seven-dimensional subspace $\mathcal{G}$ of translations,
+rotations and scale, and that the dominant estimator failure modes, heading
+drift and scale drift, are basis vectors \emph{of} that subspace. An
+alignment-based metric is therefore blind by construction to the very errors
+the comparison exists to expose, and every number it reports is a lower bound.
+
+The bridge removes the fit rather than improving it. The transform is
+established once, physically, by anchoring, and thereafter held constant, so
+no parameter is estimated at measurement time.
+
+\paragraph{What \code{carolus\_tf\_bridge.py} does.}
+It publishes exactly two transforms and derives two topics from them:
+\begin{itemize}[leftmargin=1.4em]
+\item \code{camera\_frame} $\to$ \code{carolus\_raw}, live, from each optical
+  detection of the beacon.
+\item \code{beacon\_link} $\to$ \code{odom}, static, captured at the first fix
+  and then \textbf{frozen}. This is the anchoring act, and it is the whole
+  point: from this instant the odometric world and the optical world share one
+  absolute reference.
+\item \code{/odom\_in\_beacon} and \code{/carolus\_in\_beacon}, both carrying
+  the \emph{robot's} pose in the beacon frame, reached respectively through
+  the odometry/estimator chain and through the optical detection. Their
+  instantaneous difference is the absolute error.
+\end{itemize}
+
+\begin{center}
+\begin{tikzpicture}[font=\scriptsize, >=Latex,
+  b/.style={draw, rounded corners=2pt, inner sep=3.5pt, align=center}]
+  \node[b, fill=accentblue!7, draw=accentblue] (bl) at (0,0) {\code{beacon\_link}\\(frozen anchor)};
+  \node[b] (od) at (3.6,0.95) {\code{odom}};
+  \node[b] (rob) at (7.4,0.95) {robot pose\\(estimator)};
+  \node[b] (cam) at (3.6,-0.95) {\code{camera\_frame}};
+  \node[b] (car) at (7.4,-0.95) {robot pose\\(optical)};
+  \draw[->] (bl) -- node[above, sloped]{static, captured once} (od);
+  \draw[->] (od) -- (rob);
+  \draw[->] (bl) -- node[below, sloped]{live detection} (cam);
+  \draw[->] (cam) -- (car);
+  \draw[<->, alertred, very thick] (rob) -- node[right=2pt, alertred]{$\varepsilon_{\mathrm{abs}}$} (car);
+\end{tikzpicture}
+\end{center}
+
+\paragraph{Step by step.}
+\begin{enumerate}[leftmargin=1.6em]
+\item \textbf{Place the beacon} where it stays visible for the whole planned
+  loop, and do not move it afterwards. Moving the beacon after anchoring
+  invalidates the run silently, because the frozen transform no longer
+  describes reality and nothing detects the discrepancy.
+\item \textbf{Confirm the detector is actually seeing it} before starting
+  anything else:
+\begin{lstlisting}[language=bash]
+rostopic hz /pose            # non-zero => the beacon is detected
+rosnode info /carolus_astrobee_rex | head -20
+\end{lstlisting}
+  A rate of $0$\,Hz with \code{Not enough blobs < 4} in the log means the LEDs
+  are not resolved: adjust distance, exposure or lighting. The bridge cannot
+  anchor to something that was never detected.
+\item \textbf{Start the bridge by hand.} It is deliberately absent from every
+  launch file, so that it can never perturb a run you did not intend it to
+  touch:
+\begin{lstlisting}[language=bash]
+rosrun leo_navigation carolus_tf_bridge.py
+\end{lstlisting}
+\item \textbf{Verify the anchor took}, and that the TF tree is still
+  well-formed (\S\ref{ap:trap-tf}):
+\begin{lstlisting}[language=bash]
+rostopic echo -n1 /odom_in_beacon
+rostopic echo -n1 /carolus_in_beacon
+rosrun tf tf_monitor 2>&1 | head -30     # one parent per frame
+\end{lstlisting}
+\item \textbf{Record both topics}, along with the usual estimator outputs.
+  \textbf{This is the step that has never been done}, and its absence is why
+  no absolute error appears anywhere in this report:
+\begin{lstlisting}[language=bash]
+rosbag record -O run_absolute.bag \
+  /odom_in_beacon /carolus_in_beacon \
+  /mins/imu/odom /ov_msckf/odomimu /robot_pose_fused /firmware/wheel_odom
+\end{lstlisting}
+\item \textbf{Drive the loop} and return near the start. Keep it short, for
+  the thermal reasons of \S\ref{ap:repro-hitrun}.
+\item \textbf{Compute the error} as the instantaneous difference between the
+  two beacon-frame topics. No alignment step is involved, and none should be
+  added: adding one would reintroduce exactly the projection this method
+  exists to remove.
+\end{enumerate}
+
+\begin{trapbox}{Never let the bridge publish the body chain}
+The bridge exposes a \code{\textasciitilde publish\_body\_chain} parameter
+which defaults to false and logs an error if enabled. An early revision
+published the full body chain in the beacon frame, which gave
+\code{base\_link} a second parent and corrupted the tree
+(\S\ref{ap:trap-tf}). The lookups do not fail; they alternate between two
+plausible answers. Leave the parameter alone.
+\end{trapbox}
+
+\subsection{Camera--IMU calibration with Kalibr}
+Both estimators consume the same physical calibration, produced offline and
+then frozen. Offline measurement beats online refinement: that is why
+\code{calib\_cam\_extrinsics} is \code{false}.
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Target.} Print a Kalibr target (an Aprilgrid is preferable to a
+  checkerboard for full-view corner observability) and record its exact
+  geometry in a \code{target.yaml}.
+\item \textbf{Intrinsics and stereo extrinsics.} Record a bag waving the target
+  across the whole field of view of both infrared cameras, then run
+  \code{kalibr\_calibrate\_cameras} on the two image topics. This produces the
+  \code{*-camchain.yaml}. Achieved on this D455 pair: $0.20$--$0.23$\,px
+  reprojection error at a $90.2$\,mm baseline.
+\item \textbf{Camera--IMU extrinsics and time offset.} With intrinsics fixed,
+  record a second bag \textbf{exciting all IMU axes} and run
+  \code{kalibr\_calibrate\_imu\_camera}.
+\item \textbf{Install} the outputs: openVINS reads them directly as
+  \code{kalibr\_imucam\_chain.yaml} and \code{kalibr\_imu\_chain.yaml}; MINS's
+  \code{config\_camera.yaml} is filled from the same camchain via
+  \code{fill\_mins\_camchain.py}, remembering the inverse-convention trap.
+\item \textbf{Verify} with the live reprojection monitor
+  (\code{calibration\_monitor.py}). Acceptance threshold used throughout this
+  project: $<0.5$\,px.
+\end{enumerate}
+
+\noindent \textbf{Standing caveat, and the recommended first task.} Step~3 has
+\textbf{never been completed} on this platform. The deployed camera--IMU
+extrinsic is a tape-measure seed. The blocker is physical: the procedure needs
+roll and pitch excitation of $\gtrsim1.5$\,rad/s, and a rover on flat ground has
+only ever achieved $0.08$. You must \emph{lift and tilt the robot by hand} in
+front of the target. Doing this is the single most valuable calibration task
+outstanding.
+
+\subsection{Calibration methodology, in full}
+\label{ap:repro-calib}
+Both estimators consume the same physical calibration, produced offline with
+Kalibr~\cite{furgale2013kalibr} and then frozen (offline measurement beats
+online refinement, \S\ref{sec:tuning}). The procedure, reproducible from
+scratch:
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Target.} Print a Kalibr calibration target (an Aprilgrid is
+  recommended over a checkerboard for full-view corner observability) and
+  record its exact geometry in a \code{target.yaml}.
+\item \textbf{Intrinsics + stereo extrinsics.} Record a rosbag waving the
+  target across the full field of view of both IR cameras, then run
+  \code{kalibr\_calibrate\_cameras} on the two image topics. This yields the
+  \code{*-camchain.yaml} (intrinsics per camera, plus the stereo baseline).
+  On this D455 pair the achieved reprojection error was $0.20$--$0.23$\,px at
+  a $90.2$\,mm baseline (\S\ref{sec:tuning}); intrinsics are then frozen
+  (\code{do\_calib\_int: false}).
+\item \textbf{Camera--IMU extrinsics + time offset.} With the intrinsic
+  camchain fixed, record a second bag exciting all IMU axes (rotate and
+  translate the rig) and run \code{kalibr\_calibrate\_imu\_camera} with the
+  camchain, the \code{imu.yaml} noise model and the target. This produces the
+  \code{*-camchain-imucam.yaml} with $^{I}\mathbf{T}_{C}$ and the
+  camera--IMU time offset $t_d$. The correct forward-looking mount matters:
+  an identity placeholder here was the root cause of the vertical divergence
+  fixed in \S\ref{sec:extrinsic} (Eq.~\ref{eq:extr}). $t_d$ and the
+  translation are then refined online (\code{do\_calib\_ext},
+  \code{do\_calib\_dt}), but the $90^\circ$ rotation must be seeded correctly: it is outside the filter's recoverable region.
+\item \textbf{Install.} Copy the Kalibr outputs into each estimator's config:
+  openVINS reads them as \code{config/leo/kalibr\_imucam\_chain.yaml} and
+  \code{kalibr\_imu\_chain.yaml} directly; MINS's \code{config\_camera.yaml}
+  is populated from the same camchain (the prepared
+  \code{fill\_mins\_camchain.py} helper maps one to the other). The IMU noise
+  densities in \code{kalibr\_imu\_chain.yaml} come from an Allan-variance
+  characterisation of the D455 IMU (or the manufacturer figures inflated for
+  margin).
+\item \textbf{Verify.} The live reprojection-error monitor
+  (\code{calibration\_monitor.py}, surfaced on the cockpit's calibration
+  panel) reports the current chain's health; the acceptance threshold used
+  throughout this project is $<0.5$\,px (\S\ref{sec:tuning}).
+\end{enumerate}
+
+\noindent A standing caveat carried in the open-items registry: the deployed
+camera--IMU extrinsic is still a tape-measure seed refined online, not a full
+\code{kalibr\_calibrate\_imu\_camera} solution (Table~\ref{tab:openitems},
+item~2); completing step~3 above from a dedicated bag is the recommended
+first calibration task for a new student.
+\section{Publishing the report}
+\label{ap:repro-report}
+\begin{lstlisting}[language=bash]
+cd ~/TOUT
+bash tools/update_report.sh
+\end{lstlisting}
+\textbf{Expected:} three progress lines, then
+\code{[3/3] OK, <N> pages}, then a local and a public URL.
+
+The script runs \code{pdflatex} three times with \code{biber} in between
+(needed for cross-references and the bibliography to settle), copies the PDF
+into \code{web/reports/}, and \textbf{stamps the download link with a version
+number}.
+
+\noindent \textbf{Why the version stamp exists.} The Cloudflare tunnel served a
+four-hour-old PDF for hours despite the origin sending
+\code{Cache-Control: no-cache}, a dashboard rule overrides the origin
+header, and it is not editable from this machine. A query string \emph{is} part
+of the cache key, so a fresh \code{?v=} forces a miss. \textbf{Use the URL the
+script prints}; a bare URL may serve a stale report, and no amount of browser
+refreshing helps because the cache is at the network edge.
+
+\noindent \textbf{Two traps inside this script, both now fixed, both worth
+knowing:} \code{main.log} contains non-ASCII bytes, so \code{grep} classes it
+as binary and \textbf{silently suppresses its output}, the error check saw
+nothing at all until \code{-a} was added, and thirteen real errors passed while
+the script reported success. And \code{pdflatex} wraps its log lines at
+$\sim79$ columns, so the phrase it was grepping for the page count could be
+split in two depending on document length; with \code{set -e} that killed the
+script before deployment.
+
+\section{Troubleshooting and lessons learned}
+\label{ap:repro-trouble}
+This section is the distilled cost of the campaign. Each entry is a real
+failure, its measured signature, and its fix. They are ordered by how much
+time they cost.
+
+\subsection{The Pi overheats, and everything downstream lies}
+\label{ap:repro-thermal}
+\textbf{This is the most important entry in this appendix.} The Pi runs at
+$86\,^\circ$C, above its soft temperature limit, so the firmware caps the CPU
+at $600$\,MHz instead of $1.5$\,GHz. The consequences cascade, and none of
+them look thermal:
+
+\begin{center}
+\begin{tikzpicture}[font=\scriptsize, node distance=3pt,
+  s/.style={draw, rounded corners=2pt, fill=red!5, align=center, inner sep=3pt},
+  a/.style={-{Latex[length=1.8mm]}, semithick}]
+  \node[s] (t) {$86\,^\circ$C};
+  \node[s, right=10pt of t] (f) {capped to\\$600$\,MHz};
+  \node[s, right=10pt of f] (c) {CPU starved\\(load $>6$)};
+  \node[s, right=10pt of c] (g) {gaps in\\\code{/imu/data\_clean}};
+  \node[s, right=10pt of g] (v) {openVINS\\assertion};
+  \node[s, right=10pt of v] (j) {trajectory\\jumps};
+  \draw[a] (t)--(f); \draw[a] (f)--(c); \draw[a] (c)--(g);
+  \draw[a] (g)--(v); \draw[a] (v)--(j);
+\end{tikzpicture}
+\end{center}
+
+\noindent \textbf{How to confirm it in one command} (on the robot):
+\begin{lstlisting}[language=bash]
+ssh pi@$ROBOT_HOST 'vcgencmd measure_temp; vcgencmd get_throttled; \
+                    vcgencmd measure_clock arm'
+\end{lstlisting}
+\textbf{Expected when healthy:} \code{throttled=0x0} and $\sim1.5$\,GHz. \\
+\textbf{Observed at the time of writing:} \code{temp=86.2'C},
+\code{throttled=0xe0006} (bits~1 and~2 set: frequency capped \emph{and}
+throttled right now), \code{600} MHz.
+
+\noindent \textbf{The measurable damage.} Count the holes in the IMU stream:
+\begin{lstlisting}[language=bash]
+cd ~/TOUT && source tools/robot_env.sh
+source /opt/ros/noetic/setup.bash
+python3 - <<'EOF'
+import rospy, time
+from sensor_msgs.msg import Imu
+rospy.init_node('g', anonymous=True, disable_signals=True)
+S=[]
+rospy.Subscriber('/imu/data_clean', Imu,
+                 lambda m: S.append(m.header.stamp.to_sec()), queue_size=2000)
+time.sleep(20)
+d=[S[i]-S[i-1] for i in range(1,len(S))]
+med=sorted(d)[len(d)//2]
+g=[x for x in d if x>3*med]
+print('%d samples, %.1f Hz, %d gaps, %.2f s lost' %
+      (len(S), 1/med, len(g), sum(g)))
+EOF
+\end{lstlisting}
+Healthy: zero gaps. Observed: $4$ to $21$ gaps per $20$--$40$\,s, each
+$\sim39$\,ms (four consecutive samples missing). Those gaps make openVINS
+abort on \code{Propagator.cpp:101}, because the IMU readings between two
+filter clones no longer sum to the interval between them. It respawns,
+re-initialises, and the trajectory jumps.
+
+\noindent \textbf{The fix is a fan.} \textbf{Install active cooling before
+trusting any estimator measurement.} An A/B test of the same gap count before
+and after cooling is the first experiment a new student should run.
+
+\medskip
+\noindent\textbf{Update, July 30: the envelope has since been measured on
+both sides.} The claim in earlier editions that the software levers were
+exhausted rested on an invalid test (colour was already off at driver level,
+so the measurement compared a configuration with itself). The colour nodelet
+has since been measured at $185\,\%$ CPU. More usefully, the failure threshold
+is now bracketed rather than assumed:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+ & $86\,^\circ$C & $89.1\,^\circ$C \\
+\midrule
+Wheel odometry & $19.7$\,Hz & $0$\,Hz \\
+IMU            & $82.8$\,Hz & $0$\,Hz \\
+UART overruns  & $137\,000$ & $676\,751$ \\
+Load average ($4$ cores) & not measured & $8.85$ \\
+\code{serial\_node} & synchronised & \code{Lost sync} loop \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Three degrees separate a working rover from one that answers
+neither manual nor autonomous commands, because \code{/serial\_node} is the
+only subscriber of \code{/cmd\_vel} and it is the component that dies. If
+driving stops in \emph{both} modes at once, look at the serial chain first:
+that simultaneity rules out the mission logic and the web interface before you
+have tested either. Recovery is a targeted cycle, not a stack restart:
+
+\begin{lstlisting}[language=bash]
+rosservice call /rosmon/start_stop "{node: 'serial_node', ns: '', action: 2}"
+sleep 4
+rosservice call /rosmon/start_stop "{node: 'serial_node', ns: '', action: 1}"
+\end{lstlisting}
+
+\noindent This restores the link within about twenty seconds and the launch
+wrapper reapplies the \code{SCHED\_FIFO} priority automatically, but it is
+a reset, not a repair. Watch the overrun counter afterwards
+(\code{sudo cat /proc/tty/driver/ttyAMA}): if it keeps climbing, and at
+$88\,^\circ$C it does, the collapse will recur within tens of minutes.
+
+\subsection{The hit-and-run protocol: working usefully on a throttled Pi}
+\label{ap:repro-hitrun}
+The previous entry says install a fan, and that remains the right advice. This
+entry is about what to do on the many days when you do not have one, because
+the honest answer is not ``nothing''. A short run at $86\,^\circ$C produced
+usable data; a longer one at $89\,^\circ$C produced none at all and required
+manual recovery. The difference is worth managing deliberately rather than
+discovering halfway through an acquisition.
+
+\paragraph{What was actually measured, on both sides.}
+With \code{enable\_color = true} and the Pi settled near $86\,^\circ$C, the
+system was fully throttled (\code{throttled=0xe0006}, $600$\,MHz) and yet the
+critical chain held: wheel odometry at $19.7$\,Hz, IMU at $82.8$\,Hz with
+$14$ gaps per $20$\,s, serial link synchronised throughout. That is a working
+rover, and it is the regime in which a short acquisition is worth attempting.
+
+Three degrees higher the same configuration collapsed completely. Every
+firmware topic dropped to $0$\,Hz, the overrun counter reached $676\,751$, and
+\code{serial\_node} entered a \code{Lost sync} loop from which it did not
+return unaided. \S\ref{sec:july30thermal} derives why the transition is a
+cliff rather than a slope: the recovery handshake needs a clean window, and
+past a threshold it stops finding one.
+
+\begin{trapbox}{Do not read the first result as a guarantee}
+``The link survived thermal throttling'' is true of the $86\,^\circ$C run and
+false of the $89\,^\circ$C run. The correct statement is that the margin is
+about three degrees wide with no headroom for ambient variation. Plan for the
+collapse, do not assume the survival.
+\end{trapbox}
+
+\paragraph{The protocol.}
+\begin{enumerate}[leftmargin=1.6em]
+\item \textbf{Start cold.} Power the Pi and leave the perception stack down
+  for two or three minutes. Starting at $70\,^\circ$C instead of $86\,^\circ$C
+  buys most of the useful window.
+\item \textbf{Open the vitals monitor before anything else}, in its own
+  terminal, and leave it running for the whole session:
+\begin{lstlisting}[language=bash]
+python3 tools/hotrun_monitor.py        # one line every 20 s
+\end{lstlisting}
+  It prints temperature, throttle word, clock, IMU gap count and wheel-odometry
+  rate side by side, and flags its own stop criteria.
+\item \textbf{Abort on any one of three signals}, without negotiating with
+  yourself: temperature above $88\,^\circ$C, more than $25$ IMU gaps per
+  $20$\,s, or wheel odometry below $10$\,Hz. The third is the important one,
+  because it means the serial link is going and control authority with it.
+\item \textbf{Keep the run short.} Everything measured in this campaign that
+  was worth keeping came from acquisitions of a few minutes. Ambition about
+  duration is what turns a good run into a recovery exercise.
+\item \textbf{Record to disk, not to the browser.} Use
+  \code{tools/record\_trajectories.sh}, which writes a rosbag locally and is
+  indifferent to the web stack. The cockpit's own buffer is cleared by any
+  backend restart, and a thermal event is precisely the circumstance that
+  causes one.
+\end{enumerate}
+
+\paragraph{Recovery when it does collapse.}
+Cycle the serial node alone. Do not restart the stack: the July 22 lesson
+(\S\ref{sec:july22network}) is that the surrounding infrastructure is almost
+never the culprit, and a full restart costs minutes and destroys the run's
+context.
+\begin{lstlisting}[language=bash]
+rosservice call /rosmon/start_stop "{node: 'serial_node', ns: '', action: 2}"
+sleep 4
+rosservice call /rosmon/start_stop "{node: 'serial_node', ns: '', action: 1}"
+\end{lstlisting}
+Expect the topics back within about twenty seconds, and expect the launch
+wrapper to reapply the \code{SCHED\_FIFO} priority automatically; verify it
+with \code{chrt -p <pid>} rather than assuming. Then watch the overrun counter:
+\begin{lstlisting}[language=bash]
+ssh pi@$ROBOT_HOST 'sudo cat /proc/tty/driver/ttyAMA' | grep -o 'oe:[0-9]*'
+\end{lstlisting}
+If it is still climbing, and at $88\,^\circ$C it will be, the cycle has bought
+you minutes rather than fixed anything. Use them to save your data, not to
+start a new run.
+
+\paragraph{Why both modes of driving fail together, and what that tells you.}
+When the serial link dies, manual and autonomous control stop at the same
+instant. This looks alarming and is in fact the most useful diagnostic signal
+the platform offers: the two modes share exactly one component downstream of
+the mission logic, namely \code{/serial\_node}, the sole subscriber of
+\code{/cmd\_vel}. A fault that removes both at once is therefore in the serial
+transport, and you may discard the web interface, the command bus and the
+finite-state machine without testing any of them. Confirm it in one command:
+\begin{lstlisting}[language=bash]
+rostopic info /cmd_vel     # publisher /leo_backend, subscriber /serial_node
+rostopic hz /firmware/wheel_states   # 0 Hz => the link, not the logic
+\end{lstlisting}
+
+\subsection{A cron script that destroyed the stack every two minutes}
+\label{ap:repro-watchdog}
+\code{tools/leo\_watchdog.sh} runs from \code{cron} every minute and restarts
+things it believes are dead. It sourced \code{/opt/ros/noetic/setup.bash} at
+line~141, but its two node-presence checks call \code{rosnode} at lines~100
+and~123. Under \code{cron} the \code{PATH} is minimal, so \code{rosnode} did
+not exist yet: both checks failed \emph{every minute regardless of the robot},
+their counters reached the 6-tick threshold, and the whole stack was torn
+down, measured at six restarts in fourteen minutes.
+
+\textbf{Why this matters to you even though it is fixed:} openVINS never had
+more than two minutes to converge. Every estimator measurement taken before
+the fix was made on a stack being destroyed mid-run, and had to be discarded: including a ``rotation causes divergence'' conclusion that evaporated once
+the stack was stable.
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{Check before any measurement campaign:}
+\begin{lstlisting}[language=bash]
+tail -5 ~/TOUT/logs/watchdog.log
+cat /tmp/leo_zombie_fails /tmp/leo_vins_fails    # both should read 0
+\end{lstlisting}
+\item \textbf{What else it guards, none of which was documented before
+  2026-07-31.} The watchdog is not only a restart loop, and knowing what it
+  does prevents you from fighting it:
+  \begin{itemize}[leftmargin=1.2em]
+  \item \textbf{Drowning probe on both rosbridge ports} (2026-07-13, extended
+    to $9443$ on 07-31). A real WebSocket handshake against $9090$ in clear
+    and $9443$ over TLS; a bridge that holds its port but has stopped
+    answering is purged and relaunched. See
+    \S\ref{ap:trap-zombieport}, and read the TLS warning there before
+    touching it.
+  \item \textbf{D455 self-healing with an escalation ladder.} A silent camera
+    is first cycled through \code{rosmon}; if it stays silent, the watchdog
+    issues a \emph{hardware} reset via \code{/firmware/reset\_board}. A
+    persistent counter in \code{/tmp} debounces this across ticks so that one
+    bad minute does not trigger a board reset. If you are power-cycling the
+    camera by hand, set the maintenance flag first or the two of you will
+    take turns resetting it.
+  \item \textbf{Battery alert bound to the camera fault.} Past three
+    consecutive silent minutes it logs the battery voltage alongside the
+    fault, because a rail sagging below roughly $10.5$\,V drops the USB
+    camera and presents exactly as a software failure. A camera that will not
+    come back is a battery symptom until proven otherwise.
+  \end{itemize}
+
+\item \textbf{Suspend the watchdog during any deliberate manipulation:}
+\begin{lstlisting}[language=bash]
+touch /tmp/leo_maintenance     # watchdog does nothing while this exists
+rm -f /tmp/leo_maintenance     # DO NOT FORGET THIS
+\end{lstlisting}
+\item \textbf{General lesson:} a script tested by hand runs with a good
+  \code{PATH}. Bugs of this class only appear under \code{cron}. Test with
+  \code{env -i PATH=/usr/bin:/bin bash -c '...'}.
+\end{itemize}
+
+\subsection{Wheel odometry is a reference, not the truth}
+\label{ap:repro-wheels}
+The mecanum wheels slip. Measured against a tape measure over $1$\,m, the
+wheel odometry over-reports by $39\%$. It is still useful (it never errs by
+a factor of fifty, so it catches gross estimator divergence) but it is not
+ground truth and must never be quoted as accuracy.
+
+Worse, it is \emph{asymmetric}: the correction factor is $0.9325$ turning left
+and $0.8920$ turning right. Decomposing per-direction factors into a
+symmetric and an antisymmetric part,
+$\bar g = (g_L+g_R)/2$ and $\delta = (g_L-g_R)/2$, separates the two causes: a
+\emph{sensor scale} error is sign-symmetric and lands in $\bar g$, whereas a
+\emph{mechanical} defect reverses with direction and lands in $\delta$. The
+wheels' $\lvert\delta\rvert$ is ten times the gyroscope's. Correcting that
+with one global gain would improve one direction and worsen the other.
+
+\subsection{When two independent sensors agree against your reference}
+\label{ap:repro-indep}
+A subtle trap, and a genuinely useful piece of reasoning. The first
+calibration campaign found the gyroscope over-reporting rotation by $7\%$
+($\bar g = 0.9329$), and the wheels over-reporting by $9\%$
+($\bar g = 0.9123$). Wheel-derived heading comes from differential odometry and
+\textbf{does not use the gyroscope at all}: these are physically independent
+instruments. MINS and openVINS are \emph{not} independent witnesses here, since
+both integrate the same gyroscope.
+
+Two independent sensors agreeing with each other and disagreeing with the
+reference points at \textbf{the reference}, not at both sensors. The
+conclusion was therefore \emph{not} ``apply a $7\%$ gyro correction'' but
+``re-measure with a better floor protocol''. The corresponding parameter,
+\code{\textasciitilde gyro\_scale} in \code{imu\_sanitizer.py}, was added and
+deliberately left at $1.0$, no correction, until three repeated passes
+in each direction settle the question. It affects MINS and openVINS
+simultaneously, so an error there propagates everywhere.
+
+\subsection{Do not filter an estimator's output}
+\label{ap:repro-guard}
+A cautionary tale, included because it cost a full evening and the mistake is
+tempting. Believing openVINS diverged during turns, the author added a node
+that froze its reported position whenever the gyroscope exceeded a threshold.
+
+It made things worse, and the measurement that proved it is simple: with the
+robot verified stationary (wheel odometry $0.000$\,m over $30$\,s), raw
+openVINS wandered $16.99$\,m of \emph{cumulative path} but ended
+$0.021$\,m from where it started. It was oscillating around a stable point,
+not drifting. The guard rejected $12\%$ of the increments of a
+\emph{symmetric} oscillation, which does not remove a zero-mean signal: it
+\textbf{rectifies} it. Its own counters showed $87.10$\,m of accumulated
+offset for zero real motion.
+
+\begin{itemize}[leftmargin=1.4em]
+\item Distinguish \textbf{cumulative path} from \textbf{net displacement}
+  before diagnosing drift. They answer different questions and only the second
+  one is drift.
+\item Removing samples one-sidedly biases a sum. If you must smooth, use a
+  filter that \textbf{preserves the mean} (a low-pass), never a selective
+  freeze.
+\item Fix the estimator's inputs, not its outputs.
+\end{itemize}
+
+\subsection{Serial data loss: it is a scheduling problem}
+\label{ap:repro-uart}
+Symptom: thousands of checksum errors and wheel odometry collapsing from
+$19$\,Hz to $1$\,Hz. It is not a cable and not the CORE2 board. The Pi's
+PL011 UART FIFO overruns when \code{serial\_node} is not scheduled in time.
+
+\begin{lstlisting}[language=bash]
+ssh pi@$ROBOT_HOST 'sudo grep -o "oe:[0-9]*" /proc/tty/driver/ttyAMA'
+\end{lstlisting}
+\textbf{Expected:} \code{oe:0} and stable. A climbing \code{oe} counter is
+overrun. The fix, already deployed, needs \emph{both} halves or the node will
+not start at all: real-time priority on \code{serial\_node}
+(\code{chrt -f 25}) \emph{and} a \code{LimitRTPRIO=50} systemd drop-in on
+\code{leo.service} granting permission to request it. Verify with
+\code{chrt -p <pid>}; expect priority~$25$.
+
+\subsection{Configuration files that fail silently}
+\label{ap:repro-yaml}
+Both estimators parse their YAML with OpenCV's \code{FileStorage}
+(\code{\%YAML:1.0}), which \textbf{aborts on a long comment placed after a
+value on the same line}. The node then starts, subscribes to nothing, and
+respawns forever: with no error naming the file. This trap was hit twice,
+the second time after it had already been documented.
+
+\begin{itemize}[leftmargin=1.4em]
+\item Keep inline comments in these files \textbf{short}, or put them on their
+  own line.
+\item Validate before restarting anything:
+\begin{lstlisting}[language=bash]
+python3 -c "import cv2; f=cv2.FileStorage('estimator_config.yaml', \
+cv2.FILE_STORAGE_READ); print('readable:', f.isOpened()); f.release()"
+\end{lstlisting}
+\item Never test a config from \code{/tmp}: relative paths inside it resolve
+  differently and produce false negatives.
+\end{itemize}
+
+\subsection{Smaller traps, each of which cost real time}
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{\code{pgrep -f} matches your own shell.} A command containing
+  the pattern appears in its own search results, so
+  \code{kill \$(pgrep -f my\_node)} can kill the shell running it. Encountered
+  three times. Use a bracket trick (\code{pgrep -f "my\_no[d]e"}) or filter by
+  parent.
+\item \textbf{\code{kill -0} lies about liveness}, because PIDs are recycled.
+  Verify identity with \code{/proc/<pid>/cmdline}.
+\item \textbf{Timestamps, not arrival times.} Measure rates and velocities
+  from \code{header.stamp}. Arrival time mixes in network jitter and produces
+  confident nonsense.
+\item \textbf{Medians hide tails.} A divergence with a median of $0.69$ had a
+  worst case of $19.96$ in the same data set. Report a high percentile as
+  well; what ruins a trajectory lives in the tail.
+\item \textbf{Path length is not comparable across sampling rates.} Per-sample
+  noise inflates cumulative length as $(\sigma f/v)^2$
+  (Eq.~\ref{eq:pathinflation}). Two raw lengths at $86$ and $80$\,Hz once read
+  identically while the true lengths differed by $10\%$. Resample to a common
+  rate first.
+\item \textbf{Restart the estimators after changing calibration.} Configs are
+  read once. Changing the IMU calibration mid-run once cost $34$ minutes of
+  recorded data.
+\item \textbf{\code{matlab -batch} needs a live licence session.} Online
+  licensing fails with \code{error 5001} in batch mode when the account token
+  has lapsed, even while an already-open interactive session keeps working.
+  Test with \code{matlab -batch "disp('ok')"} before blaming a script.
+\item \textbf{The published PDF may be cached.} The Cloudflare tunnel served a
+  stale report for hours despite a correct origin header. \code{update\_report.sh}
+  now stamps the download link with a version; use the link it prints, not a
+  bare URL.
+\end{itemize}
+
+\subsection{The TF tree accepts only one parent per frame}
+\label{ap:trap-tf}
+\begin{trapbox}{Symptom: intermittent \texttt{TF\_OLD\_DATA}, poses that jump
+between two plausible values, and no error anywhere}
+A frame in a \code{tf2} tree has exactly \emph{one} parent. Nothing enforces
+this: publish \code{base\_link} from two nodes and both transforms are
+accepted, after which lookups resolve to whichever arrived last. The result is
+not a crash but an estimate that silently alternates between two coherent
+answers.
+\end{trapbox}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, >=Latex, node distance=9mm,
+  f/.style={draw, rounded corners=2pt, inner sep=3pt, minimum width=20mm, align=center},
+  bad/.style={f, draw=alertred, fill=alertred!6},
+  ok/.style={f, draw=accentblue, fill=accentblue!6}]
+
+  \node[font=\small\bfseries, align=center] at (0,1.15) {Broken: two parents};
+  \node[bad] (o1) at (-1.5,0) {\code{odom}};
+  \node[bad] (s1) at (-1.5,-1.5) {\code{pose\_selector}};
+  \node[bad] (bf1) at (1.5,0) {\code{base\_footprint}};
+  \node[bad] (bl1) at (0,-2.7) {\code{base\_link}};
+  \draw[->] (o1) -- (bf1);
+  \draw[->] (bf1) -- (bl1);
+  \draw[->, alertred, very thick] (s1) -- (bl1);
+  \node[alertred, anchor=north, align=center] at (0,-3.3)
+    {two transforms, one child:\\lookups resolve to whichever arrived last};
+
+  \node[font=\small\bfseries, align=center] at (8.2,1.15) {Fixed: strictly linear};
+  \node[ok] (o2) at (8.2,0) {\code{odom}};
+  \node[ok] (bf2) at (8.2,-1.35) {\code{base\_footprint}};
+  \node[ok] (bl2) at (8.2,-2.7) {\code{base\_link}};
+  \draw[->] (o2) -- (bf2);
+  \draw[->] (bf2) -- (bl2);
+  \node[accentblue, anchor=north, align=center] at (8.2,-3.3)
+    {\code{base\_frame=base\_footprint}\\one parent per frame};
+\end{tikzpicture}
+\caption[TF tree]{The fault is structural, not numerical. On the left,
+\code{base\_link} has two parents, so every lookup silently returns one of two
+coherent answers. Nothing errors; the pose simply alternates. On the right,
+the single-line change that restores a well-formed tree.}
+\label{fig:trap-tftree}
+\end{figure}
+
+\noindent This bit twice on July 30. First, \code{pose\_selector} was
+publishing with \code{base\_frame} set to \code{base\_link} while the URDF
+chain already supplied \code{base\_footprint} $\to$ \code{base\_link},
+giving \code{base\_link} two parents. The fix is one line in
+\code{navigation\_supervision.launch}:
+
+\begin{lstlisting}[language=XML]
+<param name="base_frame" value="base_footprint"/>
+\end{lstlisting}
+
+\noindent which restores a strictly linear \code{odom} $\to$
+\code{base\_footprint} $\to$ \code{base\_link} chain. Second, an early
+revision of \code{carolus\_tf\_bridge.py} published the full body chain in the
+beacon frame, re-parenting \code{base\_link} a second time; it now publishes
+only \code{camera\_frame} $\to$ \code{carolus\_raw} plus the static anchor,
+and hides the body chain behind a parameter that defaults to false.
+
+\noindent\textbf{Check it in one command:}
+\begin{lstlisting}[language=bash]
+rosrun tf view_frames && evince frames.pdf
+# or, faster: any frame appearing twice as a child is a fault
+rosrun tf tf_monitor 2>&1 | head -30
+\end{lstlisting}
+Expect one parent per frame and no \code{TF\_OLD\_DATA} in the logs. Do this
+before trusting any pose, because the failure is invisible in the numbers:
+they stay plausible.
+
+\subsection{The differential-drive angular multiplier, and where it is not}
+\label{ap:trap-diffdrive}
+The firmware applies a scalar to every angular velocity command it receives:
+\begin{equation}
+\omega_{\mathrm{applied}} = k_\omega \cdot \omega_{\mathrm{commanded}},
+\qquad k_\omega = 1.76 .
+\end{equation}
+Together with the wheel radius ($0.0625$\,m) and separation ($0.358$\,m), this
+is what converts \code{/cmd\_vel} into wheel setpoints, so it sits directly
+in the yaw-error path: a rover that consistently over- or under-rotates by a
+fixed ratio is far more likely to be showing this multiplier than a sensor
+fault. Read the live values: never the file:
+
+\begin{lstlisting}[language=bash]
+rosparam get /firmware/diff_drive/angular_velocity_multiplier   # 1.76
+rosparam get /firmware/diff_drive/wheel_radius                  # 0.0625
+rosparam get /firmware/diff_drive/wheel_separation              # 0.358
+\end{lstlisting}
+
+\begin{trapbox}{Two ways to look for this value and find the wrong answer}
+The file is \code{/etc/ros/params.yaml}: \emph{params}, plural; there is no
+\code{param.yaml}. And inside it, the entire \code{diff\_drive} block
+including \code{angular\_velocity\_multiplier: 1.76} is \textbf{commented
+out}. Those lines document the firmware defaults; they do not set them. A
+reader who greps the file finds the value inert and may conclude it is not
+applied, when in fact $1.76$ is live because it is the firmware default.
+Conversely, editing the commented line changes nothing until the \code{\#} is
+removed \emph{and} \code{sudo systemctl restart leo} is run.
+\end{trapbox}
+
+\noindent The cockpit exposes these three values read-only in the
+\emph{Firmware kinematics} panel, precisely so that they are visible during a
+run without anyone being tempted to change them from a browser.
+
+\paragraph{The order of operations for a yaw discrepancy.}
+This is the part a successor most needs, because getting the order wrong
+produces a rover that appears calibrated and is not. If the robot turns by a
+consistently wrong amount, there are two places the discrepancy can live, and
+they are not interchangeable:
+\begin{equation}
+\underbrace{\omega_{\mathrm{applied}} = k_\omega\,\omega_{\mathrm{cmd}}}
+           _{\text{what the robot \emph{does}}}
+\qquad\text{versus}\qquad
+\underbrace{\hat\omega = s_g\,\omega_{\mathrm{true}}}
+           _{\text{what the robot \emph{believes}}}
+\label{eq:yawtwoplaces}
+\end{equation}
+The first is an actuation gain, set by $k_\omega =$
+\code{angular\_velocity\_multiplier}. The second is a sensing gain, set by
+\code{\textasciitilde gyro\_scale} in the IMU sanitiser. \textbf{Correct the
+actuator first, always.} The reasoning is that $s_g$ is a property of a
+physical sensor, so changing it to compensate for an actuation error stores a
+lie in the one channel every downstream estimator trusts. MINS, openVINS and
+the wheel odometry all consume the sanitised IMU; a wrong $s_g$ corrupts them
+simultaneously and in a way no later measurement can distinguish from a real
+inertial defect.
+
+\begin{enumerate}[leftmargin=1.6em]
+\item \textbf{Measure, do not infer.} Command a known rotation, for instance
+  $90^\circ$, and measure the physical result with a protractor or floor
+  markings. Use a deliberately unround target such as $87.5^\circ$: a round
+  number invites the operator to report the number they commanded rather than
+  the one they observed.
+\item \textbf{Separate the two gains with one extra observation.} Compare the
+  commanded angle, the physically observed angle, and the angle the gyroscope
+  reported. If the robot turned too far \emph{and} the gyroscope agrees with
+  the floor, the fault is in $k_\omega$. If the robot turned correctly but the
+  gyroscope disagrees, the fault is in $s_g$. Only the second case justifies
+  touching the sensor.
+\item \textbf{Adjust $k_\omega$ multiplicatively:}
+  $k_\omega^{\mathrm{new}} = k_\omega \cdot
+   \theta_{\mathrm{target}} / \theta_{\mathrm{observed}}$, then re-measure.
+\item \textbf{Leave \code{gyro\_scale} at $1.0$} until the ground-truth
+  calibration of \S\ref{ap:repro-calibrun} has settled the outstanding
+  $7$--$9\,\%$ rotation discrepancy. Until that question is answered, any
+  change to $s_g$ is a guess dressed as a correction.
+\end{enumerate}
+
+\noindent A worked cautionary case is in \S\ref{sec:july29calib}: an early
+calibration attempt compared the angle the robot was \emph{told} to turn
+against a single entered number, and so measured how badly the platform
+tracks its own command rather than how badly its sensors track reality. Those
+are different quantities and only the second is a calibration.
+
+\begin{trapbox}{A third gain, easy to forget}
+A yaw error can also come from the wheel geometry itself, since
+$\omega$ depends on the effective radius and the track width. Item~1 of the
+open-items registry records a measured $1.65\,\%$ right/left effective-radius
+bias, currently masked by a software yaw trim rather than corrected. If
+$k_\omega$ needs an implausibly large change to fit, suspect the geometry
+before accepting the number.
+\end{trapbox}
+
+
+\subsection{A TLS port that stays open and stops listening}
+\label{ap:trap-zombieport}
+\begin{trapbox}{Symptom: the page loads, the layout is perfect, and every
+button is inert}
+After a ROS master restart, the tunnel's TLS port $9443$ can remain
+\emph{open}, it accepts the TCP connection and completes the WebSocket
+handshake, while no longer being bound to a live rosbridge behind it.
+Nothing in the browser reports an error. The interface looks connected
+because, at the socket level, it is.
+\end{trapbox}
+
+\noindent\textbf{Recovery, in order of cost:} reload the page; if that fails,
+connect to the local port $9090$ instead, which does not traverse the tunnel;
+if that also fails, the fault is upstream of the transport and you should stop
+looking at the network.
+
+\noindent\textbf{Diagnosis before you touch anything.} Two independent checks
+separate ``the page is broken'' from ``the bus is quiet'', and they are worth
+running in that order:
+\begin{lstlisting}[language=bash]
+# 1. Does the browser's relay carry ROS traffic at all?
+#    Use a topic that is ALWAYS busy. /mission/telemetry publishes ~4 Hz.
+rostopic hz /mission/telemetry
+# 2. Does a command sent from the page reach the bus?
+rostopic echo /mission/command
+\end{lstlisting}
+The first check matters more than it looks. During this session the relay was
+declared broken on the evidence of an idle \code{/mission/log}, which
+publishes only when something happens: an empty topic proved nothing, and
+the same test on \code{/mission/telemetry} showed $50$ frames in $12$\,s. A
+silent topic is not a dead link. Choose a topic that is supposed to be noisy
+before concluding anything.
+
+\subsection{A checklist before any measurement campaign}
+\label{ap:repro-checklist}
+\begin{enumerate}[leftmargin=1.4em]
+\item \code{vcgencmd measure\_temp} on the robot, below $80\,^\circ$C, and
+  \code{throttled=0x0}.
+\item \code{tail logs/watchdog.log}, no automatic restarts in the last hour.
+\item IMU gap count over $20$\,s, zero.
+\item \code{rostopic hz} on the four key topics, all at nominal rate.
+\item \code{ps -o etime= -p \$(pgrep -f run\_subscribe\_msckf)}, openVINS
+  older than the intended run duration, i.e.\ it has not respawned.
+\item Battery on mains, or voltage noted; yaw performance depends on it.
+\end{enumerate}
+
+\noindent If any of these fails, the data you are about to record will not
+survive scrutiny. The single most expensive lesson of this campaign is that a
+measurement taken on an unstable stack is worse than no measurement, because
+it is believed.
+
+\bigskip\noindent\emph{The sections above are the operating manual. Those
+that follow are the technical reference: where the source comes from, how it is
+built, and how each configuration tree is organised.}
+
+\section{Where to go next}
+\label{ap:repro-next}
+The platform is stable and instrumented; what it lacks is not more code. This
+is the author's ordered recommendation, with the reasoning, so you can disagree
+with it deliberately rather than by accident.
+
+\subsection{Priority 1: re-calibrate the colour camera intrinsics}
+\label{ap:next-intrinsics}
+Cheapest item on this list, and it blocks the headline deliverable. The
+detector runs with intrinsics calibrated at $1280\times720$ against a
+$640\times480$ stream (\S\ref{sec:july30intrinsics}); the stored principal
+point, $c_x = 643.47$, lies outside a $640$-pixel-wide image. A beacon at the
+true image centre is reported $26.7^\circ$ off-axis. No rescaling repairs
+this, because the two configurations differ in field of view and not merely in
+sampling.
+
+Run the calibration at $640\times480$, the resolution actually published,
+and load the result into \code{carolus\_astrobee\_rex}. Until then, treat
+every range, bearing and beacon position from this camera as a relative
+indicator only. \textbf{Do not publish a dimensional metric derived from it,
+including the absolute error of Priority~4.}
+
+\subsection{Priority 2: install active cooling}
+Not software. The Pi sits at $86\,^\circ$C and is frequency-capped to
+$600$\,MHz whenever it is working, and that single fact taints every estimator
+measurement on the platform (\S\ref{ap:repro-thermal}).
+
+An earlier edition of this appendix stated that the software levers were
+exhausted, on the grounds that disabling the colour stream gave zero thermal
+improvement. That measurement was invalid: colour was already disabled at
+driver level, so the test compared a configuration with itself. The colour
+nodelet was subsequently measured at $185\,\%$ CPU
+(\S\ref{sec:july30thermal}), making it the dominant thermal term. The lever
+exists, but spending it costs the working-distance beacon detection, which
+is why the July 30 session chose to keep colour and accept the risk instead.
+The measured envelope is roughly three degrees wide: the serial link holds at
+$86\,^\circ$C and collapses at $89\,^\circ$C. A fan is what buys back that
+margin without giving up colour.
+
+The experiment to run immediately after fitting a fan is the A/B that was never
+possible: count IMU gaps over $20$\,s before and after, and count
+\code{Propagator.cpp:101} aborts over a ten-minute run. If the gaps go to zero,
+a whole class of ``estimator bug'' disappears, and several conclusions in
+Chapter~12 should be re-measured on the healthier machine.
+
+\subsection{Priority 3: finish the ground-truth calibration}
+Three passes per direction, with the floor protocol, and settle the question
+posed in \S\ref{ap:repro-calibrun}: is the $7$--$9\%$ rotation discrepancy in
+the sensors or in the reference measurement? This is cheap, needs no hardware,
+and is the only measurement on the platform anchored to physical reality.
+
+Until it is settled, \code{\textasciitilde gyro\_scale} must stay at $1.0$.
+
+\subsection{Priority 4: get an absolute reference into a driven run}
+Every number in Chapter~12 except the tape-measure calibration is
+\emph{mutual divergence}: it says whether MINS and openVINS agree, never which
+is right. The Carolus beacon is the only drift-free anchor available, and it was
+in view during neither of the two comparison runs.
+
+Drive a loop with the beacon visible. Nothing needs to be written:
+\code{plot\_trajectories.m} already computes each estimator's error against the
+Carolus fix the moment a \code{\_carolus.csv} exists. That single run converts
+the whole chapter from relative to absolute.
+
+Since July 30 there is a better path than a post-hoc CSV.
+\code{carolus\_tf\_bridge.py} (\S\ref{sec:july30bridge}) publishes
+\code{/odom\_in\_beacon} and \code{/carolus\_in\_beacon}, both carrying the
+robot's pose in the beacon frame by two independent routes, odometric and
+optical. Their instantaneous difference \emph{is} the absolute error, with no
+Kabsch or Umeyama fit in between, so nothing is absorbed into a fitted
+transform or a scale parameter. Record both topics in the bag.
+
+Two cautions. The bridge is deliberately in no launch file: start it by hand,
+so it can never perturb a run you did not intend it to touch. And it is gated
+on Priority~1: with the present intrinsics its output is self-consistent
+and metrically meaningless, which is the most dangerous combination a
+measurement can have, because it looks like data.
+
+\subsection{Priority 5: the Kalibr camera--IMU calibration}
+Item~2 of the open-items registry, never completed, blocked on producing
+$\gtrsim1.5$\,rad/s of roll and pitch excitation with a rover that has only ever
+managed $0.08$. It requires lifting and tilting the robot by hand in front of
+the target. Do it after the three above, because a thermally throttled Pi will
+drop frames during the very manoeuvre the calibration depends on.
+
+\subsection{Open questions the author did not resolve}
+Recorded honestly, because a successor deserves the loose ends rather than a
+tidy narrative:
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{\code{firmware\_message\_converter} publishes an altered gyro
+  bias.} It reports $6.867$ where its own source reads $3.668$. No estimator
+  consumes that topic, so it was never chased, but it is a real defect and
+  suggests something wrong in the conversion path.
+\item \textbf{$\sim20\,000$ serial checksum errors} were logged on the Pi
+  before the real-time fix. The fix cured the \emph{rate} collapse; whether it
+  cured the checksum errors entirely was never re-measured.
+\item \textbf{openVINS's scale disagrees with itself between runs.} One run gave
+  a trajectory $10\%$ \emph{shorter} than MINS; a different run gave a
+  straight-line distance $10.5\times$ \emph{longer} than reality. Both were
+  measured properly. This inconsistency is unexplained and is the most
+  interesting open question in the estimator work.
+\item \textbf{The wheel odometry's $4.3\%$ left/right asymmetry} is
+  characterised but not corrected. It is mechanical, so it needs a mechanical
+  or model-level answer, not a gain.
+\item \textbf{MATLAB's batch licensing} was failing at the time of writing
+  (\code{error 5001}), which is why the per-panel figures in this appendix's
+  companion chapter were produced by cropping rather than re-rendering. Purely
+  an account/network issue, but it blocks the analysis pipeline until fixed.
+\end{itemize}
+
+\subsection{Habits worth inheriting}
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Measure before believing, and measure the thing itself.} Almost
+  every wrong conclusion in this project came from measuring a proxy: arrival
+  time instead of the timestamp, cumulative path instead of net displacement,
+  the median instead of the tail.
+\item \textbf{Write down why, not what.} Every script here has a header
+  explaining the defect it works around. Six weeks later that comment is the
+  only thing that distinguishes a deliberate workaround from an accident.
+\item \textbf{A measurement taken on an unstable system is worse than no
+  measurement}, because it will be believed. The watchdog episode
+  (\S\ref{ap:repro-watchdog}) invalidated two days of estimator conclusions.
+\item \textbf{Fix inputs, not outputs.} The one time this project filtered an
+  estimator's output instead of its inputs, the filter became the fault
+  (\S\ref{ap:repro-guard}).
+\item \textbf{Keep the fallback path working.} Every convenience here has a
+  manual equivalent, the cockpit calibration panel has
+  \code{tools/calib\_terrain.py}, the one-click export has
+  \code{bag\_to\_csv.py}. When the convenient path breaks mid-session, and it
+  will, the campaign survives.
+\end{enumerate}
+

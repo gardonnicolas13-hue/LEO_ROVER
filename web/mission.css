@@ -1,0 +1,87 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   LEO · MISSION DESIGN SYSTEM — "Deep Space Control"
+   Couche de tokens + composants appliquée PAR-DESSUS Tailwind, sans toucher
+   au markup piloté par app.js. Une seule source de vérité visuelle.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root {
+  /* Palette utilitaire */
+  --ms-bg:        #0B0E14;   /* fond mission */
+  --ms-bg-raise:  #10141c;   /* panneaux */
+  --ms-bg-high:   #161b24;   /* survols */
+  --ms-line:      rgba(255,255,255,.07);
+  --ms-cyan:      #22d3ee;   /* data / VINS / liens */
+  --ms-orange:    #ff6b35;   /* NASA orange / MINS */
+  --ms-alert:     #FC3D21;   /* critique */
+  --ms-warn:      #eab308;   /* avertissement */
+  --ms-ok:        #3fdc97;   /* nominal */
+  --ms-txt:       #d4d9e1;
+  --ms-dim:       #6b7684;
+  /* Rythme */
+  --ms-radius:    .9rem;
+  --ms-gap:       .75rem;
+}
+
+/* ── Pulsations de statut (données vivantes) ────────────────────────────── */
+@keyframes ms-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%      { opacity: .45; transform: scale(.82); }
+}
+.led-dot > span,
+.ms-live::before {
+  animation: ms-pulse 1.6s ease-in-out infinite;
+}
+.ms-live { position: relative; padding-left: 14px; }
+.ms-live::before {
+  content: ""; position: absolute; left: 0; top: 50%; margin-top: -3px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ms-ok); box-shadow: 0 0 8px var(--ms-ok);
+}
+
+/* ── Console de bord (remplace le rendu "terminal brut") ────────────────── */
+#console {
+  background: linear-gradient(180deg, rgba(11,14,20,.92), rgba(11,14,20,.75)) !important;
+  border: 1px solid var(--ms-line);
+  font-variant-numeric: tabular-nums;
+  scrollbar-width: thin;
+}
+#console p {
+  display: flex; gap: .6rem; align-items: baseline;
+  padding: .14rem .35rem;
+  border-left: 2px solid transparent;
+  border-radius: .25rem;
+  transition: background .15s;
+}
+#console p:hover { background: rgba(255,255,255,.035); }
+#console p + p { margin-top: 1px; }
+#console p > span:first-child {          /* timestamp en colonne fixe */
+  flex: 0 0 auto; min-width: 62px;
+  color: var(--ms-dim) !important;
+  font-size: .92em;
+}
+#console p.text-emerald-300 { border-left-color: rgba(63,220,151,.5); }
+#console p.text-amber-300   { border-left-color: rgba(234,179,8,.6); }
+#console p.text-alert       { border-left-color: var(--ms-alert);
+                              background: rgba(252,61,33,.06); }
+
+/* ── Panneaux : verre discret, hiérarchie par l'espace ──────────────────── */
+.tile { transition: border-color .18s, box-shadow .18s; }
+.tile:hover { box-shadow: 0 0 0 1px rgba(34,211,238,.12), 0 8px 32px -18px rgba(34,211,238,.25); }
+
+/* ── Chiffres de télémétrie : tabulaires + lueur douce ──────────────────── */
+.font-mono { font-variant-numeric: tabular-nums; }
+
+/* ── Focus clavier visibles (console opérée sous pression) ──────────────── */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 1px solid var(--ms-cyan);
+  outline-offset: 2px;
+  border-radius: .4rem;
+}
+
+/* ── Scrollbars fines partout ───────────────────────────────────────────── */
+* { scrollbar-width: thin; scrollbar-color: #1c2733 transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #1c2733; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #26344a; }
+
+/* ── Sélection ──────────────────────────────────────────────────────────── */
+::selection { background: rgba(34,211,238,.28); }

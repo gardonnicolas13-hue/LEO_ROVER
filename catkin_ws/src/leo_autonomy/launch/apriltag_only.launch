@@ -1,0 +1,14 @@
+<launch>
+  <!-- Détection AprilTag SEULE (sans le reste de la stack d'autonomie) —
+       branchée sur les topics réels du rover : l'infra1 locale décompressée
+       (/pc/camera/...) et la calib de la caméra. Publie /tag_detections.
+       Les IDs/tailles des balises sont dans config/tags.yaml (MESUREZ le
+       côté noir réel de vos tags imprimés avant de vous fier aux distances). -->
+  <node pkg="apriltag_ros" type="apriltag_ros_continuous_node"
+        name="apriltag" output="screen" respawn="true" respawn_delay="5">
+    <remap from="image_rect"  to="/pc/camera/infra1/image_tag"/> <!-- 8 Hz (throttle supervision) -->
+    <remap from="camera_info" to="/camera/infra1/camera_info"/>
+    <rosparam command="load" file="$(find leo_autonomy)/config/apriltag.yaml"/>
+    <rosparam command="load" file="$(find leo_autonomy)/config/tags.yaml"/>
+  </node>
+</launch>

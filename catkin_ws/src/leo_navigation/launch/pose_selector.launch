@@ -1,0 +1,26 @@
+<launch>
+  <!-- LEO Rover — pose_selector: switches /robot_pose_fused between VINS
+       (OpenVINS ov_msckf) and MINS without a jump. See scripts/pose_selector.py
+       for the full contract (topics, service, TF). -->
+
+  <arg name="default_source" default="MINS"/>                 <!-- VINS | MINS —
+       MINS (2026-07-24): matches navigation_supervision.launch and
+       §sec:ovinit (static init, no motion needed); VINS here left a
+       restart with no source actually producing data until driven. -->
+  <arg name="vins_topic"     default="/ov_msckf/odomimu"/>
+  <arg name="mins_topic"     default="/mins/imu/odom"/>
+  <arg name="odom_frame"     default="odom"/>
+  <arg name="base_frame"     default="base_link"/>
+  <arg name="imu_frame"      default="imu_frame"/>
+  <arg name="publish_tf"     default="true"/>
+
+  <node name="pose_selector" pkg="leo_navigation" type="pose_selector.py" output="screen">
+    <param name="default_source" value="$(arg default_source)"/>
+    <param name="vins_topic"     value="$(arg vins_topic)"/>
+    <param name="mins_topic"     value="$(arg mins_topic)"/>
+    <param name="odom_frame"     value="$(arg odom_frame)"/>
+    <param name="base_frame"     value="$(arg base_frame)"/>
+    <param name="imu_frame"      value="$(arg imu_frame)"/>
+    <param name="publish_tf"     value="$(arg publish_tf)"/>
+  </node>
+</launch>

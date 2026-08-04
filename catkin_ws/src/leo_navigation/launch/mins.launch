@@ -1,0 +1,76 @@
+<launch>
+  <!-- LEO Rover — MINS bring-up (multisensor-aided inertial navigation).
+       Requires BOTH workspaces sourced before launch:
+         source /home/lab272/TOUT/catkin_ws/devel/setup.bash   (leo_navigation)
+         source /home/lab272/TOUT/mins_ws/devel/setup.bash     (mins)
+       MINS publishes /mins/imu/odom, which pose_selector republishes onto
+       /robot_pose_fused when you switch the cockpit's Pose Source to MINS.
+
+       imu_sanitizer, carolus_vicon_bridge and wheel_remap used to live in
+       this file but moved to navigation_supervision.launch so they get
+       respawn="true" alongside pose_selector and leo_backend — this file
+       now only owns the MINS estimator itself.
+
+       MINS IS respawn="true", NOT required="true" — CORRIGÉ 2026-07-29.
+       Cet en-tête affirmait le contraire ("stays required=true, a crash here
+       should tear down the stack") et contredisait donc la déclaration du
+       nœud vingt lignes plus bas, qui porte respawn="true" depuis le
+       2026-07-06. Un commentaire qui contredit le code est pire qu'absent :
+       il fait confiance au lecteur pour ne pas vérifier.
+
+       POURQUOI le choix a changé : required="true" a été observé faisant
+       tomber TOUTE la pile — leo_backend compris, donc le pilotage — sur un
+       simple abort de MINS (assertion SystemManager.cpp:395 sur un horodatage
+       IMU rétrograde, 2026-07-06). L'opérateur perdait la capacité de
+       CONDUIRE le robot parce qu'un estimateur avait hoqueté. Principe retenu
+       depuis : le pilotage ne doit JAMAIS dépendre de la santé d'un
+       estimateur.
+
+       CONTREPARTIE ASSUMÉE : au respawn MINS réinitialise à une NOUVELLE
+       origine, donc /mins/imu/odom saute. La correction SE(3) de
+       pose_selector n'absorbe PAS ce saut (elle ne compense qu'au changement
+       de source), d'où une discontinuité visible sur /robot_pose_fused. Une
+       trajectoire discontinue se récupère ; un cockpit mort en pleine
+       manœuvre non. Voir l'annexe D (Launch file architecture) du rapport. -->
+
+  <arg name="config" default="leo"/>   <!-- mins/config/<config>/config.yaml -->
+
+  <!-- MINS estimator (from mins_ws).
+       NOTE: passed via args="...", NOT <param name="config_path">. On ROS1,
+       run_subscribe.cpp only reads argv[1] for the config path (the
+       node->get_parameter() call that would read the "config_path" ROS param
+       is inside an `#if ROS_AVAILABLE == 2` block — upstream ROS1 build never
+       reads it). Using <param> silently fails: argv[1] becomes roslaunch's own
+       auto-appended "__name:=mins_subscribe" instead, and MINS reports
+       "unable to open the configuration file!" for that literal string.
+       args="..." places our path at argv[1] before roslaunch's remap args. -->
+  <!-- launch-prefix="stdbuf -oL": MINS's PRINT2/PRINT1 diagnostic lines (init
+       status, feature-deletion counts, etc.) go through plain stdout. When
+       that's redirected to a file/pipe (as roslaunch and nohup both do),
+       glibc switches from line- to fully-buffered stdio, so with this low an
+       output volume the [INIT] messages can sit unflushed for many minutes —
+       looking exactly like "nothing is happening" when it may not be. Forces
+       line buffering so diagnostics appear as they're printed. -->
+  <!-- nice -n -10: limits.conf grants lab272 nice=-10 (verified 2026-07-04,
+       ulimit -e = 30) — protects the estimator from CPU starvation by IDE
+       indexers (cpptools), the root cause of past "zombie" episodes. -->
+  <!-- respawn, NOT required: required="true" meant any MINS abort (e.g. the
+       SystemManager.cpp:395 clone_time assert on a backward IMU stamp,
+       observed live 2026-07-06) tore down the WHOLE stack — including
+       leo_backend, i.e. cockpit driving died with the estimator. Driving must
+       never depend on estimator health. On respawn MINS re-initializes at its
+       own origin: /mins/imu/odom jumps, which the pose_selector SE(3)
+       correction does NOT absorb (it only corrects on source switch) — an
+       accepted tradeoff until MINS-side persistence exists. -->
+  <node name="mins_subscribe" pkg="mins" type="subscribe" output="screen"
+        clear_params="true" respawn="true" respawn_delay="5"
+        launch-prefix="nice -n -10 stdbuf -oL"
+        args="$(find mins)/config/$(arg config)/config.yaml">
+    <!-- TF isolé (audit 2026-07-08) : MINS diffuse global->imu à ~85 Hz, ce
+         qui VOLAIT le frame `imu` de l'URDF (un enfant TF n'a qu'un parent)
+         et entrera en guerre avec le global->imu d'OpenVINS. Ses TF ne
+         servent qu'à la visualisation -> canal dédié /tf_mins (RViz peut s'y
+         abonner explicitement). -->
+    <remap from="/tf" to="/tf_mins"/>
+  </node>
+</launch>

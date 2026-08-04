@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en" class="dark scroll-smooth">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LEO ROVER — Navigation Modes</title>
+<script src="i18n.js?v=r17"></script>
+<script src="vendor/tailwind.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: {
+      fontFamily: {
+        sans: ['Inter','system-ui','sans-serif'],
+        mono: ['"JetBrains Mono"','ui-monospace','monospace'],
+        display: ['Rajdhani','Inter','sans-serif'],
+      },
+      colors: {
+        space:  { 950:'#0B0E14', 900:'#10141c', 800:'#161b24' },
+        accent: { DEFAULT:'#22d3ee', soft:'#67e8f9', deep:'#0e7490' },
+        plasma: { DEFAULT:'#ff6b35', soft:'#ff8f66', deep:'#c2410c' },
+        alert:  { DEFAULT:'#FC3D21' },
+        ok:     { DEFAULT:'#3fdc97' },
+        warn:   { DEFAULT:'#eab308' },
+      },
+      boxShadow: {
+        glow:'0 0 0 1px rgba(34,211,238,.25), 0 0 40px -10px rgba(34,211,238,.6)',
+        neon:'0 0 6px rgba(34,211,238,.6), 0 0 24px rgba(34,211,238,.4)',
+      },
+      keyframes: {
+        'fade-up':{ '0%':{ opacity:0, transform:'translateY(16px)' }, '100%':{ opacity:1, transform:'translateY(0)' } },
+      },
+      animation: {
+        'fade-up':'fade-up .6s ease-out both',
+      },
+    }},
+  };
+</script>
+<link rel="stylesheet" href="fonts/fonts.css?v=f1" />
+<link rel="stylesheet" href="mission.css?v=m1" />
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0B0E14; }
+  .grid-bg { background-image:
+      linear-gradient(rgba(34,211,238,.05) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(34,211,238,.05) 1px,transparent 1px);
+      background-size:46px 46px; }
+  .glass { background:rgba(255,255,255,.035); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); }
+  .tile { border:1px solid rgba(255,255,255,.08); border-radius:1.25rem; }
+  .tile:hover { border-color:rgba(34,211,238,.2); }
+  .text-gradient { background:linear-gradient(120deg,#fff,#67e8f9 45%,#ff6b35);
+      -webkit-background-clip:text; background-clip:text; color:transparent; }
+  ::-webkit-scrollbar{ width:9px; }
+  ::-webkit-scrollbar-thumb{ background:#1c2733; border-radius:5px; }
+  .lang-btn { padding:.3rem .55rem; border-radius:.5rem; font-size:.7rem; font-weight:600;
+      color:#71717a; letter-spacing:.05em; transition:.15s; }
+  .lang-btn:hover { color:#fff; }
+  .lang-btn.active { background:rgba(34,211,238,.18); color:#67e8f9; }
+  table.cmp th, table.cmp td { vertical-align:top; }
+</style>
+</head>
+
+<body class="font-sans text-zinc-200 antialiased selection:bg-accent/30">
+  <div class="pointer-events-none fixed inset-0 -z-20 bg-[radial-gradient(ellipse_at_top,#161b24,#0B0E14_60%)]"></div>
+  <div class="pointer-events-none fixed inset-0 -z-10 grid-bg opacity-40"></div>
+  <div class="pointer-events-none fixed -top-32 left-1/4 -z-10 h-96 w-96 rounded-full bg-accent/10 blur-[150px]"></div>
+  <div class="pointer-events-none fixed bottom-0 right-0 -z-10 h-96 w-96 rounded-full bg-plasma/10 blur-[150px]"></div>
+
+  <!-- ══════════════════ NAV ══════════════════ -->
+  <header class="sticky top-0 z-50 border-b border-white/5 glass">
+    <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+      <a href="index.html" class="group flex items-center gap-3">
+        <span class="flex items-center gap-2">
+          <img src="vendor/NASA_logo.svg"
+               alt="NASA" loading="lazy"
+               class="h-9 w-9 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 shadow-glow transition group-hover:scale-105" />
+          <img src="vendor/fit_seal.svg"
+               alt="Florida Institute of Technology" loading="lazy"
+               class="h-9 w-9 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 transition group-hover:scale-105" />
+        </span>
+        <span class="hidden h-7 w-px bg-white/15 sm:block"></span>
+        <span class="font-display text-base font-bold tracking-widest">LEO<span class="text-accent">·</span>NAV</span>
+      </a>
+      <nav class="hidden items-center gap-1 md:flex">
+        <a href="index.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
+        <a href="ops.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_ops">Operations</a>
+        <a href="logbook.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
+        <a href="robot_description.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
+        <a href="navigation_modes.html" class="rounded-lg bg-white/5 px-3 py-2 text-sm text-white" data-i18n="nav_navmodes">Nav Modes</a>
+        <a href="trajectory.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+        <a href="pid.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_pid">PID</a>
+      </nav>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/[.03] p-0.5" title="Language">
+          <button type="button" class="lang-btn" data-lang="fr" onclick="if(window.I18N)I18N.set('fr')">FR</button>
+          <button type="button" class="lang-btn" data-lang="en" onclick="if(window.I18N)I18N.set('en')">EN</button>
+        </div>
+        <!-- Bouton menu mobile — la nav du haut est masquée sous md -->
+        <button type="button" id="mobileMenuBtn" aria-label="Menu"
+                class="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/[.03] text-zinc-300 transition hover:bg-white/10 md:hidden"
+                onclick="document.getElementById('mobileMenu').classList.toggle('hidden')">
+          <i data-lucide="menu" class="h-4 w-4"></i>
+        </button>
+      </div>
+    </div>
+    <!-- Panneau nav mobile -->
+    <div id="mobileMenu" class="hidden border-t border-white/5 bg-space-950/95 md:hidden">
+      <nav class="mx-auto flex max-w-5xl flex-col gap-1 px-5 py-3">
+        <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
+        <a href="ops.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_ops">Operations</a>
+        <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
+        <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
+        <a href="navigation_modes.html" class="rounded-lg bg-white/5 px-3 py-2.5 text-sm text-white" data-i18n="nav_navmodes">Nav Modes</a>
+        <a href="trajectory.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+        <a href="pid.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_pid">PID</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ══════════════════ HERO ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-8 pt-16">
+    <div class="animate-fade-up">
+      <p class="font-mono text-xs uppercase tracking-[.3em] text-accent" data-i18n="navmodes_kicker">// navigation architecture · VINS vs MINS</p>
+      <h1 class="mt-3 font-display text-4xl font-black tracking-tight sm:text-5xl">
+        <span class="text-gradient" data-i18n="navmodes_title">Navigation Modes</span>
+      </h1>
+      <p class="mt-4 max-w-2xl text-zinc-400" data-i18n="navmodes_desc">
+        LEO Rover estimates its pose using one of two interchangeable estimators, switchable live from the cockpit without a discontinuity in the published pose (see the SE(3) correction note below).
+      </p>
+    </div>
+  </section>
+
+  <!-- ══════════════════ VINS / MINS CARDS ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
+
+      <!-- VINS -->
+      <div class="tile glass p-6">
+        <div class="mb-3 flex items-center gap-2">
+          <span class="rounded-full bg-accent/15 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-accent ring-1 ring-accent/30" data-i18n="navmodes_vins_badge">MODE A</span>
+          <span class="h-2 w-2 rounded-full bg-accent"></span>
+        </div>
+        <h2 class="font-display text-xl font-bold text-white" data-i18n="navmodes_vins_title">VINS — Visual-Inertial Navigation System</h2>
+        <p class="mt-2 text-sm text-zinc-400" data-i18n="navmodes_vins_role">
+          Vision-first: fuses one stereo camera pair with one IMU. Fast to converge, accurate short-term, but has no independent way to correct drift once visual tracking degrades (low light, blank walls, occlusion).
+        </p>
+        <ul class="mt-4 space-y-2 text-sm">
+          <li class="flex gap-2"><i data-lucide="camera" class="mt-0.5 h-4 w-4 shrink-0 text-accent"></i><span data-i18n="navmodes_vins_comp1">Camera — Intel RealSense D455 (stereo IR, infra1/infra2)</span></li>
+          <li class="flex gap-2"><i data-lucide="waves" class="mt-0.5 h-4 w-4 shrink-0 text-accent"></i><span data-i18n="navmodes_vins_comp2">IMU — onboard mainboard IMU, spike-filtered (imu_sanitizer.py)</span></li>
+          <li class="flex gap-2"><i data-lucide="sigma" class="mt-0.5 h-4 w-4 shrink-0 text-accent"></i><span data-i18n="navmodes_vins_comp3">Estimator — MSCKF (Multi-State Constraint Kalman Filter), OpenVINS (ov_msckf)</span></li>
+        </ul>
+        <p class="mt-4 rounded-lg bg-white/[.03] p-2.5 font-mono text-[11px] text-zinc-500 ring-1 ring-white/10" data-i18n="navmodes_vins_comp4">Output — geometry_msgs/PoseWithCovarianceStamped on /ov_msckf/poseimu</p>
+      </div>
+
+      <!-- MINS -->
+      <div class="tile glass p-6">
+        <div class="mb-3 flex items-center gap-2">
+          <span class="rounded-full bg-plasma/15 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-plasma ring-1 ring-plasma/30" data-i18n="navmodes_mins_badge">MODE B</span>
+          <span class="h-2 w-2 rounded-full bg-plasma"></span>
+        </div>
+        <h2 class="font-display text-xl font-bold text-white" data-i18n="navmodes_mins_title">MINS — Multisensor-aided Inertial Navigation System</h2>
+        <p class="mt-2 text-sm text-zinc-400" data-i18n="navmodes_mins_role">
+          Fusion-first: combines every available sensor into one filter, so no single sensor's failure stops the estimate. Slower to fully converge (more states to initialize) but far more robust once running.
+        </p>
+        <ul class="mt-4 space-y-2 text-sm">
+          <li class="flex items-start gap-2">
+            <i data-lucide="waves" class="mt-0.5 h-4 w-4 shrink-0 text-plasma"></i>
+            <span class="flex-1"><span data-i18n="navmodes_mins_comp1">IMU — same sanitized onboard IMU stream as VINS</span>
+              <span class="ml-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-400/30" data-i18n="navmodes_status_active">Active</span></span>
+          </li>
+          <li class="flex items-start gap-2">
+            <i data-lucide="disc" class="mt-0.5 h-4 w-4 shrink-0 text-plasma"></i>
+            <span class="flex-1"><span data-i18n="navmodes_mins_comp2">Wheel encoders — differential-drive velocity constraint (real radius/separation from firmware)</span>
+              <span class="ml-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-400/30" data-i18n="navmodes_status_active">Active</span></span>
+          </li>
+          <li class="flex items-start gap-2">
+            <i data-lucide="camera" class="mt-0.5 h-4 w-4 shrink-0 text-plasma"></i>
+            <span class="flex-1"><span data-i18n="navmodes_mins_comp3">Camera — same D455 stereo pair, feeds visual feature tracks</span>
+              <span class="ml-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-400/30" data-i18n="navmodes_status_active">Active</span></span>
+          </li>
+          <li class="flex items-start gap-2">
+            <i data-lucide="lightbulb" class="mt-0.5 h-4 w-4 shrink-0 text-plasma"></i>
+            <span class="flex-1"><span data-i18n="navmodes_mins_comp4">Carolus (VICON slot) — beacon fix used as a drift-free global anchor, the platform's "indoor GPS"</span>
+              <span class="ml-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300 ring-1 ring-amber-400/30" data-i18n="navmodes_status_staged">Staged, not yet enabled</span></span>
+          </li>
+          <li class="flex items-start gap-2">
+            <i data-lucide="radar" class="mt-0.5 h-4 w-4 shrink-0 text-plasma"></i>
+            <span class="flex-1"><span data-i18n="navmodes_mins_comp5">LiDAR — RPLidar, planned integration (bring-up not yet complete)</span>
+              <span class="ml-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300 ring-1 ring-amber-400/30" data-i18n="navmodes_status_staged">Staged, not yet enabled</span></span>
+          </li>
+          <li class="flex items-start gap-2">
+            <i data-lucide="satellite" class="mt-0.5 h-4 w-4 shrink-0 text-plasma"></i>
+            <span class="flex-1"><span data-i18n="navmodes_mins_comp6">GPS — supported by MINS, disabled on this platform (no GNSS receiver on LEO Rover)</span>
+              <span class="ml-1 rounded-full bg-zinc-600/20 px-2 py-0.5 text-[10px] font-medium text-zinc-400 ring-1 ring-white/10" data-i18n="navmodes_status_disabled">Disabled (no hardware)</span></span>
+          </li>
+        </ul>
+        <p class="mt-4 rounded-lg bg-white/[.03] p-2.5 font-mono text-[11px] text-zinc-500 ring-1 ring-white/10" data-i18n="navmodes_mins_output">Output — nav_msgs/Odometry on /mins/imu/odom</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ COMPARISON TABLE ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass overflow-hidden p-6">
+      <h2 class="mb-4 flex items-center gap-2 font-display text-lg font-bold text-white">
+        <i data-lucide="scale" class="h-5 w-5 text-accent"></i>
+        <span data-i18n="navmodes_table_title">Comparison</span>
+      </h2>
+      <div class="overflow-x-auto">
+        <table class="cmp w-full border-collapse text-sm">
+          <thead>
+            <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wider text-zinc-500">
+              <th class="w-32 py-2 pr-4" data-i18n="navmodes_table_criteria">Criteria</th>
+              <th class="py-2 pr-4 text-accent">VINS</th>
+              <th class="py-2 text-plasma">MINS</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-white/5">
+            <tr>
+              <td class="py-3 pr-4 font-semibold text-white" data-i18n="navmodes_table_precision">Precision</td>
+              <td class="py-3 pr-4 text-zinc-400" data-i18n="navmodes_table_precision_vins">High short-term (D455 calibrated to 0.20–0.23px reprojection error); drifts unbounded once visual tracking is lost.</td>
+              <td class="py-3 text-zinc-400" data-i18n="navmodes_table_precision_mins">Slightly lower short-term (more states to estimate) but bounded long-term — wheel + Carolus anchor the drift.</td>
+            </tr>
+            <tr>
+              <td class="py-3 pr-4 font-semibold text-white" data-i18n="navmodes_table_robustness">Robustness</td>
+              <td class="py-3 pr-4 text-zinc-400" data-i18n="navmodes_table_robustness_vins">Single point of failure: camera occlusion or low light stalls the whole estimate.</td>
+              <td class="py-3 text-zinc-400" data-i18n="navmodes_table_robustness_mins">Graceful degradation — losing one sensor (camera, wheel) still leaves usable state from the others.</td>
+            </tr>
+            <tr>
+              <td class="py-3 pr-4 font-semibold text-white" data-i18n="navmodes_table_cpu">CPU load</td>
+              <td class="py-3 pr-4 text-zinc-400" data-i18n="navmodes_table_cpu_vins">Lower — one estimator, fewer sensor callbacks.</td>
+              <td class="py-3 text-zinc-400" data-i18n="navmodes_table_cpu_mins">Higher — more sensors, more states, more update steps per cycle.</td>
+            </tr>
+            <tr>
+              <td class="py-3 pr-4 font-semibold text-white" data-i18n="navmodes_table_usage">Ideal use</td>
+              <td class="py-3 pr-4 text-zinc-400" data-i18n="navmodes_table_usage_vins">Short, well-lit, feature-rich runs; quick calibration checks; when CPU headroom is tight.</td>
+              <td class="py-3 text-zinc-400" data-i18n="navmodes_table_usage_mins">Longer missions, variable lighting, whenever wheel odometry or Carolus beacons are available.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ DATA FLOW DIAGRAM ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass p-6">
+      <h2 class="mb-1 flex items-center gap-2 font-display text-lg font-bold text-white">
+        <i data-lucide="network" class="h-5 w-5 text-accent"></i>
+        <span data-i18n="navmodes_diag_title">Live data flow</span>
+      </h2>
+      <p class="mb-4 text-sm text-zinc-500" data-i18n="navmodes_diag_sub">Every box below is a real running node/topic on the rover-PC system.</p>
+      <div class="overflow-x-auto">
+        <svg viewBox="0 0 1100 380" class="min-w-[860px] w-full font-mono" role="img" aria-label="LEO data flow">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#52525b"/>
+            </marker>
+            <marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#67e8f9"/>
+            </marker>
+            <marker id="arrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#ff8f66"/>
+            </marker>
+          </defs>
+          <style>
+            .lbl { fill:#a1a1aa; font-size:11px; }
+            .lbl-s { fill:#71717a; font-size:9.5px; }
+            .box { fill:rgba(255,255,255,.03); stroke:rgba(255,255,255,.14); rx:10; }
+            .hdr { fill:#e4e4e7; font-size:12px; font-weight:600; }
+            .flow { stroke:#52525b; stroke-width:1.3; fill:none; }
+          </style>
+          <!-- Colonne capteurs (robot) -->
+          <text x="20" y="26" class="lbl-s" style="letter-spacing:.2em" data-i18n="navmodes_diag_col1">SENSORS · ON THE ROVER</text>
+          <rect x="20" y="40"  width="200" height="46" class="box"/>
+          <text x="34" y="60" class="hdr">IMU LeoCore</text><text x="34" y="76" class="lbl-s">/firmware/imu · ~80 Hz</text>
+          <rect x="20" y="100" width="200" height="46" class="box"/>
+          <text x="34" y="120" class="hdr">Encodeurs roues</text><text x="34" y="136" class="lbl-s">/firmware/wheel_states</text>
+          <rect x="20" y="160" width="200" height="46" class="box"/>
+          <text x="34" y="180" class="hdr">D455 stéréo IR</text><text x="34" y="196" class="lbl-s">infra1+infra2 · 640×480 @15</text>
+          <rect x="20" y="220" width="200" height="46" class="box"/>
+          <text x="34" y="240" class="hdr">D455 depth</text><text x="34" y="256" class="lbl-s">640×480 @15 · obstacles</text>
+          <rect x="20" y="290" width="200" height="46" class="box" stroke-dasharray="4 4"/>
+          <text x="34" y="310" class="hdr" fill="#a1a1aa">Carolus (balises)</text><text x="34" y="326" class="lbl-s" data-i18n="navmodes_diag_staged">staged · future indoor-GPS</text>
+
+          <!-- Conversion firmware (robot, leo_fw) — manquait du schéma ; nœud
+               réel dont la perte d'abonnement roues (sans respawn) a bloqué
+               MINS toute la soirée du 22/07, sans aucun rapport avec le réseau. -->
+          <rect x="230" y="100" width="140" height="46" class="box" stroke="rgba(255,143,102,.4)"/>
+          <text x="244" y="118" class="hdr">fw_converter</text>
+          <text x="244" y="132" class="lbl-s">→ /joint_states</text>
+          <text x="244" y="144" class="lbl-s" fill="#ff8f66">no respawn — SPOF</text>
+
+          <!-- Colonne assainissement (PC) -->
+          <text x="400" y="26" class="lbl-s" style="letter-spacing:.2em" data-i18n="navmodes_diag_col2">TRANSPORT &amp; GUARDS · PC</text>
+          <rect x="400" y="40" width="210" height="46" class="box"/>
+          <text x="414" y="60" class="hdr">imu_sanitizer</text><text x="414" y="76" class="lbl-s">anti-spike · anti-gel · monotone</text>
+          <rect x="400" y="100" width="210" height="46" class="box"/>
+          <text x="414" y="120" class="hdr">wheel_remap</text><text x="414" y="136" class="lbl-s">FL/FR par NOM → index MINS</text>
+          <rect x="400" y="160" width="210" height="106" class="box"/>
+          <text x="414" y="180" class="hdr">republish JPEG/PNG</text>
+          <text x="414" y="196" class="lbl-s">hop WiFi compressé (~2 Mo/s)</text>
+          <text x="414" y="212" class="lbl-s">/pc/camera/infra1 + infra2</text>
+          <text x="414" y="228" class="lbl-s">/pc/camera/depth</text>
+          <text x="414" y="244" class="lbl-s">+ relais camera_info</text>
+
+          <!-- Colonne estimateurs -->
+          <text x="680" y="26" class="lbl-s" style="letter-spacing:.2em" data-i18n="navmodes_diag_col3">ESTIMATORS</text>
+          <rect x="680" y="60" width="180" height="70" class="box" stroke="#22d3ee"/>
+          <text x="694" y="84" class="hdr" fill="#67e8f9">VINS · ov_msckf</text>
+          <text x="694" y="100" class="lbl-s">/ov_msckf/odomimu</text>
+          <text x="694" y="116" class="lbl-s" data-i18n="navmodes_diag_vins_note">needs a jolt to init</text>
+          <text x="690" y="52" class="lbl-s" fill="#67e8f9" font-style="italic">/tf_vins (isolé)</text>
+          <path class="flow" d="M710,55 V60" marker-end="url(#arrA)" stroke="#22d3ee" stroke-dasharray="3 3"/>
+          <rect x="680" y="170" width="180" height="70" class="box" stroke="#ff6b35"/>
+          <text x="694" y="194" class="hdr" fill="#ff8f66">MINS · subscribe</text>
+          <text x="694" y="210" class="lbl-s">/mins/imu/odom</text>
+          <text x="694" y="226" class="lbl-s" data-i18n="navmodes_diag_mins_note">static init · wheels+IMU</text>
+
+          <text x="690" y="262" class="lbl-s" fill="#ff8f66" font-style="italic">/tf_mins (isolé) · tf2_ros</text>
+          <path class="flow" d="M710,240 V252" marker-end="url(#arrP)" stroke="#ff6b35" stroke-dasharray="3 3"/>
+
+          <!-- Fusion -->
+          <text x="920" y="26" class="lbl-s" style="letter-spacing:.2em" data-i18n="navmodes_diag_col4">FUSION</text>
+          <rect x="910" y="110" width="160" height="80" class="box" stroke="rgba(122,167,255,.5)"/>
+          <text x="924" y="134" class="hdr">pose_selector</text>
+          <text x="924" y="150" class="lbl-s" data-i18n="navmodes_diag_se3">SE(3) switch correction</text>
+          <text x="924" y="170" class="lbl" fill="#67e8f9">/robot_pose_fused</text>
+          <text x="924" y="184" class="lbl-s" data-i18n="navmodes_diag_tfauth">seule autorité /tf : odom→base_link</text>
+          <rect x="910" y="220" width="160" height="56" class="box"/>
+          <text x="924" y="242" class="hdr">Cockpit · Trajectory</text>
+          <text x="924" y="258" class="lbl-s">rosbridge → navigateur</text>
+
+          <!-- Flux -->
+          <path class="flow" d="M220,63 H400" marker-end="url(#arr)"/>
+          <path class="flow" d="M220,123 H230" marker-end="url(#arr)"/>
+          <path class="flow" d="M370,123 H400" marker-end="url(#arr)"/>
+          <path class="flow" d="M220,183 H400" marker-end="url(#arr)"/>
+          <path class="flow" d="M220,243 H260 V236 H400" marker-end="url(#arr)"/>
+          <path class="flow" d="M610,63 H645 V85 H680" marker-end="url(#arrA)" stroke="#22d3ee"/>
+          <path class="flow" d="M610,63 H645 V193 H680" marker-end="url(#arrP)" stroke="#ff6b35"/>
+          <path class="flow" d="M610,123 H655 V205 H680" marker-end="url(#arrP)" stroke="#ff6b35"/>
+          <path class="flow" d="M610,196 H635 V108 H680" marker-end="url(#arrA)" stroke="#22d3ee"/>
+          <path class="flow" d="M610,213 H650 V222 H680" marker-end="url(#arrP)" stroke="#ff6b35"/>
+          <path class="flow" d="M860,95 H885 V132 H910" marker-end="url(#arrA)" stroke="#22d3ee"/>
+          <path class="flow" d="M860,205 H885 V168 H910" marker-end="url(#arrP)" stroke="#ff6b35"/>
+          <path class="flow" d="M990,190 V220" marker-end="url(#arr)"/>
+          <path class="flow" d="M220,313 H650 V222 H680" marker-end="url(#arrP)" stroke="#ff6b35" stroke-dasharray="4 4"/>
+          <text x="300" y="306" class="lbl-s" fill="#ff8f66">/mins/external_ref/carolus</text>
+          <text x="300" y="322" class="lbl-s" fill="#ff8f66" data-i18n="navmodes_diag_private">canal privé — MINS uniquement</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ ARCHITECTURE ISOLATION ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass p-6">
+      <h2 class="flex items-center gap-2 font-display text-lg font-bold text-white">
+        <i data-lucide="shield-check" class="h-5 w-5 text-emerald-400"></i>
+        <span data-i18n="navmodes_iso_title">Architecture Isolation</span>
+      </h2>
+      <p class="mt-3 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_iso_p1">p1</p>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_iso_p2">p2</p>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_iso_p3">p3</p>
+    </div>
+  </section>
+
+  <!-- ══════════════════ DEEP DIVE ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass p-6">
+      <p class="font-mono text-xs uppercase tracking-[.3em] text-accent" data-i18n="navmodes_deep_kicker">// deep dive · inside the estimators</p>
+      <h2 class="mt-2 font-display text-2xl font-bold text-white" data-i18n="navmodes_deep_title">Under the hood</h2>
+      <p class="mt-3 text-sm text-zinc-400" data-i18n="navmodes_deep_intro">Intro</p>
+
+      <h3 class="mt-8 flex items-center gap-2 font-display text-lg font-bold text-white">
+        <i data-lucide="git-branch" class="h-5 w-5 text-accent"></i>
+        <span data-i18n="navmodes_deep_msckf_h">The shared foundation — MSCKF</span>
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_deep_msckf_p1">p1</p>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_deep_msckf_p2">p2</p>
+
+      <h3 class="mt-8 flex items-center gap-2 font-display text-lg font-bold text-white">
+        <i data-lucide="camera" class="h-5 w-5 text-accent"></i>
+        <span data-i18n="navmodes_deep_vins_h">VINS — OpenVINS in detail</span>
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_deep_vins_p1">p1</p>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_deep_vins_p2">p2</p>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_deep_vins_p3">p3</p>
+
+      <h3 class="mt-8 flex items-center gap-2 font-display text-lg font-bold text-plasma">
+        <i data-lucide="layers" class="h-5 w-5 text-plasma"></i>
+        <span data-i18n="navmodes_deep_mins_h">MINS — the multisensor extension</span>
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_deep_mins_p1">p1</p>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_deep_mins_p2">p2</p>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_deep_mins_p3">p3</p>
+      <div class="mt-4 flex items-start gap-3 rounded-xl border border-plasma/30 bg-plasma/10 p-4">
+        <i data-lucide="git-merge" class="mt-0.5 h-5 w-5 shrink-0 text-plasma"></i>
+        <p class="text-sm leading-relaxed text-zinc-300" data-i18n="navmodes_deep_mins_p4">p4</p>
+      </div>
+
+      <h3 class="mt-8 flex items-center gap-2 font-display text-lg font-bold text-white">
+        <i data-lucide="flask-conical" class="h-5 w-5 text-emerald-400"></i>
+        <span data-i18n="navmodes_deep_meas_h">Measured on THIS rover</span>
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_deep_meas_p">p</p>
+      <div class="mt-3 overflow-x-auto">
+        <table class="w-full border-collapse text-sm">
+          <thead>
+            <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wider text-zinc-500">
+              <th class="py-2 pr-4" data-i18n="navmodes_deep_meas_c0">Static test T1.1 (5 min)</th>
+              <th class="py-2 pr-4" data-i18n="navmodes_deep_meas_c1">Identity extrinsic (before)</th>
+              <th class="py-2" data-i18n="navmodes_deep_meas_c2">Camera-forward extrinsic (after)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-white/5 text-zinc-400">
+            <tr><td class="py-2 pr-4 font-semibold text-white">X / Y (σ)</td><td class="py-2 pr-4">7.5 mm / 0.6 mm</td><td class="py-2">8.8 mm / 1.6 mm</td></tr>
+            <tr><td class="py-2 pr-4 font-semibold text-white">Z (σ)</td><td class="py-2 pr-4 text-alert">257 mm</td><td class="py-2 text-emerald-300">49.7 mm</td></tr>
+            <tr><td class="py-2 pr-4 font-semibold text-white" data-i18n="navmodes_deep_meas_drift">Z drift</td><td class="py-2 pr-4 text-alert">+1.68 mm/s (divergent)</td><td class="py-2 text-emerald-300">−0.34 mm/s (bounded)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="mt-8 flex items-center gap-2 font-display text-lg font-bold text-white">
+        <i data-lucide="compass" class="h-5 w-5 text-accent"></i>
+        <span data-i18n="navmodes_deep_when_h">Which one, when?</span>
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="navmodes_deep_when_p">p</p>
+
+      <p class="mt-8 border-t border-white/10 pt-4 font-mono text-[11px] leading-relaxed text-zinc-500">
+        <span data-i18n="navmodes_deep_refs_h">References:</span>
+        Geneva, Eckenhoff, Lee, Yang &amp; Huang — <a class="text-accent hover:underline" href="https://docs.openvins.com" target="_blank" rel="noopener">“OpenVINS: A Research Platform for Visual-Inertial Estimation”, ICRA 2020</a> ·
+        Lee, Geneva, Chen &amp; Huang — <a class="text-plasma hover:underline" href="https://arxiv.org/abs/2309.15390" target="_blank" rel="noopener">“MINS: Efficient and Robust Multisensor-aided INS”, arXiv:2309.15390 / J. Field Robotics 2025</a> ·
+        Mourikis &amp; Roumeliotis — “A Multi-State Constraint Kalman Filter for Vision-aided Inertial Navigation”, ICRA 2007 ·
+        <a class="text-zinc-400 hover:underline" href="https://github.com/rpng/open_vins" target="_blank" rel="noopener">github.com/rpng/open_vins</a> ·
+        <a class="text-zinc-400 hover:underline" href="https://github.com/rpng/MINS" target="_blank" rel="noopener">github.com/rpng/MINS</a>
+      </p>
+    </div>
+  </section>
+
+  <!-- ══════════════════ LIVE SWITCH NOTE ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-16">
+    <div class="tile glass flex flex-col gap-4 p-6 sm:flex-row sm:items-center">
+      <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/15 text-accent ring-1 ring-accent/30">
+        <i data-lucide="shuffle" class="h-5 w-5"></i>
+      </span>
+      <div class="min-w-0 flex-1">
+        <h3 class="font-semibold text-white" data-i18n="navmodes_switch_title">Switching live</h3>
+        <p class="mt-1 text-sm text-zinc-400" data-i18n="navmodes_switch_desc">
+          The Pose Source button in Operations → Commands calls /pose_selector/set_source (std_srvs/SetBool) through leo_backend.py. pose_selector.py republishes a single continuous pose on /robot_pose_fused regardless of which estimator is active, applying a one-time rigid (SE(3)) correction at the exact instant of the switch so the output is bit-for-bit identical immediately before and after — no jump, even though the two estimators drift independently afterward.
+        </p>
+      </div>
+      <a href="ops.html" class="flex shrink-0 items-center gap-2 rounded-xl bg-accent/15 px-4 py-2.5 text-sm font-semibold text-accent ring-1 ring-accent/30 transition hover:bg-accent/25 hover:shadow-neon">
+        <span data-i18n="navmodes_switch_cta">Go to Operations →</span>
+      </a>
+    </div>
+  </section>
+
+  <script src="vendor/lucide-1.25.0.umd.js?v=v1"></script>
+  <script>
+    lucide.createIcons();
+    if (window.I18N) I18N.apply();
+  </script>
+</body>
+</html>

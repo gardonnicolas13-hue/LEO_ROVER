@@ -1,0 +1,40 @@
+%YAML:1.0
+
+# LEO Rover — D455 stéréo IR, calibration Kalibr réelle de CE rover
+# (calibration_leo_d455/bag_final-camchain.yaml, reproj err ~0.2px, 640x480).
+# Mêmes intrinsèques que MINS (config_camera.yaml) — source unique de vérité.
+#
+# T_cam_imu = convention Kalibr (points IMU -> camera). C'est l'INVERSE du
+# T_imu_cam de MINS (seed caméra-avant validé par le T1.1 A/B du 2026-07-04 :
+# divergence Z réduite x5). R_CtoI = [[0,0,1],[-1,0,0],[0,-1,0]],
+# p_C0inI = (0.15, 0, 0.10), p_C1inI = (0.15, -0.0902, 0.10).
+#
+# topics /pc/camera/... : republish local du flux JPEG du robot
+# (navigation_supervision.launch) — JAMAIS les topics bruts du robot depuis
+# le PC (saturation WiFi -> crash AP).
+cam0:
+  T_cam_imu:
+    - [0.0, -1.0,  0.0,  0.0]
+    - [0.0,  0.0, -1.0,  0.10]
+    - [1.0,  0.0,  0.0, -0.15]
+    - [0.0,  0.0,  0.0,  1.0]
+  cam_overlaps: [1]
+  camera_model: pinhole
+  distortion_coeffs: [-0.06997975263296914, 0.01963062162082574, 0.0013849504890515055, 0.0019126352685073426]
+  distortion_model: radtan
+  intrinsics: [336.3721021512454, 338.48699154923884, 310.20007556292467, 243.17065929950277]
+  resolution: [640, 480]
+  rostopic: /pc/camera/infra1/image_rect_raw
+cam1:
+  T_cam_imu:
+    - [0.0, -1.0,  0.0, -0.09021265]
+    - [0.0,  0.0, -1.0,  0.10]
+    - [1.0,  0.0,  0.0, -0.15]
+    - [0.0,  0.0,  0.0,  1.0]
+  cam_overlaps: [0]
+  camera_model: pinhole
+  distortion_coeffs: [-0.06322919408397377, 0.027949761557565952, 0.0023552449769369626, 0.0017721544432476029]
+  distortion_model: radtan
+  intrinsics: [337.61566220551015, 339.63530229437606, 320.43720360806583, 242.12247628870475]
+  resolution: [640, 480]
+  rostopic: /pc/camera/infra2/image_rect_raw

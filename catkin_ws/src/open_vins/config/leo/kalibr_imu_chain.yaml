@@ -1,0 +1,41 @@
+%YAML:1.0
+
+# LEO Rover — IMU embarquée (carte LeoCore), bruits mesurés sur CE rover par
+# imu_utils (calibration Y. Turki) — mêmes valeurs que MINS config_imu.yaml.
+# topic /imu/data_clean : flux assaini par imu_sanitizer (anti-spike,
+# anti-gel, timestamps monotones) — JAMAIS /firmware/imu brut.
+imu0:
+  T_i_b:
+    - [1.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0]
+  accelerometer_noise_density: 5.0e-03
+  accelerometer_random_walk: 8.9292060085650762e-04
+  gyroscope_noise_density: 3.4e-04
+  gyroscope_random_walk: 3.3010020064503652e-05
+  rostopic: /imu/data_clean
+  time_offset: 0.0
+  # ~70-90 Hz mesurés après reset de la carte (30 Hz en mode dégradé)
+  update_rate: 80
+  model: "kalibr"
+  Tw:
+    - [ 1.0, 0.0, 0.0 ]
+    - [ 0.0, 1.0, 0.0 ]
+    - [ 0.0, 0.0, 1.0 ]
+  R_IMUtoGYRO:
+    - [ 1.0, 0.0, 0.0 ]
+    - [ 0.0, 1.0, 0.0 ]
+    - [ 0.0, 0.0, 1.0 ]
+  Ta:
+    - [ 1.0, 0.0, 0.0 ]
+    - [ 0.0, 1.0, 0.0 ]
+    - [ 0.0, 0.0, 1.0 ]
+  R_IMUtoACC:
+    - [ 1.0, 0.0, 0.0 ]
+    - [ 0.0, 1.0, 0.0 ]
+    - [ 0.0, 0.0, 1.0 ]
+  Tg:
+    - [ 0.0, 0.0, 0.0 ]
+    - [ 0.0, 0.0, 0.0 ]
+    - [ 0.0, 0.0, 0.0 ]

@@ -1,0 +1,17 @@
+# Arbitrage /cmd_vel — une seule autorité à la fois, par priorité décroissante.
+# leo_backend (opérateur cockpit) > réflexe FSM > move_base (navigation).
+# IMPORTANT : pour activer le mux, leo_backend doit publier sur
+# /cmd_vel_manual (CMD_TOPIC dans leo_backend.py) et le mux sort sur /cmd_vel.
+topics:
+  - name: manual
+    topic: /cmd_vel_manual
+    timeout: 0.5
+    priority: 100
+  - name: fsm_reflex
+    topic: /cmd_vel_fsm
+    timeout: 0.5
+    priority: 50
+  - name: navigation
+    topic: /cmd_vel_nav
+    timeout: 0.5
+    priority: 10

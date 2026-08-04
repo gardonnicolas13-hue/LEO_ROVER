@@ -1,0 +1,93 @@
+<launch>
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       Détection Carolus (carolus_astrobee) — bring-up 2026-07-27, Option A.
+       Copie de carolus_ws/src/launch/carolusBlobDetection.launch, avec le
+       SEUL changement de câblage : nav_cam_topic pointe sur le flux couleur
+       REPUBLIÉ côté PC (/pc/camera/color/image_raw, cf. color_republish dans
+       navigation_supervision.launch) — carolus_astrobee tourne sur le PC,
+       comme leo_backend, et ne consomme jamais le flux brut WiFi.
+
+       Lancé indépendamment du stack MINS (voir tools/launch_carolus.sh) pour
+       ne pas coupler ce nœud expérimental au chemin critique de l'estimateur.
+
+       ATTENTION intrinsèques : fx/fy/cx/cy ci-dessous viennent du launch
+       d'origine (capteur ~1280 de large). La couleur D455 en 640x480 a des
+       intrinsèques différentes -> la pose 6-DOF sera APPROXIMATIVE tant
+       qu'une vraie calibration couleur n'est pas faite (à affiner). Suffit
+       pour l'affichage Option A ; à calibrer pour un usage métrique.
+
+       THROTTLE CPU (2026-07-27, suite incident sécurité couleur activée —
+       Pi à 87°C / surcharge CPU ayant causé une perte de contrôle) :
+       carolus_astrobee n'a AUCUN paramètre de fréquence interne (traite
+       chaque frame reçue, cf. carolus_detect.launch d'origine, aucun
+       "rate"/"hz"/"skip" dans ses params) — son coût CPU est directement
+       proportionnel au débit du topic d'entrée. Plutôt que de modifier/
+       recompiler le nœud, on limite le débit EN AMONT via
+       `topic_tools/throttle` (paquet ROS standard, aucune source à
+       toucher) : le nœud ne voit plus que `carolus_throttle_hz` images/s
+       au lieu des 15 Hz natifs de la couleur D455. Réglable par argument,
+       sans devoir rééditer ce fichier. -->
+  <arg name="carolus_throttle_hz" default="4.0"/>
+  <node name="carolus_cam_throttle" pkg="topic_tools" type="throttle"
+        args="messages /pc/camera/color/image_raw $(arg carolus_throttle_hz)
+              /pc/camera/color/image_raw_throttled" />
+
+  <node name="carolus_astrobee_rex" pkg="carolus_node" type="carolus_astrobee" output="screen">
+
+    <!-- Execution Parameters -->
+    <param name="num_threads" value="1" />
+    <param name="queue_size" value="10" />
+
+    <!-- Blob Filtering Parameters -->
+    <param name="min_circularity" value="0.55" />
+    <param name="saturation_threshold" value="10" />
+    <param name="min_area" value="10.0" />
+    <param name="max_area" value="4000.0" />
+    <param name="max_distance_lim" value="800.0" />
+    <param name="lb_hue" value="80.0" />
+    <param name="ub_hue" value="100.0" />
+
+    <!-- Preprocessing Parameters -->
+    <param name="kernel_size_gaussian" value="3" />
+    <param name="kernel_size_morph" value="3" />
+    <param name="image_threshold" value="220" />
+
+    <!-- Camera Parameters -->
+    <param name="nav_cam" value="true" />
+    <param name="dock_cam" value="false" />
+    <param name="fisheye" value="false" />
+    <param name="fov" value="true" />
+    <param name="mono" value="false" />
+
+    <!-- Robot Configuration -->
+    <param name="bot_name" value="wannabee" />
+
+    <!-- Camera Intrinsic Parameters (À CALIBRER pour la couleur D455 640x480) -->
+    <param name="fx" value="644.1213" />
+    <param name="fy" value="645.2890" />
+    <param name="cx" value="643.4710" />
+    <param name="cy" value="372.5166" />
+
+    <!-- Distortion Coefficients -->
+    <param name="distortion" value="-0.0606 0.0824 -0.0027 0.0009" />
+
+    <!-- Topic Names — nav_cam_topic REMAPPÉ sur le flux couleur republié PC -->
+    <param name="dock_cam_topic" value="/hw/cam_dock" />
+    <param name="nav_cam_topic" value="/pc/camera/color/image_raw_throttled" />
+    <param name="processed_image_topic" value="/carolus/processed_image" />
+    <param name="pose_topic" value="/loc/ar/features" />
+
+    <!-- Benchtest Mode -->
+    <param name="benchtest" value="true" />
+
+    <!-- FIFO Filtering -->
+    <param name="filter_size" value="7" />
+    <param name="translation_threshold" value="0.5" />
+    <param name="rotation_threshold" value="0.3" />
+    <param name="fifo_on" value="true" />
+
+    <!-- Known Beacon Points (géométrie des 4 LEDs : ±X, Y, Z) -->
+    <param name="known_points" value="0.0825 0.0 0.0 -0.0825 0.0 0.0 0.0 0.072 0.0 0.0 0.0 0.0555" />
+
+  </node>
+</launch>

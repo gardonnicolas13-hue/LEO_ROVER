@@ -1,0 +1,33 @@
+<launch>
+  <!-- LEO Rover — single entry point for the full navigation stack:
+       sensors -> MINS -> pose_selector -> /robot_pose_fused -> cockpit switch.
+
+       WHAT THIS DOES NOT DO: start robot_state_publisher. That's part of
+       leo_bringup.launch, which runs on the ROBOT (Pi), not here — this
+       package's launch files all run on the PC. robot_state_publisher's
+       earlier crash (duplicate imu_joint name in robot.urdf.xacro) was fixed
+       and it now runs with respawn="true" in leo_bringup.launch — base_link
+       is connected on the tf tree.
+
+       Requires BOTH catkin_ws and mins_ws sourced before this file resolves
+       $(find mins) — use env_leo_mins.sh or launch_mins.sh (same directory),
+       not a plain `roslaunch leo_navigation navigation_master.launch` from a
+       shell that only sourced one workspace. -->
+
+  <arg name="config" default="leo"/>
+
+  <!-- Static extrinsics this platform is missing (D455/RPLidar mount vs
+       base_link). Placeholder numbers until measured / derived from Kalibr
+       T_cam_imu — see the file's own header for the derivation formula. -->
+  <include file="$(find leo_navigation)/launch/tf_static_extrinsics.launch"/>
+
+  <!-- MINS estimator only (required="true" — see mins.launch). -->
+  <include file="$(find leo_navigation)/launch/mins.launch">
+    <arg name="config" value="$(arg config)"/>
+  </include>
+
+  <!-- The 5 respawn-supervised scripts: imu_sanitizer, carolus_vicon_bridge,
+       wheel_remap, pose_selector, leo_backend. Any one of these can die and
+       restart on its own without taking down MINS or the rest of the stack. -->
+  <include file="$(find leo_navigation)/launch/navigation_supervision.launch"/>
+</launch>

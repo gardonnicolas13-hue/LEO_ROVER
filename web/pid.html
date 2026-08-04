@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en" class="dark scroll-smooth">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LEO ROVER — PID Regulation</title>
+<script src="i18n.js?v=r17"></script>
+<script src="vendor/tailwind.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: {
+      fontFamily: {
+        sans: ['Inter','system-ui','sans-serif'],
+        mono: ['"JetBrains Mono"','ui-monospace','monospace'],
+        display: ['Rajdhani','Inter','sans-serif'],
+      },
+      colors: {
+        space:  { 950:'#0B0E14', 900:'#10141c', 800:'#161b24' },
+        accent: { DEFAULT:'#22d3ee', soft:'#67e8f9', deep:'#0e7490' },
+        plasma: { DEFAULT:'#ff6b35', soft:'#ff8f66', deep:'#c2410c' },
+        alert:  { DEFAULT:'#FC3D21' },
+        ok:     { DEFAULT:'#3fdc97' },
+        warn:   { DEFAULT:'#eab308' },
+      },
+      boxShadow: {
+        glow:'0 0 0 1px rgba(34,211,238,.25), 0 0 40px -10px rgba(34,211,238,.6)',
+        neon:'0 0 6px rgba(34,211,238,.6), 0 0 24px rgba(34,211,238,.4)',
+      },
+      keyframes: {
+        'fade-up':{ '0%':{ opacity:0, transform:'translateY(16px)' }, '100%':{ opacity:1, transform:'translateY(0)' } },
+      },
+      animation: {
+        'fade-up':'fade-up .6s ease-out both',
+      },
+    }},
+  };
+</script>
+<link rel="stylesheet" href="fonts/fonts.css?v=f1" />
+<link rel="stylesheet" href="mission.css?v=m1" />
+<script src="vendor/roslib.min.js?v=v1"></script>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0B0E14; }
+  .grid-bg { background-image:
+      linear-gradient(rgba(34,211,238,.05) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(34,211,238,.05) 1px,transparent 1px);
+      background-size:46px 46px; }
+  .glass { background:rgba(255,255,255,.035); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); }
+  .tile { border:1px solid rgba(255,255,255,.08); border-radius:1.25rem; }
+  .tile:hover { border-color:rgba(34,211,238,.2); }
+  .text-gradient { background:linear-gradient(120deg,#fff,#67e8f9 45%,#ff6b35);
+      -webkit-background-clip:text; background-clip:text; color:transparent; }
+  ::-webkit-scrollbar{ width:9px; }
+  ::-webkit-scrollbar-thumb{ background:#1c2733; border-radius:5px; }
+  .lang-btn { padding:.3rem .55rem; border-radius:.5rem; font-size:.7rem; font-weight:600;
+      color:#71717a; letter-spacing:.05em; transition:.15s; }
+  .lang-btn:hover { color:#fff; }
+  .lang-btn.active { background:rgba(34,211,238,.18); color:#67e8f9; }
+  #wsdot { width:8px; height:8px; border-radius:9999px; background:#71717a; transition:.2s; }
+  #wsdot.on { background:#3fdc97; box-shadow:0 0 8px rgba(63,220,151,.8); }
+  .gaugeTrack { background:rgba(255,255,255,.06); border-radius:9999px; overflow:hidden; }
+  .gaugeFill { height:100%; border-radius:9999px; transition:width .25s ease, background-color .25s ease; }
+</style>
+</head>
+
+<body class="font-sans text-zinc-200 antialiased selection:bg-accent/30">
+  <div class="pointer-events-none fixed inset-0 -z-20 bg-[radial-gradient(ellipse_at_top,#161b24,#0B0E14_60%)]"></div>
+  <div class="pointer-events-none fixed inset-0 -z-10 grid-bg opacity-40"></div>
+  <div class="pointer-events-none fixed -top-32 left-1/4 -z-10 h-96 w-96 rounded-full bg-accent/10 blur-[150px]"></div>
+  <div class="pointer-events-none fixed bottom-0 right-0 -z-10 h-96 w-96 rounded-full bg-plasma/10 blur-[150px]"></div>
+
+  <!-- ══════════════════ NAV ══════════════════ -->
+  <header class="sticky top-0 z-50 border-b border-white/5 glass">
+    <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+      <a href="index.html" class="group flex items-center gap-3">
+        <span class="flex items-center gap-2">
+          <img src="vendor/NASA_logo.svg"
+               alt="NASA" loading="lazy"
+               class="h-9 w-9 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 shadow-glow transition group-hover:scale-105" />
+          <img src="vendor/fit_seal.svg"
+               alt="Florida Institute of Technology" loading="lazy"
+               class="h-9 w-9 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 transition group-hover:scale-105" />
+        </span>
+        <span class="hidden h-7 w-px bg-white/15 sm:block"></span>
+        <span class="font-display text-base font-bold tracking-widest">LEO<span class="text-accent">·</span>PID</span>
+      </a>
+      <nav class="hidden items-center gap-1 md:flex">
+        <a href="index.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
+        <a href="ops.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_ops">Operations</a>
+        <a href="logbook.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
+        <a href="robot_description.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
+        <a href="navigation_modes.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
+        <a href="trajectory.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+        <a href="pid.html" class="rounded-lg bg-white/5 px-3 py-2 text-sm text-white" data-i18n="nav_pid">PID</a>
+      </nav>
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[.03] px-2.5 py-1.5 font-mono text-[11px]">
+          <span id="wsdot"></span>
+          <span id="wsstate" class="text-zinc-400">connecting…</span>
+        </div>
+        <div class="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/[.03] p-0.5" title="Language">
+          <button type="button" class="lang-btn" data-lang="fr" onclick="if(window.I18N)I18N.set('fr')">FR</button>
+          <button type="button" class="lang-btn" data-lang="en" onclick="if(window.I18N)I18N.set('en')">EN</button>
+        </div>
+        <!-- Bouton menu mobile — la nav du haut est masquée sous md -->
+        <button type="button" id="mobileMenuBtn" aria-label="Menu"
+                class="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/[.03] text-zinc-300 transition hover:bg-white/10 md:hidden"
+                onclick="document.getElementById('mobileMenu').classList.toggle('hidden')">
+          <i data-lucide="menu" class="h-4 w-4"></i>
+        </button>
+      </div>
+    </div>
+    <!-- Panneau nav mobile -->
+    <div id="mobileMenu" class="hidden border-t border-white/5 bg-space-950/95 md:hidden">
+      <nav class="mx-auto flex max-w-5xl flex-col gap-1 px-5 py-3">
+        <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
+        <a href="ops.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_ops">Operations</a>
+        <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
+        <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
+        <a href="navigation_modes.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
+        <a href="trajectory.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+        <a href="pid.html" class="rounded-lg bg-white/5 px-3 py-2.5 text-sm text-white" data-i18n="nav_pid">PID</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ══════════════════ HERO ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-8 pt-16">
+    <div class="animate-fade-up">
+      <p class="font-mono text-xs uppercase tracking-[.3em] text-accent" data-i18n="pid_kicker">// closed-loop control · added 2026-07-22</p>
+      <h1 class="mt-3 font-display text-4xl font-black tracking-tight sm:text-5xl">
+        <span class="text-gradient" data-i18n="pid_title">PID Regulation</span>
+      </h1>
+      <p class="mt-4 max-w-2xl text-zinc-400" data-i18n="pid_desc">
+        AUTO mode used to be pure bang-bang: full speed until a hard obstacle trip, a fixed-angle blind pivot, then full speed again — no proximity awareness in between. Three PID loops now regulate patrol steering, beacon centering, and — the one that actually stops the robot from ramming into walls — a continuous speed governor that slows down progressively as it approaches an obstacle, well before the emergency trip.
+      </p>
+    </div>
+  </section>
+
+  <!-- ══════════════════ LIVE PANEL ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass p-6">
+      <div class="mb-4 flex items-center justify-between">
+        <h2 class="flex items-center gap-2 font-display text-lg font-bold text-white">
+          <i data-lucide="activity" class="h-5 w-5 text-emerald-400"></i>
+          <span data-i18n="pid_live_title">Live from the robot</span>
+        </h2>
+        <span class="rounded-full bg-white/5 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-zinc-400" id="pidModeBadge">—</span>
+      </div>
+
+      <div class="grid grid-cols-1 gap-5 md:grid-cols-3">
+        <!-- Obstacle governor -->
+        <div class="rounded-xl border border-white/10 bg-white/[.02] p-4">
+          <p class="font-mono text-[10px] uppercase tracking-wider text-zinc-500" data-i18n="pid_live_obs">Obstacle speed governor</p>
+          <p class="mt-1 font-display text-3xl font-bold" id="pidScaleTxt">—</p>
+          <div class="gaugeTrack mt-2 h-2 w-full">
+            <div id="pidScaleBar" class="gaugeFill bg-emerald-400" style="width:100%"></div>
+          </div>
+          <p class="mt-2 font-mono text-[11px] text-zinc-500">
+            <span data-i18n="pid_live_corridor">corridor:</span> <span id="pidCorridorTxt">—</span>
+          </p>
+        </div>
+        <!-- Patrol steering -->
+        <div class="rounded-xl border border-white/10 bg-white/[.02] p-4">
+          <p class="font-mono text-[10px] uppercase tracking-wider text-zinc-500" data-i18n="pid_live_patrol">Patrol steering</p>
+          <p class="mt-1 font-display text-3xl font-bold" id="pidPatrolTxt">—</p>
+          <p class="mt-2 font-mono text-[11px] text-zinc-500" data-i18n="pid_live_patrol_unit">rad/s angular correction</p>
+        </div>
+        <!-- Beacon centering -->
+        <div class="rounded-xl border border-white/10 bg-white/[.02] p-4">
+          <p class="font-mono text-[10px] uppercase tracking-wider text-zinc-500" data-i18n="pid_live_lock">Beacon centering (LOCK)</p>
+          <p class="mt-1 font-display text-3xl font-bold" id="pidLockTxt">—</p>
+          <p class="mt-2 font-mono text-[11px] text-zinc-500" id="pidLockSub" data-i18n="pid_live_lock_idle">idle — not in LOCK</p>
+        </div>
+      </div>
+      <p class="mt-4 font-mono text-[10px] text-zinc-600" data-i18n="pid_live_note">
+        Values read directly from /mission/telemetry — nothing here is recomputed client-side (re-evaluating a PID from outside its own control tick would corrupt its integral/derivative state).
+      </p>
+    </div>
+  </section>
+
+  <!-- ══════════════════ THE 3 LOOPS ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+
+      <div class="tile glass p-6">
+        <div class="mb-3 flex items-center gap-2">
+          <span class="rounded-full bg-alert/15 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-alert ring-1 ring-alert/30">SAFETY</span>
+        </div>
+        <h2 class="font-display text-lg font-bold text-white" data-i18n="pid_obs_title">Obstacle speed governor</h2>
+        <p class="mt-2 text-sm text-zinc-400" data-i18n="pid_obs_p1">
+          Error = measured corridor clearance (depth camera, p5 percentile of a 3-way-tiled ROI) minus a 1.5 m slowdown threshold. Positive error (clear ahead) does nothing; negative error (something approaching) scales ADVANCE_LIN down, continuously, as low as 30% of normal speed.
+        </p>
+        <ul class="mt-4 space-y-1.5 font-mono text-[11px] text-zinc-500">
+          <li><span class="text-zinc-300">Kp</span> = 0.0012 — <span data-i18n="pid_obs_kp">no prior P gain existed here to reuse; tuned to reach the floor slightly before the 600 mm hard-trip distance, favoring margin on a first live trial</span></li>
+          <li><span class="text-zinc-300">Ki</span> = 0 — <span data-i18n="pid_obs_ki">deliberately off: the robot can sit blocked with sustained error for a while (waiting on a dual-confirm grace window, an obstruction) — integrating that would wind up for no benefit; anti-jam ESCAPE logic already handles "stuck"</span></li>
+          <li><span class="text-zinc-300">Kd</span> = 0.15 — <span data-i18n="pid_obs_kd">damps sudden clearance changes; uses the PID's own internal filtered derivative since corridor depth has no upstream EMA to reuse</span></li>
+        </ul>
+        <p class="mt-4 rounded-lg bg-white/[.03] p-2.5 font-mono text-[11px] text-zinc-500 ring-1 ring-white/10" data-i18n="pid_obs_note">
+          Strictly additive: the binary 600 mm trip and the reactive bounce-pivot are untouched — this only makes the robot slow down earlier, never replaces the hard stop.
+        </p>
+      </div>
+
+      <div class="tile glass p-6">
+        <div class="mb-3 flex items-center gap-2">
+          <span class="rounded-full bg-accent/15 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-accent ring-1 ring-accent/30">PATROL</span>
+        </div>
+        <h2 class="font-display text-lg font-bold text-white" data-i18n="pid_patrol_title">Patrol steering</h2>
+        <p class="mt-2 text-sm text-zinc-400" data-i18n="pid_patrol_p1">
+          Error = EMA-smoothed bearing toward the widest open depth sector ("grand chemin"), setpoint 0 (drive straight at it). Replaces a bare proportional term with the same gain, plus damping.
+        </p>
+        <ul class="mt-4 space-y-1.5 font-mono text-[11px] text-zinc-500">
+          <li><span class="text-zinc-300">Kp</span> = 0.8 — <span data-i18n="pid_patrol_kp">reused as-is from the field-tuned OPEN_STEER_KP constant</span></li>
+          <li><span class="text-zinc-300">Ki</span> = 0 — <span data-i18n="pid_patrol_ki">the target corridor changes every tick, there is no fixed setpoint to integrate toward; would also fight the separately-tuned yaw-drift trim already applied at publish time</span></li>
+          <li><span class="text-zinc-300">Kd</span> = 0.1 — <span data-i18n="pid_patrol_kd">damps fast swings, e.g. passing a doorway, without fighting the existing anti-zigzag EMA upstream</span></li>
+        </ul>
+        <p class="mt-4 rounded-lg bg-white/[.03] p-2.5 font-mono text-[11px] text-zinc-500 ring-1 ring-white/10" data-i18n="pid_patrol_note">
+          Output clamp unchanged: ±0.25 rad/s, same as before the PID swap.
+        </p>
+      </div>
+
+      <div class="tile glass p-6">
+        <div class="mb-3 flex items-center gap-2">
+          <span class="rounded-full bg-plasma/15 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-plasma ring-1 ring-plasma/30">LOCK</span>
+        </div>
+        <h2 class="font-display text-lg font-bold text-white" data-i18n="pid_lock_title">Beacon centering</h2>
+        <p class="mt-2 text-sm text-zinc-400" data-i18n="pid_lock_p1">
+          Two instances: align-in-place (rotate to center the beacon before advancing) and approach (keep it centered while driving toward it). Error = pixel offset from frame center (approach) or normalized fraction (align).
+        </p>
+        <ul class="mt-4 space-y-1.5 font-mono text-[11px] text-zinc-500">
+          <li><span class="text-zinc-300">Kp</span> — <span data-i18n="pid_lock_kp">reused as-is: 0.25 (align) / 0.004 (approach), the exact prior proportional gains</span></li>
+          <li><span class="text-zinc-300">Ki</span> — <span data-i18n="pid_lock_ki">small on align only (0.05, tightly clamped) — a fixed optical-axis bias is plausible given this rover's known asymmetric wheel slip; off for approach, where error should already be small after align has converged</span></li>
+          <li><span class="text-zinc-300">Kd</span> — <span data-i18n="pid_lock_kd">0.06 / 0.05 — conservative, both consume an already LED/checkerboard-EMA-smoothed center (_led_ema / _lm_ema), so no extra filtering needed</span></li>
+        </ul>
+        <p class="mt-4 rounded-lg bg-white/[.03] p-2.5 font-mono text-[11px] text-zinc-500 ring-1 ring-white/10" data-i18n="pid_lock_note">
+          The centered/not-centered hysteresis band (±8% enter, ±14% exit) that stops chatter is untouched — the PID only smooths the steering command itself.
+        </p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══════════════════ HOW A PID LOOP WORKS (DIAGRAM) ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass p-6">
+      <h2 class="mb-1 flex items-center gap-2 font-display text-lg font-bold text-white">
+        <i data-lucide="git-commit-horizontal" class="h-5 w-5 text-accent"></i>
+        <span data-i18n="pid_diag_title">How the loop works — obstacle governor, worked example</span>
+      </h2>
+      <p class="mb-4 text-sm text-zinc-500" data-i18n="pid_diag_sub">
+        Standard PID feedback loop, drawn with this rover's actual signals. The same five blocks — setpoint, error, controller, plant, sensor — apply to all three loops on this page.
+      </p>
+      <div class="overflow-x-auto">
+        <svg viewBox="0 0 1020 480" class="min-w-[860px] w-full font-mono" role="img" aria-label="PID feedback loop, obstacle governor example">
+          <defs>
+            <marker id="pidArr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#67e8f9"/>
+            </marker>
+            <marker id="pidArrFb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#ff8f66"/>
+            </marker>
+          </defs>
+          <style>
+            .plbl { fill:#a1a1aa; font-size:11px; }
+            .plbl-s { fill:#71717a; font-size:9.5px; }
+            .pbox { fill:rgba(255,255,255,.03); stroke:rgba(255,255,255,.14); rx:10; }
+            .phdr { fill:#e4e4e7; font-size:12px; font-weight:600; }
+            .pflow { stroke:#67e8f9; stroke-width:1.4; fill:none; }
+            .pflowfb { stroke:#ff6b35; stroke-width:1.4; fill:none; stroke-dasharray:4 3; }
+          </style>
+
+          <!-- ═══ Forward path, single row, left → right ═══ -->
+
+          <!-- Setpoint -->
+          <rect x="20" y="150" width="150" height="70" class="pbox" stroke="#22d3ee"/>
+          <text x="34" y="176" class="phdr" fill="#67e8f9" data-i18n="pid_diag_setpoint">Setpoint</text>
+          <text x="34" y="194" class="plbl-s">OBSTACLE_SLOWDOWN_MM</text>
+          <text x="34" y="208" class="plbl-s">= 1500 mm</text>
+          <path class="pflow" d="M170,185 H197" marker-end="url(#pidArr)"/>
+          <text x="172" y="176" class="plbl-s" fill="#ff8f66">−</text>
+
+          <!-- Sum / error (Σ1) -->
+          <circle cx="225" cy="185" r="28" class="pbox" stroke="#22d3ee"/>
+          <text x="225" y="181" text-anchor="middle" class="phdr" fill="#67e8f9">Σ</text>
+          <text x="225" y="196" text-anchor="middle" class="plbl-s">err</text>
+          <text x="236" y="150" class="plbl-s" fill="#3fdc97">+</text>
+          <text x="20" y="248" class="plbl-s" data-i18n="pid_diag_error">error = corridor − setpoint (+feedback, −setpoint)</text>
+
+          <!-- PID controller -->
+          <rect x="290" y="30" width="330" height="330" class="pbox" stroke="#22d3ee"/>
+          <text x="304" y="54" class="phdr" fill="#67e8f9" data-i18n="pid_diag_ctrl">PID Controller</text>
+
+          <rect x="315" y="72" width="260" height="62" class="pbox"/>
+          <text x="328" y="96" class="plbl">P — <tspan fill="#e4e4e7">Kp × err</tspan></text>
+          <text x="328" y="114" class="plbl-s" data-i18n="pid_diag_p">reacts to the error right now</text>
+
+          <rect x="315" y="158" width="260" height="62" class="pbox"/>
+          <text x="328" y="182" class="plbl">I — <tspan fill="#e4e4e7">Ki × ∫err dt</tspan></text>
+          <text x="328" y="200" class="plbl-s" data-i18n="pid_diag_i">Ki = 0 here — see cards above</text>
+
+          <rect x="315" y="244" width="260" height="62" class="pbox"/>
+          <text x="328" y="268" class="plbl">D — <tspan fill="#e4e4e7">Kd × d(err)/dt</tspan></text>
+          <text x="328" y="286" class="plbl-s" data-i18n="pid_diag_d">reacts to how fast it's changing</text>
+
+          <!-- Combiner (Σ2) — straddles the controller box's right edge -->
+          <circle cx="608" cy="189" r="26" class="pbox" stroke="#22d3ee"/>
+          <text x="608" y="185" text-anchor="middle" class="phdr" fill="#67e8f9">Σ</text>
+          <text x="608" y="199" text-anchor="middle" class="plbl-s">out</text>
+
+          <path class="pflow" d="M575,103 H600 V165" marker-end="url(#pidArr)"/>
+          <path class="pflow" d="M575,189 H582" marker-end="url(#pidArr)"/>
+          <path class="pflow" d="M575,275 H600 V213" marker-end="url(#pidArr)"/>
+
+          <!-- Controller output → Plant -->
+          <path class="pflow" d="M634,189 H750" marker-end="url(#pidArr)"/>
+          <text x="650" y="180" class="plbl-s" data-i18n="pid_diag_out">output → scale factor</text>
+
+          <!-- Plant -->
+          <rect x="750" y="160" width="230" height="100" class="pbox" stroke="#3fdc97"/>
+          <text x="764" y="184" class="phdr" fill="#3fdc97" data-i18n="pid_diag_plant">Plant</text>
+          <text x="764" y="202" class="plbl-s">lin = ADVANCE_LIN × scale</text>
+          <text x="764" y="216" class="plbl-s">→ /cmd_vel → wheels</text>
+          <text x="764" y="232" class="plbl-s" data-i18n="pid_diag_plant_note">the physical robot, actually moving</text>
+
+          <!-- Sensor (above Plant, well clear of it) -->
+          <rect x="750" y="40" width="230" height="80" class="pbox" stroke="#a78bfa"/>
+          <text x="764" y="62" class="phdr" fill="#c4b5fd" data-i18n="pid_diag_sensor">Sensor</text>
+          <text x="764" y="80" class="plbl-s">D455 depth → corridor_p5_mm</text>
+          <text x="764" y="94" class="plbl-s" data-i18n="pid_diag_sensor_note">measures the real-world result</text>
+
+          <path class="pflow" d="M865,160 V120" marker-end="url(#pidArr)"/>
+          <text x="872" y="145" class="plbl-s" data-i18n="pid_diag_world">(through the physical world)</text>
+
+          <!-- Feedback — routed above everything, crosses nothing -->
+          <path class="pflowfb" d="M750,80 H690 V15 H225 V157" marker-end="url(#pidArrFb)"/>
+          <text x="330" y="12" class="plbl-s" fill="#ff8f66" data-i18n="pid_diag_feedback">feedback — measured corridor distance, fed back to Σ every tick</text>
+
+          <!-- Bottom explainer strip -->
+          <rect x="20" y="390" width="760" height="70" class="pbox" stroke-dasharray="3 3"/>
+          <text x="34" y="414" class="plbl" data-i18n="pid_diag_strip1">Every /mission/telemetry tick (10 Hz) re-runs this whole loop once.</text>
+          <text x="34" y="434" class="plbl-s" data-i18n="pid_diag_strip2">The control loop itself runs at 20 Hz (CONTROL_HZ) — the loop above executes on every _drive() call, not just when telemetry is published.</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ CTA ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-16">
+    <div class="tile glass flex flex-col gap-4 p-6 sm:flex-row sm:items-center">
+      <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/15 text-accent ring-1 ring-accent/30">
+        <i data-lucide="gauge" class="h-5 w-5"></i>
+      </span>
+      <div class="min-w-0 flex-1">
+        <h3 class="font-semibold text-white" data-i18n="pid_cta_title">See it drive</h3>
+        <p class="mt-1 text-sm text-zinc-400" data-i18n="pid_cta_desc">
+          Put the rover in AUTO mode from Operations and walk it toward a wall — the speed governor above should show the percentage dropping smoothly well before any hard stop.
+        </p>
+      </div>
+      <a href="ops.html" class="flex shrink-0 items-center gap-2 rounded-xl bg-accent/15 px-4 py-2.5 text-sm font-semibold text-accent ring-1 ring-accent/30 transition hover:bg-accent/25 hover:shadow-neon">
+        <span data-i18n="pid_cta_go">Go to Operations →</span>
+      </a>
+    </div>
+  </section>
+
+  <script src="vendor/lucide-1.25.0.umd.js?v=v1"></script>
+  <script>
+    lucide.createIcons();
+    if (window.I18N) I18N.apply();
+
+    /* ═══ Connexion ROS (même logique tunnel/LAN que le cockpit/trajectory) ═══ */
+    const TUNNEL_ROOT = "leo-rover-gardon.dev";
+    const isTunnel = location.hostname === TUNNEL_ROOT || location.hostname.endsWith("." + TUNNEL_ROOT);
+    const wsUrl = isTunnel ? ("wss://" + location.host + "/rosbridge")
+                           : ("ws://" + (location.hostname || "localhost") + ":9090");
+    const $$ = (id) => document.getElementById(id);
+
+    let ros = null, reconnectT = null, backoff = 2000;
+
+    function scaleColor(pct) {
+      return pct >= 90 ? '#3fdc97' : pct >= 50 ? '#eab308' : '#FC3D21';
+    }
+
+    function onTelemetry(msg) {
+      let d;
+      try { d = JSON.parse(msg.data); } catch (e) { return; }
+      const p = d.pid;
+      if (!p) return;
+
+      $$('pidModeBadge').textContent = d.mode + (d.mode === 'AUTO' ? ' · ' + d.auto_state : '');
+
+      const pct = Math.round((p.obstacle_scale != null ? p.obstacle_scale : 1) * 100);
+      $$('pidScaleTxt').textContent = pct + ' %';
+      $$('pidScaleTxt').style.color = scaleColor(pct);
+      $$('pidScaleBar').style.width = pct + '%';
+      $$('pidScaleBar').style.background = scaleColor(pct);
+      $$('pidCorridorTxt').textContent = p.corridor_mm != null ? (p.corridor_mm / 1000).toFixed(2) + ' m' : '—';
+
+      $$('pidPatrolTxt').textContent = (p.patrol_ang >= 0 ? '+' : '') + p.patrol_ang.toFixed(3);
+
+      const inLock = d.mode === 'AUTO' && d.auto_state === 'LOCK';
+      if (inLock) {
+        const lockAng = Math.abs(p.lock_align_ang) > Math.abs(p.lock_approach_ang)
+          ? p.lock_align_ang : p.lock_approach_ang;
+        $$('pidLockTxt').textContent = (lockAng >= 0 ? '+' : '') + lockAng.toFixed(3);
+        $$('pidLockSub').textContent = 'rad/s — LOCK active';
+      } else {
+        $$('pidLockTxt').textContent = '—';
+        $$('pidLockSub').textContent = 'idle — not in LOCK';
+      }
+    }
+
+    function connectRos() {
+      reconnectT = null;
+      ros = new ROSLIB.Ros({ url: wsUrl });
+      ros.on("connection", () => {
+        backoff = 2000;
+        $$("wsdot").classList.add("on"); $$("wsstate").textContent = "LINK OK";
+      });
+      const lost = () => {
+        $$("wsdot").classList.remove("on"); $$("wsstate").textContent = "reconnecting…";
+        if (!reconnectT) {
+          reconnectT = setTimeout(connectRos, backoff);
+          backoff = Math.min(backoff * 2, 10000);
+        }
+      };
+      ros.on("close", lost);
+      ros.on("error", lost);
+
+      new ROSLIB.Topic({ ros, name: "/mission/telemetry", messageType: "std_msgs/String" })
+        .subscribe(onTelemetry);
+    }
+    connectRos();
+  </script>
+</body>
+</html>

@@ -1,0 +1,243 @@
+\chapter{Conclusion and Perspectives}
+\label{ch:conclusion}
+
+\section{Achievement Against Stated Objectives}
+
+The five formally stated objectives of this internship (\S\ref{ch:introduction}) have been addressed as documented in Table~\ref{tab:objective-achievement}.
+
+\begin{table}[htbp]
+\centering
+\caption{Objective achievement summary}
+\label{tab:objective-achievement}
+\small
+\begin{tabular}{@{}p{2.6cm}p{3.4cm}p{3.2cm}p{3.4cm}@{}}
+\toprule
+Objective & Target & Achieved & Evidence \\
+\midrule
+O1: Vision reliability & $>$95\% detection, $<$50~ms latency & 98.7\% LED / 100\% CB; 5--20~ms & Table~\ref{tab:vision-perf-measurements} performance measurements \\
+O2: Autonomous FSM & Safe operation in all failure modes & 10/10 validation tests passed & Table~\ref{tab:fsm-validation} test results \\
+O3: Professional cockpit & $>$30~Hz, clean reconnect, FSM display & 55--60~Hz on all tested hardware & Table~\ref{tab:ui-perf} + operator sessions \\
+O4: System integration & Single-command launch, documentation & \code{start\_leo.sh} + technical reference & Delivered to lab supervisor \\
+O5: Carolus contribution & Quantitative performance data & Tables~\ref{tab:vision-perf-measurements}--\ref{tab:ui-perf} produced & Submitted to comparative study \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Extension Beyond the Original Objectives: The July 2026 Estimation Campaign}
+
+The five objectives above governed the internship as originally scoped, built around brightness-threshold LED and checkerboard beacon localization. Chapter~\ref{ch:fusion} documents a substantial extension undertaken once that system was operational and validated: replacing beacon-only, intermittent localization with a continuously-running, tightly-coupled MSCKF-based state estimator (MINS, with OpenVINS as a hot-swappable secondary source), and hardening the resulting platform for operation outside the laboratory. Table~\ref{tab:campaign-achievement} summarizes this extension against the same evidence standard as Table~\ref{tab:objective-achievement}.
+
+\begin{center}
+\small
+\begin{longtable}{@{}p{2.9cm}p{3.6cm}p{3.0cm}p{3.4cm}@{}}
+\caption{Extension objectives achievement summary (July 2026 campaign)}
+\label{tab:campaign-achievement} \\
+\toprule
+Objective & Target & Achieved & Evidence \\
+\midrule
+\endfirsthead
+\multicolumn{4}{l}{\tablename\ \thetable{} (continued)} \\
+\toprule
+Objective & Target & Achieved & Evidence \\
+\midrule
+\endhead
+\midrule
+\multicolumn{4}{r}{continued on next page} \\
+\endfoot
+\bottomrule
+\endlastfoot
+E1: Continuous pose estimation & Replace intermittent beacon fixes with an always-available fused pose & MSCKF-based MINS/VINS with lossless SE(3) switch & \S\ref{sec:fusionarch}, Table~\ref{tab:t11} \\
+E2: Quantified estimator stability & Statistically distinguish sensor noise from modelling divergence & $\sigma_Z$ reduced $5.2\times$ (257~mm $\to$ 50~mm) via extrinsic correction & Table~\ref{tab:t11}, \S\ref{sec:vv} \\
+E3: Field-scale connectivity & Operate beyond the lab room without a network-driven interruption & WireGuard tunnel over campus Wi-Fi (partial: an unresolved second failure, \S\ref{sec:wgroam}, forced a same-subnet Wi-Fi fallback, \S\ref{sec:samesubnet}); two full building traverses completed, one on each path & \S\ref{sec:network}, \S\ref{sec:corridorvalidation}, \S\ref{sec:wgroam} \\
+E4: Autonomy \& safety hardening & Guard the estimator and drive chain against observed failure modes & Three IMU integrity guards, respawn policy, watchdog reliability model & \S\ref{sec:guards}, Eq.~\eqref{eq:debounce} \\
+E5: Operator platform maturity & Production-grade public API and self-healing infrastructure & Five-page cockpit, Cloudflare tunnel, cron watchdog, single-command \code{leo restart} & \S\ref{sec:web}, \S\ref{sec:api} \\
+\end{longtable}
+\end{center}
+
+These were not part of the original five objectives (\S\ref{ch:introduction}) and are reported separately for that reason, but they account for the majority of the report's length and, by the quantitative measures in Chapter~\ref{ch:fusion}, its most demanding engineering: fusing two independent state estimators without a discontinuity in the served pose, and making that estimate (and the operator's ability to reach it) survive a real building's Wi-Fi topology rather than a lab bench.
+
+\section{Synthesis of Technical Contributions}
+
+The principal original contributions of this internship, beyond the resolution of the documented defects, are:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Density-based LED cluster anchor algorithm}: a formally provable, $O(n^2)$ algorithm for correctly identifying beacon LED clusters in the presence of larger-area spurious reflections. This algorithm is independently transferable to any LED-based optical beacon system.
+  \item \textbf{Two-stage checkerboard detection architecture}: the systematic promotion of \code{findChessboardCornersSB} to the primary detection path, with rate-limited discovery scans and explicit result caching, resolves a class of checkerboard detection failures that is not documented in the OpenCV literature.
+  \item \textbf{Session-aware heartbeat stale guard}: a minimal state machine addition that resolves the session-boundary edge case in deadman switch implementations, enabling reliable reconnection behavior in web-based robot control interfaces.
+  \item \textbf{UDP routing-based IP discovery} (\code{\_guess\_ip()}): a portable Python technique for deterministic local IP detection that is immune to interface ordering, applicable to any multi-homed robotics workstation.
+  \item \textbf{Full-stack operator cockpit}: a production-quality browser-based mission control interface combining glassmorphism design language, RAF-decoupled canvas overlay, $O(1)$ ring buffer trajectory rendering, and a six-condition alert system.
+  \item \textbf{Lossless dual-estimator switch}: an SE(3) re-anchoring correction, computed at the instant of a VINS/MINS switch, that makes the served pose bit-for-bit continuous across a change of estimator despite each running its own independent, separately-drifting reference frame.
+  \item \textbf{Statistically-grounded calibration validation}: the T1.1 static-drift protocol separates sensor noise from a modelling error by the sign and statistical significance of a least-squares drift slope rather than by inspection, fully automated and archived per run.
+  \item \textbf{Closed-form debounce reliability model}: an expected-time-between-false-triggers formula (Eq.~\eqref{eq:debounce}) for run-length-based supervisor debounces, fitted against field data to both justify a specific parameter choice and honestly bound what that choice does and does not fix, and is independently transferable to any supervisor guarding against a flaky liveness probe.
+  \item \textbf{Firewall-constrained network migration}: a WireGuard-tunnelled architecture that turns ROS's arbitrary-port TCPROS traffic into a single pre-authorised UDP flow, restoring local-network-equivalent performance (15\,Hz camera, single-digit-second MINS initialization) across a campus network that blocks the underlying protocol directly; a second, architecturally similar tunnel failure later in the campaign proved unresolvable by the same remedies (\S\ref{sec:wgroam}) and prompted a same-subnet Wi-Fi fallback (\S\ref{sec:samesubnet}) as a documented, evidence-based alternative rather than a replacement.
+\end{itemize}
+
+\section{Lessons Learned}
+
+\subsection{System Engineering Lessons}
+
+The most important lesson of this project is the compounding nature of architectural deficiencies. Each of the five initial defects was individually resolvable, but their combination made the system appear completely non-functional. The LED detection bug produced 0\% valid detections, so the FSM never left the PATROL state: making the LOCK, WAIT, and U\_TURN code paths completely untestable. This cascading untestability is a pathology of tightly coupled systems without interface mocks. Future system development will include isolated subsystem validation with mock data sources before integration.
+
+\subsection{Computer Vision Lessons}
+
+The checkerboard detection failure illustrates a general principle in computer vision system design: the empirically-validated best algorithm for a specific physical target should be used from the first day of development, not added as a fallback after the simpler approach fails in production. In hindsight, the discovery that \code{findChessboardCorners} fails on the laboratory board should have prompted its immediate deprecation in favor of \code{findChessboardCornersSB}, rather than the multi-week incremental integration that was actually followed. This principle generalizes: for any custom fiducial or beacon target, the detection algorithm selection should be validated against the specific physical hardware before integration, not inferred from OpenCV documentation defaults.
+
+\subsection{Robotic HMI Design Lessons}
+
+The design of the operator cockpit revealed that the \code{requestAnimationFrame} / WebSocket decoupling is not merely an optimization but an architectural necessity. An initial prototype that redrew the canvas only on telemetry arrival produced a jagged, twitchy overlay that made the operator feel disconnected from the robot's actual motion. The switch to a 60~Hz RAF loop with LERP smoothing transformed the operator's perception of the system from ``unresponsive'' to ``smooth and confident'': despite zero change in the underlying telemetry rate. This demonstrates that perceived system performance is as architecturally important as measured system performance in human-operated robotic systems.
+
+\subsection{Reliability Engineering Lessons}
+
+The July 2026 campaign's most consequential lesson was methodological rather than technical: a real-time explanation formed while a field test is in progress is a hypothesis, not a finding. The transient pose-source flips observed during the building traverse (\S\ref{sec:corridorvalidation}) were attributed, live, to visual feature starvation: a plausible-sounding story that turned out to be entirely wrong. Correlating the ground-station watchdog's own log against the flip timestamps after the fact revealed the true cause (a debounce sized for an isolated fault, not sustained Wi-Fi-roaming latency) within minutes. The general rule this confirms: a causal claim made without consulting the system's own logs should be held provisionally, however plausible it sounds in the moment, and re-derived from evidence before it is written down as a conclusion, a rule this report tries to apply to itself by documenting the wrong hypothesis alongside its correction rather than silently replacing one with the other. A second, related lesson generalizes an earlier finding on the same watchdog (\S\ref{ch:results}): a supervisor's own probes are themselves failure-prone, and each one needs to be audited for what happens when \emph{it} is wrong, not only for whether it correctly detects the faults it was written to catch.
+
+\section{Future Development Roadmap}
+
+\subsection{SLAM Integration for Metric Mapping}
+
+Continuous pose tracking no longer depends on beacon visibility (\S\ref{sec:fusionarch}): the MSCKF-based estimators run at all times, and the LED/checkerboard/AprilTag beacon infrastructure now serves a narrower, still-important role as an absolute, drift-free global anchor rather than the sole source of position (\code{leo\_navigation}'s open Carolus/AprilTag anchoring item, Table~\ref{tab:openitems}). What remains environment-specific is exactly that anchor: without it, MINS/VINS accumulate the ordinary unbounded drift of any dead-reckoning estimator, so metric mapping in an arbitrary, unprepared environment still requires a SLAM system. The built, not-yet-deployed \code{leo\_autonomy} package (Table~\ref{tab:openitems}, item~8) is the concrete step toward this; a lightweight system such as \code{hector\_slam} (no odometry required, suitable for the D455's depth stream projected to a 2D occupancy grid) remains an appropriate choice, and the dual-frame odometry architecture is already compatible with it: a SLAM pose estimate would replace or augment the beacon anchor in the world-frame position computation, not the wheel odometry, since that role is now filled by MINS/VINS.
+
+\subsection{Machine Learning-Based Beacon Detection}
+
+The brightness-threshold LED detection is robust in the laboratory but would fail in outdoor environments (sunlight is brighter than 220/255) or in rooms with multiple similar bright sources (projector screens, large monitors). A YOLOv8-nano model trained on a dataset of $\sim$500 annotated frames (beacon present vs.\ absent) would enable deployment-agnostic detection at $<$5~ms inference time on the laboratory GPU. The existing vision subprocess architecture is directly compatible with a \code{torch.no\_grad()} inference call in place of the brightness threshold pipeline.
+
+\subsection{ROS 2 Migration}
+\label{sec:ros2migration}
+
+ROS Noetic reached End-of-Life in May 2025 (already past at the time of writing). The migration to ROS~2 Humble is planned for the Carolus framework's next generation. The key migration impacts for the LEO Rover Mission Control system are: (1)~\code{rospy} subscriber callbacks become \code{rclpy} executor-managed callbacks (async-compatible); (2)~the rosbridge protocol v2 is compatible with both ROS~1 and ROS~2 via \code{rosbridge\_server}'s ROS~2 branch; (3)~the multiprocessing spawn architecture is unchanged (it is ROS-agnostic). The estimated migration effort is 2--3~weeks.
+
+\subsection{Multi-Robot Coordination}
+
+The Carolus framework's ultimate objective is the coordination of the three robot platforms (LIMO, LEO, RoboMaster~S1) in a shared environment. The LEO Rover Mission Control system's world-frame coordinate system is already defined in the same reference frame as the other platforms' coordinate systems (all originate at their respective start positions). A rendezvous protocol (where the LEO rover navigates to a known world-frame position while a second robot navigates to the same position from a different starting point) would require: (1)~a shared ROS master or ROS~2 domain for cross-robot topic exchange; (2)~a common beacon infrastructure at known world-frame positions; (3)~collision avoidance between platforms (the depth-based obstacle detection is already implemented).
+
+\subsection{Mobile Device Interface Extension}
+
+The current cockpit is optimized for desktop browsers (16:9 displays, keyboard + mouse). A mobile-optimized interface (responsive layout, touch-based joystick, swipe gesture for mode changes) would significantly expand the operational scenarios for which the system is suitable. The CSS grid layout already includes a responsive breakpoint at 1200~px; extending this to a single-column mobile layout and implementing a touch-event joystick (replacing the pointer-event-based implementation) is estimated at 1~week of front-end development.
+
+\subsection{Architectural Debt: Findings of a Senior-Level Optimality Audit}
+\label{ap:roadmap-audit}
+
+The preceding subsections describe features not yet built. This one is
+different in kind: a post-hoc audit of choices already shipped, conducted
+against the question a senior architect asks of a working system --- not
+``does it work'' but ``what would infinite time have bought instead.'' Four
+items survived that scrutiny as genuine technical debt rather than reasonable
+engineering trade-offs. Each is stated as a debt with a proposed repayment,
+not as a retroactive criticism of decisions that were, in every case,
+correct given the time available.
+
+\paragraph{Network transport and zero-trust connectivity.}
+The browser-facing bridge (\S\ref{ap:repro-webtransport}) carries $\sim$60
+telemetry fields as text JSON at 10~Hz, a format chosen for its simplicity
+and human-readability during development but never reconsidered once the
+system stabilised. The cost is measured, not assumed: 1--3\,ms of
+serialisation per packet (Table~\ref{tab:intro-latency}), on top of the
+bandwidth text encoding always costs over a binary one. \textbf{Future work
+should replace it with a binary encoding, CBOR or Protocol Buffers, over the
+same WebSocket, or migrate the live telemetry path to a WebRTC DataChannel
+outright.} Separately, and this is the more consequential item: the ROS~2
+migration costed in \S\ref{sec:ros2migration} (2--3 weeks) is scoped only for the
+\code{rospy}~$\to$~\code{rclpy} API surface. It does not account for what
+FastDDS actually requires on this network: DDS's default discovery relies on
+multicast, which is precisely what campus NAT and the existing WireGuard
+tunnel were fighting throughout this campaign (registry items~12--13,
+\S\ref{ap:repro-net}). WireGuard supplied an encrypted point-to-point pipe
+and nothing above it --- no NAT traversal, no endpoint healing, no relay of
+last resort --- which is why every roaming failure had to be diagnosed and
+patched by hand. \textbf{A Software-Defined Network overlay (Tailscale or
+ZeroTier, both built on WireGuard's own primitives) resolves multicast
+discovery and NAT traversal natively and should be treated as a
+\emph{prerequisite} for the ROS~2 migration, not an independent, lower
+priority item.} Attempting the DDS migration on the current transport risks
+reproducing the exact discovery failures already spent a field campaign
+diagnosing, one layer higher in the stack.
+
+\paragraph{Omnidirectional kinematics.}
+\label{ap:roadmap-kinematics}
+\S\ref{sec:wheels} documents the mid-campaign discovery that this rover's
+wheels are not rigid skid-steer wheels but a FictionLab \textbf{mecanum}
+roller set, and the deliberate decision to keep them without building the
+matching odometry model. The cost of that decision is now fully quantified
+and it is larger than a rounding error: the current \code{Wheel2DAng}
+differential approximation, fed by a firmware topic
+(\code{leo\_msgs/WheelOdom}) that collapses two planar degrees of freedom
+into a single scalar \code{velocity\_lin}, forces the $\chi^2$ gate
+(Eq.~\ref{eq:chi2}, $\alpha=5$) to reject the large majority of wheel
+measurements during rotation --- the acceptance rate falls from $100\,\%$ on
+straight runs to $6\,\%$ under rotation (\S\ref{sec:wheels}). The platform
+therefore drives on four independently actuated omnidirectional wheels and
+extracts full odometric value from perhaps one axis of that freedom.
+\textbf{The differential approximation must be replaced with the complete
+mecanum forward kinematics}, resolving the roller-slip vectors at each
+wheel's $\pm45^\circ$ contact angle into the full planar velocity
+$(v_x, v_y, \omega)$ rather than the scalar MINS currently receives, and
+coupling that corrected signal into the MSCKF wheel-update step in place of
+the present two-wheel fiction. MINS itself offers no native omnidirectional
+wheel type (only \code{Wheel2D\{Ang,Lin,Cen\}} and \code{Wheel3DAng}), so
+this is not a configuration change: it requires either an upstream
+contribution to MINS or a pre-processing stage that resolves the mecanum
+kinematics before the \code{Wheel2DAng} interface. \code{leo\_msgs} already
+defines \code{WheelOdomMecanum}, carrying the lateral term the current
+pipeline discards; it is published by no node in this system.
+\textbf{The Hardware Specifications table (Table~\ref{tab:leo-specs},
+Appendix~B) has been corrected as part of this revision}: it previously
+read ``4-wheel differential drive (skid steering)'', a description the
+mecanum discovery of \S\ref{sec:wheels} directly contradicts, and which
+would have sent the next reader to the wrong physical model on their first
+consultation of the document.
+
+\paragraph{Vision subprocess IPC.}
+The multiprocessing \code{spawn} architecture (\S\ref{sec:visionarch}) does
+exactly what it was built to do: GIL contention on the vision path measured
+at $0\,\%$, down from $100\,\%$ in the single-process baseline
+(Table~\ref{tab:before-after}). That result is real and should not be
+walked back. What it does not report is the price paid for it. Every frame
+crossing the process boundary is JPEG-encoded on the main thread, queued,
+decoded again in the subprocess, and OpenCV-processed from there ---
+\emph{two} full codec passes spent purely on inter-process transport,
+uncounted anywhere in this document. \textbf{The IPC channel should move to
+a zero-copy \code{multiprocessing.shared\_memory} ring buffer}, passing raw
+frame data behind a lightweight semaphore handoff instead of a pickled,
+JPEG-wrapped queue payload. At infinite engineering budget, the vision node
+belongs in C++ or Rust, where no interpreter lock exists to work around in
+the first place and the entire IPC question is moot.
+
+\paragraph{Front-end rendering and streaming latency.}
+Two independent limits sit in the browser layer, and both were measured
+along the wrong axis. First, the video path
+(\code{web\_video\_server}, MJPEG over HTTP) was validated on
+\emph{bandwidth} alone ($4.17$\,Mbps at 20~Hz, well inside the 802.11ac
+budget, \S\ref{sec:videobandwidth}) and never on end-to-end
+\emph{latency}, the metric that actually governs closed-loop
+teleoperation. MJPEG-over-HTTP inherits TCP's head-of-line blocking: a
+single dropped segment, on the same Wi-Fi link whose fragility this report
+documents at length elsewhere (\S\ref{ap:repro-net}), stalls the entire
+frame rather than degrading gracefully. \textbf{WebRTC, over RTP/UDP with
+hardware-accelerated decode, should replace MJPEG for the live feed},
+trading TCP's guaranteed-delivery-at-any-latency for UDP's
+bounded-latency-at-the-cost-of-an-occasional-frame, which is the correct
+trade for a human closing a control loop on live video. Second, the
+trajectory view's Canvas~2D batch-rendering fix
+(\S\ref{sec:multipage}, six age-quantised strokes per frame) reduces
+rasterisation calls from $\Theta(S)$ to $\Theta(B)$, but the per-frame
+vertex-append loop remains $\Theta(S)$ in the trail length, so a
+long-enough mission eventually re-encounters the cost the fix was written
+to remove. \textbf{A WebGL vertex buffer, uploaded incrementally and drawn
+in a single call regardless of history length, removes the growth term
+entirely} rather than amortising it. The irony is available in the same
+codebase: \code{3d\_engine.js} already drives a WebGL context via
+\code{three.js} for the cockpit's decorative satellite and capsule
+renders (\S\ref{sec:webrendering}) --- the
+infrastructure exists and is exercised nightly for ornament, one page over
+from the data view that would benefit from it most.
+
+\subsection{Near-Term Field Engineering (Campaign Open Items)}
+
+The July 2026 campaign maintains its own explicit open-items registry (Table~\ref{tab:openitems}), cross-referenced here rather than duplicated. Its thirty-nine entries have grown with the campaign, and the ordering of priorities has changed materially since the earlier revisions of this section. Four items now gate the work ahead of any further measurement. The colour-camera intrinsics (item~36) are \textbf{blocking}: the beacon detector runs with parameters calibrated at $1280\times720$ against a $640\times480$ stream, placing the principal point outside the image, inflating every range by $69.3\,\%$, and rendering unpublishable any dimensional quantity derived from that camera. The beacon-anchored absolute-error measurement (item~37) is implemented, instrumented and never recorded, so the entire MINS-versus-openVINS comparison remains a statement about mutual divergence rather than accuracy; it is gated on item~36. The thermal envelope (item~38) was measured on both sides and is roughly three degrees wide, the serial link holding at $86\,^\circ$C under full colour load and collapsing entirely at $89\,^\circ$C, which makes active cooling a prerequisite rather than a refinement. The rigid-wheel radius and track re-measurement (item~1) remains the highest-priority metrological action, independently corroborated by a field-observed steering drift on commanded-straight motion. Of the network items, the second unresolved WireGuard failure (item~12) and the ground-station Wi-Fi driver fault (item~13) both remain open, and the discontinuous one-second-burst motion (item~14) still has two undistinguished candidate causes. The watchdog debounce of Eq.~\eqref{eq:debounce} (item~9) should now be read with care: its widening was measured to lengthen the false-trigger interval by roughly $3$--$7\times$, but the \emph{proven} root cause of the restart storms was found later, on July 29, to be a \code{PATH} defect in the cron invocation that made both liveness guards fail unconditionally. The debounce work was therefore treating a symptom, and any estimator measurement taken while a storm was in progress is invalid. The remaining items (the Kalibr camera-IMU extrinsic refinement, TF placeholder measurement, RPLidar bring-up, AprilTag size cross-check, and the built-but-undeployed \code{leo\_autonomy} SLAM package) are lower urgency.
+
+\section{Closing Statement}
+
+This internship represents a comprehensive full-stack systems engineering exercise, from the embedded motor control firmware interfaced via ROS topics to the JavaScript rendering engine drawing 60~fps annotations over a live video feed, and, in its extension, to a tightly-coupled multisensor estimator and the campus network infrastructure needed to reach it from outside a single room. The five architectural defects identified at the outset were each independently capable of preventing the system from functioning; their resolution required understanding the system as an integrated whole rather than as a collection of separable components, a discipline the July 2026 campaign confirmed again at a different layer, from IMU integrity guards through to a firewall that silently discarded most of ROS's own transport protocol.
+
+The resulting LEO Rover Mission Control system achieves production-quality reliability for the Carolus laboratory's research objectives: fully autonomous patrol missions with reliable beacon detection, continuous MSCKF-based pose tracking independent of beacon visibility, safe operation under all tested failure modes, campus-wide connectivity validated by two complete building traverses on two different network architectures, and a professional operator interface that provides genuine situational awareness rather than a collection of raw data fields. The system is deployed and operational in Dr.\ Gutierrez's laboratory as of the completion of this internship, and serves as the reference implementation against which the LIMO Rover and RoboMaster~S1 platforms' implementations will be benchmarked in the Carolus comparative study.
+
+From a personal engineering perspective, this project has reinforced the critical importance of root cause analysis over symptom masking, the architectural value of clean layer separation (particularly the vision subprocess isolation), the human factors dimension of robotic system design (a dimension that is easily neglected in favor of ``real robotics'' work but is ultimately the dimension that determines whether an operator can reliably use the system under real operational conditions), and, from the later campaign, that a field engineer's own real-time explanation of a live anomaly is only ever a provisional hypothesis until it survives contact with the system's logs.

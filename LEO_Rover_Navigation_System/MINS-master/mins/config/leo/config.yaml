@@ -1,0 +1,31 @@
+%YAML:1.0
+# need to specify the file type at the top!
+
+# ============================================================================
+# MINS configuration for the LEO Rover (Florida Tech, Pr. H. Gutierrez)
+# ----------------------------------------------------------------------------
+# Sensor suite on this platform:  D455 stereo IR + onboard IMU + wheel encoders
+#                                 (+ RPLidar and Carolus beacon, staged in later)
+# NO real GPS on this platform -> config_gps disabled.
+#
+# ENABLE LADDER (do NOT turn everything on at once — an unvalidated extrinsic on
+# one sensor makes the whole fused estimate diverge and become un-diagnosable):
+#   Stage 1  camera + imu            <- MINS "VINS-equivalent" core, prove first
+#   Stage 2  + wheel                 <- big win on a ground robot, low risk
+#   Stage 3  + vicon (= Carolus)     <- global anchor / "indoor GPS", kills drift
+#   Stage 4  + lidar                 <- new integration, needs PointCloud2 + extr.
+# Each stage has its own enable flag in the sub-config below. See
+# LEO_Rover_Navigation_System/VINS_to_MINS_Test_Plan.md for the pass/fail gates.
+# ============================================================================
+
+config_system:     "config_system.yaml"
+config_estimator:  "config_estimator.yaml"
+config_camera:     "config_camera.yaml"
+config_imu:        "config_imu.yaml"
+config_wheel:      "config_wheel.yaml"
+# Carolus beacon -> global pose anchor
+config_vicon:      "config_vicon.yaml"
+config_lidar:      "config_lidar.yaml"
+# disabled: no GNSS on this platform
+config_gps:        "config_gps.yaml"
+config_init:       "config_init.yaml"

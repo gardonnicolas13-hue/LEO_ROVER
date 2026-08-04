@@ -1,0 +1,26 @@
+# Python dependencies, workstation side.
+#     pip install -r requirements.txt
+#
+# NOT pip-installable, use apt:
+#     sudo apt install python3-tk      # tkinter: leo_dashboard.py, leo_tracking_map.py
+#
+# ROS packages (rospy, tf, cv_bridge, ...) come from ROS Noetic, not from pip.
+
+numpy           # array maths, used throughout  (verified 1.17.4)
+scipy           # spatial transforms and signal helpers  (verified 1.3.3)
+opencv-python   # detection, PnP, and YAML via FileStorage  (verified 4.2.0)
+PyYAML          # configuration parsing  (verified 5.3.1)
+esprima         # JavaScript parser: validates web/app.js before reload  (verified 4.0.1)
+
+# Found missing by the 2026-08-03 sanity audit: all four are wrapped in
+# try/except in their callers, so the script does not crash without them,
+# but the feature silently stays dead with no error pointing here.
+Pillow          # tkinter image display: leo_dashboard.py, leo_tracking_map.py  (verified 10.4.0)
+paramiko        # leo_dashboard.py: remote camera power-cycle over SSH  (verified 2.6.0)
+matplotlib      # leo_dashboard.py: live Tkinter-embedded plots, optional  (verified 3.1.2)
+psutil          # leo_backend.py / system_monitor.py: CPU load panel, optional  (verified 5.5.1)
+
+# pyzbar (QR detection) is deliberately NOT listed: qr_leo_control.py,
+# qr_search_move.py and diag_qr.py are standalone scripts, wired into no
+# launch file and never called by leo_backend.py -- confirmed unused by the
+# active autonomous chain at audit time. Add it back if that changes.

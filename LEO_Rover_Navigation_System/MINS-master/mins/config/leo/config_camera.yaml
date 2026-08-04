@@ -1,0 +1,110 @@
+%YAML:1.0
+# need to specify the file type at the top!
+
+cam:
+  enabled: true
+  max_n: 2
+  use_stereo: true
+  stereo_pair: [0, 1]
+  # let MINS refine T_imu_cam online (seed below is from Kalibr)
+  do_calib_ext: true
+  # intrinsics fixed: measured by kalibr_calibrate_cameras
+  do_calib_int: false
+  # refine cam<->imu time offset online
+  do_calib_dt: true
+  # ── Densite intelligente (audit 2026-07-07) ──────────────────────────
+  # AVANT : n_pts 1500, grille 15x15, min_px_dist 15 -> ~600 features
+  # pistees en continu pour seulement 50 consommees par update (max_msckf).
+  # Cout mesure : CAM 120 ms/image pour un budget de 66,7 ms (15 Hz) — hors
+  # temps reel, 73% d'un coeur. KLT et l'extraction scalent ~lineairement
+  # avec le nombre de features.
+  # APRES : 300 features max, grille 10x8 (80 cellules de 64x60 px -> ~4
+  # features/cellule, repartition uniforme garantie), ecart minimal 20 px.
+  # 300 pistees pour 50 utilisees = marge de selection x6, cout divise ~2x.
+  n_pts: 300
+  fast: 30
+  grid_x: 10
+  grid_y: 8
+  min_px_dist: 20
+  knn: 0.65
+  # 640x480 IR is already small; keep full res
+  downsample: false
+  histogram_method: "HISTOGRAM"
+  # SLAM 25 -> 0 (2026-07-13) : en pivot sur place la profondeur des
+  # landmarks est INOBSERVABLE (baseline nulle) — les ancres fausses tiraient
+  # le cap MINS a +0.58 rad/s quand le gyro mesurait -0.25 (!), et faisaient
+  # rejeter des mesures roues CORRECTES (chi2 6 %). Le MSCKF pur est sain sur
+  # cette plateforme qui pivote beaucoup. Ne reactiver qu'avec une garde
+  # d'excitation (baseline min) ou apres validation rotation gyro-vs-MINS.
+  max_slam: 0
+  max_msckf: 50
+  feat_rep: "GLOBAL_FULL_INVERSE_DEPTH"
+  init_cov_dt: 1e-4
+  init_cov_ex_o: 1e-4
+  init_cov_ex_p: 1e-4
+  init_cov_in_k: 1e-2
+  init_cov_in_c: 1e-1
+  init_cov_in_r: 1e-6
+  # from kalibr reproj error ~0.2px std, be a bit conservative
+  sigma_px: 1
+  chi2_mult: 1
+
+  fi_min_dist: 0.10
+  fi_max_dist: 60
+  fi_max_baseline: 2000
+  fi_max_cond_number: 10000
+
+# ============================================================================
+# Intrinsics + stereo extrinsic below are the ACTUAL Kalibr output
+# (calibration_leo_d455/bag_final-camchain.yaml, reproj err cam0=0.233px,
+# cam1=0.202px, stereo baseline 90.2 mm). Left IR = infra1 = cam0.
+#
+# T_imu_cam = "R_CtoI, p_CinI" (camera->IMU). Kalibr's imucam output gives
+# T_cam_imu (IMU->camera); MINS wants the INVERSE. The block below is a
+# PLACEHOLDER identity-rotation seed — it will be overwritten by
+# leo_navigation/scripts/fill_mins_camchain.py once
+# kalibr_calibrate_imu_camera finishes (that script inverts T_cam_imu and
+# also copies the estimated timeoffset). do_calib_ext:true above lets MINS
+# refine it from the seed regardless, but a good seed matters for convergence.
+# ============================================================================
+cam0:
+  timeoffset: 0.0
+  # Forward-looking camera seed (T1.1 2026-07-04 showed the identity
+  # placeholder caused a monotone +1.68 mm/s Z divergence: identity claims the
+  # optical axis points UP along IMU-z, a ~90 deg error online calib cannot
+  # recover from). R_CtoI below maps D455 optical (x right, y down, z fwd)
+  # into IMU/base (x fwd, y left, z up): cam-z->+x, cam-x->-y, cam-y->-z.
+  # Translation = tape-measure base->camera (0.15, 0, 0.10) placeholder;
+  # cm-level translation error is refinable online (do_calib_ext), 90 deg of
+  # rotation is not. Replace with Kalibr imucam via fill_mins_camchain.py
+  # when that calibration finally succeeds.
+  T_imu_cam:
+    - [0.0,  0.0, 1.0, 0.15]
+    - [-1.0, 0.0, 0.0, 0.0]
+    - [0.0, -1.0, 0.0, 0.10]
+    - [0.0,  0.0, 0.0, 1.0]
+  distortion_model: radtan
+  distortion_coeffs: [-0.06997975263296914, 0.01963062162082574, 0.0013849504890515055, 0.0019126352685073426]
+  intrinsics: [336.3721021512454, 338.48699154923884, 310.20007556292467, 243.17065929950277]
+  resolution: [640, 480]
+  # /pc/camera/... = local raw republish of the Pi's JPEG-compressed stream
+  # (see navigation_supervision.launch) — NEVER subscribe the robot's raw
+  # /camera/... topics from the PC: 848x480 raw @30Hz x2 streams saturates
+  # the WiFi AP to the point of crashing it (link ~6 MB/s vs 24 MB/s demand).
+  topic: "/pc/camera/infra1/image_rect_raw"
+cam1:
+  timeoffset: 0.0
+  # Same forward-looking R as cam0; cam1 (infra2) sits one stereo baseline
+  # (Kalibr: 90.21 mm) to cam0's RIGHT along the optical x axis, which is -y
+  # in the IMU frame — hence the -0.0902 on the y component of p_CinI.
+  T_imu_cam:
+    - [0.0,  0.0, 1.0, 0.15]
+    - [-1.0, 0.0, 0.0, -0.09021265]
+    - [0.0, -1.0, 0.0, 0.10]
+    - [0.0,  0.0, 0.0, 1.0]
+  distortion_model: radtan
+  distortion_coeffs: [-0.06322919408397377, 0.027949761557565952, 0.0023552449769369626, 0.0017721544432476029]
+  intrinsics: [337.61566220551015, 339.63530229437606, 320.43720360806583, 242.12247628870475]
+  resolution: [640, 480]
+  # same WiFi-hop rationale as cam0
+  topic: "/pc/camera/infra2/image_rect_raw"

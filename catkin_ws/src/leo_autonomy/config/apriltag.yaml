@@ -1,0 +1,8 @@
+# apriltag_ros — réglages détecteur (famille 36h11 = standard, robuste)
+tag_family: 'tag36h11'
+tag_threads: 2
+tag_decimate: 1.0        # pleine résolution : 640x480 est déjà léger
+tag_blur: 0.0
+tag_refine_edges: 1
+tag_debug: 0
+publish_tf: true

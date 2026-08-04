@@ -1,0 +1,149 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# LEO Rover Mission Control — .gitignore
+#
+# ATTENTION, LIRE AVANT DE MODIFIER.
+# Ce fichier fonctionne par LISTE D'INCLUSION, pas par exclusion. La raison
+# est mesurable : le repertoire qui heberge ce projet pese 84 Go (images
+# systeme, installeurs, espaces de travail catkin amont, telechargements),
+# dont 96 fichiers de plus de 50 Mo et un de 7,7 Go. Un `.gitignore` classique
+# aurait laisse passer tout cela et produit un depot impossible a pousser
+# (limite GitHub : 100 Mo par fichier).
+#
+# Regle : on ignore tout, puis on reintegre explicitement le projet.
+# Pour ajouter un dossier au depot, il faut une ligne `!` ici.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── 1. Tout ignorer par defaut ─────────────────────────────────────────────
+/*
+
+# ── 2. Reintegrer la racine du projet ──────────────────────────────────────
+!/.gitignore
+!/README.md
+!/requirements.txt
+!/JOURNAL_DE_BORD.md
+!/*.py
+!/*.sh
+!/*.md
+
+# ── 3. Reintegrer les arborescences du projet ──────────────────────────────
+!/web/
+!/tools/
+!/report_latex/
+!/catkin_ws/
+!/data/
+
+# ── 4. catkin_ws : NOS paquets uniquement ──────────────────────────────────
+# open_vins, MINS et kalibr sont des depots amont (11 Go). Ils se clonent,
+# ils ne se versionnent pas ici. Voir l'annexe D, section « Upstream sources ».
+/catkin_ws/*
+!/catkin_ws/src/
+/catkin_ws/src/*
+!/catkin_ws/src/leo_navigation/
+!/catkin_ws/src/leo_autonomy/
+
+# Exception chirurgicale (2026-08-03) : openVINS est clone frais par l'annexe D,
+# MAIS config/leo/ a ete cree A LA MAIN par ce projet a l'interieur du clone
+# (try_zupt, intrinseques figees — le resultat le plus mis en avant du
+# rapport). Un `git clone` de l'amont ne le reconstruit PAS. Chaque niveau
+# doit etre reintegre explicitement : gitignore ne peut pas re-inclure un
+# fichier dont un repertoire ANCETRE reste ignore par un motif large.
+!/catkin_ws/src/open_vins/
+/catkin_ws/src/open_vins/*
+!/catkin_ws/src/open_vins/config/
+/catkin_ws/src/open_vins/config/*
+!/catkin_ws/src/open_vins/config/leo/
+/catkin_ws/src/open_vins/config/leo/*
+!/catkin_ws/src/open_vins/config/leo/*.yaml
+
+# Meme raison, meme mecanisme, pour la config MINS propre au projet
+# (chi2_mult, rayon roue mesure, T_imu_wheel — le chapitre mecanum au complet).
+# Chemin reel verifie : LEO_Rover_Navigation_System/MINS-master/mins/config/leo/
+# (PAS mins_ws/, qui n'est qu'un symlink vers ce meme repertoire).
+!/LEO_Rover_Navigation_System/
+/LEO_Rover_Navigation_System/*
+!/LEO_Rover_Navigation_System/MINS-master/
+/LEO_Rover_Navigation_System/MINS-master/*
+!/LEO_Rover_Navigation_System/MINS-master/mins/
+/LEO_Rover_Navigation_System/MINS-master/mins/*
+!/LEO_Rover_Navigation_System/MINS-master/mins/config/
+/LEO_Rover_Navigation_System/MINS-master/mins/config/*
+!/LEO_Rover_Navigation_System/MINS-master/mins/config/leo/
+/LEO_Rover_Navigation_System/MINS-master/mins/config/leo/*
+!/LEO_Rover_Navigation_System/MINS-master/mins/config/leo/*.yaml
+
+# ── 4b. docs/ : un seul fichier cite nommement par l'annexe D ──────────────
+# Trou trouve par l'audit du 2026-08-03 : §D.10.3 dit « Follow
+# docs/protocole_calibration_terrain.md » et ce fichier n'a jamais ete
+# suivi. docs/ n'a jamais figure dans la liste d'inclusion du tout.
+!/docs/
+/docs/*
+!/docs/protocole_calibration_terrain.md
+
+# ── 5. data : les donnees derivees, pas les enregistrements bruts ──────────
+# Les .bag totalisent 760 Mo, dont un .bag.active de 506 Mo (enregistrement
+# interrompu). Ils sont irremplacables mais depassent ce qu'un depot git doit
+# porter : archiver separement, ou passer par git-lfs.
+/data/*
+!/data/trajectories/
+/data/trajectories/*.bag
+/data/trajectories/*.bag.active
+/data/trajectories/*.pid
+
+# ── 6. web : ressources lourdes exclues ────────────────────────────────────
+/web/models/
+/web/exports/
+
+# ── 7. Artefacts Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ── 8. Artefacts de compilation LaTeX ──────────────────────────────────────
+*.aux
+*.log
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
+*.lot
+*.lof
+*.out
+*.bbl
+*.bcf
+*.blg
+*.run.xml
+*.nav
+*.snm
+*.vrb
+
+# ── 9. LE RAPPORT COMPILE EST VERSIONNE ────────────────────────────────────
+# Regle absolue : le PDF final accompagne les sources. Aucune regle `*.pdf`
+# generique n'existe dans ce fichier, volontairement, car report_latex/figures/
+# contient aussi des figures PDF necessaires a la compilation.
+!report_latex/main.pdf
+
+# ── 9b. Doublons perimes, cibles PAR NOM EXACT (jamais par *.pdf) ──────────
+# Trois fichiers retires de l'index le 31/07 (git rm --cached) sans jamais
+# recevoir de regle correspondante : ils revenaient en « Untracked » a
+# chaque `git status`, indefiniment. Corrige le 2026-08-03.
+*.docx
+report_latex/main.atfi
+report_latex/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf
+
+# ── 10. Sauvegardes horodatees ─────────────────────────────────────────────
+# Le flux de travail de ce projet cree une copie datee avant chaque
+# modification risquee (*.bak-avant-tflin-164639, .bak-cdn-20260729/, ...).
+# Elles ont servi, plusieurs fois, a restaurer un fichier casse. Elles n'ont
+# rien a faire dans l'archive : git EST le mecanisme de sauvegarde.
+*.bak
+*.bak-*
+*.bak_*
+.bak-*/
+*.orig
+*.rej
+
+# ── 11. Divers ─────────────────────────────────────────────────────────────
+*.swp
+*~
+.DS_Store

@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LEO · TRAJECTORY — Mission Control</title>
+<style>
+  /* ── JPL Mission Control — charbon, gris spatial, orange NASA, cyan ─────── */
+  :root {
+    --bg:      #0B0E14;
+    --panel:   #10141c;
+    --line:    #1e242b;
+    --grid:    rgba(255,255,255,.045);
+    --txt:     #c9d1d9;
+    --dim:     #6b7684;
+    --orange:  #ff6b35;   /* NASA meatball — MINS */
+    --cyan:    #22d3ee;   /* électrique — VINS */
+    --ok:      #3fdc97;
+    --mono: "JetBrains Mono", "Roboto Mono", ui-monospace, "Cascadia Mono", Menlo, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--txt);
+    font-family: var(--mono); font-size: 13px;
+    height: 100vh; overflow: hidden;
+    display: grid; grid-template-rows: 44px 1fr;
+  }
+  /* ── Barre de titre ──────────────────────────────────────────────────────── */
+  header {
+    display: flex; align-items: center; gap: 14px; padding: 0 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header .dot { width: 9px; height: 9px; border-radius: 50%; background: #444; }
+  header .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  header h1 { font-size: 13px; font-weight: 600; letter-spacing: .18em; }
+  header .sub { color: var(--dim); font-size: 11px; letter-spacing: .1em; }
+  header a { color: var(--dim); text-decoration: none; font-size: 11px; margin-left: auto; }
+  header a:hover { color: var(--txt); }
+  /* ── Grille principale : HUD | carte | HUD ───────────────────────────────── */
+  main { display: grid; grid-template-columns: 220px 1fr 220px; min-height: 0; }
+  .hud { border-right: 1px solid var(--line); padding: 12px; overflow-y: auto;
+         display: flex; flex-direction: column; gap: 10px; background: var(--panel); }
+  .hud.right { border-right: 0; border-left: 1px solid var(--line); }
+  .tile { border: 1px solid var(--line); padding: 8px 10px; }
+  .tile .k { color: var(--dim); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+  .tile .v { font-size: 20px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .tile .u { color: var(--dim); font-size: 10px; }
+  /* ── Sélecteur VINS / MINS ───────────────────────────────────────────────── */
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .modes button {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .12em;
+    padding: 9px 0; background: transparent; color: var(--dim);
+    border: 1px solid var(--line); cursor: pointer;
+  }
+  .modes button.vins.active { color: var(--cyan);  border-color: var(--cyan);  box-shadow: inset 0 0 12px rgba(34,211,238,.12); }
+  .modes button.mins.active { color: var(--orange); border-color: var(--orange); box-shadow: inset 0 0 12px rgba(255,107,53,.15); }
+  .modes button:disabled { opacity: .35; cursor: not-allowed; }
+  /* ── Bouton Export MATLAB ────────────────────────────────────────────────── */
+  button.exp {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .1em; font-weight: 600;
+    padding: 11px 0; cursor: pointer; color: var(--bg);
+    background: var(--cyan); border: 1px solid var(--cyan);
+    box-shadow: 0 0 14px rgba(34,211,238,.35); transition: filter .15s, transform .05s;
+  }
+  button.exp:hover { filter: brightness(1.12); }
+  button.exp:active { transform: translateY(1px); }
+  button.exp.plot { background: transparent; color: var(--ok); border-color: var(--ok);
+                    box-shadow: inset 0 0 12px rgba(63,220,151,.15); }
+  button.exp.busy { opacity: .5; cursor: wait; }
+  /* ── Canvas ──────────────────────────────────────────────────────────────── */
+  #wrap { position: relative; min-width: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #stamp { position: absolute; right: 10px; bottom: 8px; color: var(--dim); font-size: 10px; }
+  .legend { position: absolute; left: 10px; top: 8px; font-size: 10px; color: var(--dim);
+            display: flex; gap: 14px; letter-spacing: .1em; }
+  .legend i { display: inline-block; width: 18px; height: 2px; vertical-align: middle; margin-right: 5px; }
+  /* ── habillage console : scanlines CRT + vignette + coins de visée ─────── */
+  #wrap::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px);
+  }
+  #wrap::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+    box-shadow: inset 0 0 140px rgba(0,0,0,.55);
+  }
+  .corner { position: absolute; width: 22px; height: 22px; z-index: 3; pointer-events: none;
+            border: 1px solid rgba(34,211,238,.35); }
+  .corner.tl { top: 6px; left: 6px; border-right: 0; border-bottom: 0; }
+  .corner.tr { top: 6px; right: 6px; border-left: 0; border-bottom: 0; }
+  .corner.bl { bottom: 6px; left: 6px; border-right: 0; border-top: 0; }
+  .corner.br { bottom: 6px; right: 6px; border-left: 0; border-top: 0; }
+  .tile { position: relative; transition: border-color .2s; }
+  .tile:hover { border-color: rgba(34,211,238,.35); }
+  .tile .v { text-shadow: 0 0 12px rgba(34,211,238,.12); }
+  header h1 { text-shadow: 0 0 18px rgba(34,211,238,.25); }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="wsdot"></span>
+  <h1>LEO ROVER · TRAJECTORY</h1>
+  <span class="sub" id="wsstate">CONNECTING</span>
+  <a href="robot_description.html">ROBOT</a>
+  <a href="ops.html">← OPERATIONS</a>
+</header>
+<main>
+  <!-- ── HUD gauche : navigation ─────────────────────────────────────────── -->
+  <div class="hud">
+    <div class="tile"><div class="k">Pose source</div>
+      <div class="v" id="hMode" style="letter-spacing:.1em">—</div></div>
+    <div class="modes">
+      <button class="vins" id="btnVins">VINS</button>
+      <button class="mins" id="btnMins">MINS</button>
+    </div>
+    <div class="tile"><div class="k">Position X</div><div class="v" id="hX">—</div><div class="u">m · repère odom</div></div>
+    <div class="tile"><div class="k">Position Y</div><div class="v" id="hY">—</div><div class="u">m</div></div>
+    <div class="tile"><div class="k">Cap</div><div class="v" id="hYaw">—</div><div class="u">deg</div></div>
+    <div class="tile"><div class="k">Nodes AprilTag</div><div class="v" id="hTags">0</div><div class="u">détections confirmées</div></div>
+
+    <!-- ── Sélecteur de test (2026-07-27) ────────────────────────────────────
+         Étiquette le run en cours ("test1"/"test2") ET démarre un
+         enregistrement rosbag DÉTACHÉ côté backend (survit à un redémarrage
+         du backend/du site — voir §sec:july27rosbag du rapport, retour
+         terrain "le site se perd" du 27/07 soir). MINS ET VINS restent
+         toujours capturés ensemble, pour permettre la comparaison. Le badge
+         REC reflète l'état réel côté backend (télémétrie), pas juste le clic
+         local — si le backend redémarre, l'enregistrement (déjà détaché)
+         continue et le badge le montre dès la reconnexion. -->
+    <div class="tile"><div class="k">Test actif</div>
+      <div class="modes" style="margin-top:4px">
+        <button class="mins active" id="btnTest1" title="Étiquette d'export : test1_*">TEST 1</button>
+        <button class="vins" id="btnTest2" title="Étiquette d'export : test2_*">TEST 2</button>
+      </div>
+      <div id="recBadge" style="margin-top:6px;font-size:11px;letter-spacing:.08em;color:var(--dim)">— pas d'enregistrement —</div>
+      <button id="btnTrajReset" style="margin-top:6px;width:100%;font-family:var(--mono);font-size:11px;letter-spacing:.08em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer"
+              title="Annule l'enregistrement en cours et repart à zéro pour le même test">↺ RESET (essai raté)</button>
+    </div>
+    <!-- ── Export MATLAB (2026-07-27) ──────────────────────────────────────
+         Bouton bien visible dans le panneau gauche de la vue Trajectory.
+         Déclenche l'export backend (poses BRUTES MINS+VINS -> CSV + .mat)
+         puis télécharge le .mat dès qu'il est écrit. -->
+    <button id="btnExport" class="exp">⬇ EXPORT TO MATLAB</button>
+    <button id="btnPlot" class="exp plot" style="display:none">▶ TRACER DANS MATLAB</button>
+    <!-- ── Calibration terrain (2026-07-29) ────────────────────────────────
+         Confronte ce que le robot CROIT parcourir a ce qu'il parcourt
+         REELLEMENT, mesure au ruban par l'operateur. Version web de
+         tools/calib_terrain.py, pilotable depuis un telephone a cote du
+         robot : un SEUL gros bouton qui change de role selon l'etape, pour
+         etre utilisable sans lire l'ecran de pres.
+         POURQUOI : jusqu'ici on comparait les capteurs ENTRE EUX, or les
+         roues patinent aussi — un desaccord ne dit pas qui se trompe. -->
+    <div class="tile" id="calibTile">
+      <div class="k">Calibration terrain</div>
+      <div class="modes" style="margin-top:4px">
+        <button class="mins" id="cbRotG" title="Echelle du gyroscope, sens gauche">90° G</button>
+        <button class="mins" id="cbRotD" title="Echelle du gyroscope, sens droite">90° D</button>
+        <button class="vins" id="cbDro"  title="Echelle en translation">1 m</button>
+      </div>
+      <div id="cbState" style="margin-top:6px;font-size:11px;letter-spacing:.06em;color:var(--dim)">—</div>
+      <button id="cbAction" style="margin-top:6px;width:100%;font-family:var(--mono);font-size:13px;letter-spacing:.08em;padding:12px 0;background:var(--accent,#3fdc97);color:#04140d;border:0;border-radius:3px;cursor:pointer;font-weight:700">MARQUER LE DÉPART</button>
+      <div id="cbPreview" style="margin-top:6px;font-size:11px;font-family:var(--mono);color:var(--dim);white-space:pre-line"></div>
+      <div id="cbInputRow" style="display:none;margin-top:6px;gap:4px">
+        <div style="font-size:10px;line-height:1.4;color:#ffb454;margin-bottom:4px">
+          Allez mesurer MAINTENANT. L'instant d'arrivée est figé — prenez le temps.
+        </div>
+        <input id="cbValue" type="number" step="0.1" inputmode="decimal"
+               style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:16px;padding:10px;background:#0b0f0d;color:#e8f5ef;border:1px solid var(--line);border-radius:3px"
+               placeholder="mesure réelle">
+        <button id="cbSubmit" style="margin-top:4px;width:100%;font-family:var(--mono);font-size:13px;letter-spacing:.08em;padding:10px 0;background:#3fdc97;color:#04140d;border:0;border-radius:3px;cursor:pointer;font-weight:700">VALIDER LA PASSE</button>
+      </div>
+      <div id="cbRefus" style="display:none;margin-top:6px;font-size:11px;line-height:1.4;color:#ff6b6b;border-left:2px solid #ff6b6b;padding-left:6px"></div>
+      <div id="cbResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-line;line-height:1.5"></div>
+      <div style="margin-top:6px;display:flex;gap:4px">
+        <button id="cbUndo"  style="flex:1;font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer">↶ passe</button>
+        <button id="cbReset" style="flex:1;font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer">↺ tout</button>
+      </div>
+    </div>
+    <!-- Retour visuel de l'export (2026-07-29, retour opérateur « le bouton
+         ne fait rien »). L'export RÉUSSISSAIT déjà ; ce qui manquait, c'était
+         de le DIRE, et de signaler l'échec de MATLAB au lieu de laisser
+         attendre une fenêtre qui n'arrive jamais. -->
+    <div id="expNotice" style="display:none;margin-top:6px;font-size:11px;line-height:1.45;
+                               padding:6px 8px;border-radius:3px;border-left:3px solid var(--dim)"></div>
+    <div class="tile" id="expTile" style="display:none">
+      <div class="k">Buffer poses</div>
+      <div class="v" id="hBuf" style="font-size:13px">MINS — · VINS —</div>
+      <div class="u" id="hExp">—</div>
+    </div>
+  </div>
+  <!-- ── Carte centrale ──────────────────────────────────────────────────── -->
+  <div id="wrap">
+    <canvas id="cv"></canvas>
+    <span class="corner tl"></span><span class="corner tr"></span>
+    <span class="corner bl"></span><span class="corner br"></span>
+    <div class="legend">
+      <span><i style="background:var(--cyan)"></i>VINS</span>
+      <span><i style="background:var(--orange)"></i>MINS</span>
+      <span><i style="background:var(--ok);height:6px;width:6px;border-radius:50%"></i>NODE TAG</span>
+      <span><i style="background:#ff3b30"></i>X <i style="background:#34dc6b;margin-left:6px"></i>Y · TF</span>
+    </div>
+    <div id="stamp">—</div>
+  </div>
+  <!-- ── HUD droit : télémétrie ──────────────────────────────────────────── -->
+  <div class="hud right">
+    <div class="tile"><div class="k">Vitesse lin.</div><div class="v" id="hVlin">—</div><div class="u">m/s</div></div>
+    <div class="tile"><div class="k">Vitesse ang.</div><div class="v" id="hVang">—</div><div class="u">rad/s</div></div>
+    <div class="tile"><div class="k">Cadence pose</div><div class="v" id="hHz">—</div>
+      <div class="u" id="hGap">Hz</div></div>
+    <div class="tile"><div class="k">Signal WS</div><div class="v" id="hPing">—</div><div class="u">ms aller-retour</div></div>
+    <div class="tile"><div class="k">Points trail</div><div class="v" id="hPts">0</div><div class="u">fenêtre 3000</div></div>
+  </div>
+</main>
+<!-- même source roslib que le cockpit (vendored, pas de CDN) — cohérent avec ops.html -->
+<script src="vendor/roslib.min.js?v=v1"></script>
+<script>
+(function () {
+  "use strict";
+  /* ═══ Connexion ROS (même logique tunnel/LAN que le cockpit) ═══ */
+  const TUNNEL_ROOT = "leo-rover-gardon.dev";
+  const isTunnel = location.hostname === TUNNEL_ROOT || location.hostname.endsWith("." + TUNNEL_ROOT);
+  const wsUrl = isTunnel ? ("wss://" + location.host + "/rosbridge")
+                         : ("ws://" + (location.hostname || "localhost") + ":9090");
+
+  const $ = (id) => document.getElementById(id);
+  const cv = $("cv"), ctx = cv.getContext("2d");
+
+  /* ═══ État ═══ */
+  const TRAIL_MAX = 3000;
+  const trail = [];          /* {x, y, mode} — mode figé au moment du point */
+  const tags  = [];          /* {x, y, id} — nodes AprilTag (pose robot à la détection) */
+  let mode = null;           /* "VINS" | "MINS" */
+  let pose = null;           /* {x, y, yaw} */
+  let vlin = 0, vang = 0;
+  let msgTimes = [];
+  let lastTagStamp = 0;
+  let tfBase = null;         /* {x, y, yaw} — transform odom->base_link depuis /tf */
+  let cmdTopic = null;       /* publisher /mission/command (export) */
+  let lastExportTs = null;   /* horodatage du dernier export vu (anti double-DL) */
+  let exportPending = false, lastMlTs = null;
+  let matlabAvail = false;   /* MATLAB détecté côté backend -> ouvre l'appli */
+  let currentTest = "test1"; /* étiquette d'export sélectionnée (2026-07-27) */
+  let activeRec = null;      /* {test, started_ts} de l'enregistrement en cours */
+  /* Trous d'affichage : au-delà de ce délai sans pose reçue, on considère que
+     des points ont été perdus (navigateur saturé) et on ne relie PAS. Le topic
+     est throttlé à 100 ms côté rosbridge -> 600 ms = 6 périodes manquées. */
+  const POSE_GAP_MS = 600;
+  let lastPoseMs = 0, gapCount = 0;
+
+  const COLORS = { VINS: "#22d3ee", MINS: "#ff6b35" };
+
+  /* ═══ rosbridge — RECONNEXION EN PLACE (2026-07-13) ═══
+     L'ancien handler rechargeait la page 4 s après chaque coupure WS : c'était
+     LE « refresh tout seul » (et la trace était perdue). On reconstruit
+     désormais la connexion en place, backoff 2→10 s ; trail/tags/pose vivent
+     hors de la connexion et survivent. La page ne se recharge plus JAMAIS. */
+  let ros = null, srv = null, reconnectT = null, backoff = 2000;
+
+  function connectRos() {
+    reconnectT = null;
+    ros = new ROSLIB.Ros({ url: wsUrl });
+    ros.on("connection", () => {
+      backoff = 2000;
+      $("wsdot").classList.add("on"); $("wsstate").textContent = "LINK OK";
+    });
+    const lost = () => {
+      $("wsdot").classList.remove("on"); $("wsstate").textContent = "LINK LOST — reconnexion…";
+      if (!reconnectT) {
+        reconnectT = setTimeout(connectRos, backoff);
+        backoff = Math.min(backoff * 2, 10000);
+      }
+    };
+    ros.on("close", lost);
+    ros.on("error", lost);
+
+    new ROSLIB.Topic({ ros, name: "/robot_pose_fused", messageType: "nav_msgs/Odometry",
+                       throttle_rate: 100 })   /* 10 Hz suffisent à l'écran */
+      .subscribe((m) => {
+        const p = m.pose.pose.position, q = m.pose.pose.orientation;
+        const yaw = Math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
+        pose = { x: p.x, y: p.y, yaw };
+        vlin = m.twist.twist.linear.x; vang = m.twist.twist.angular.z;
+        /* Détection de TROU d'affichage (2026-07-28). Le topic publie à ~81 Hz
+           mais le navigateur n'en recevait que 5 Hz (onglet vidéo + canvas =
+           navigateur saturé ; le lien robot, lui, est sain : 13 ms, 0 % de
+           perte). Quand des secondes de poses manquent, relier le dernier
+           point reçu au suivant dessine une DROITE qui n'a jamais existé —
+           un robot qui tourne apparaît alors comme un long trait rectiligne.
+           Ça a fait passer un problème d'affichage pour une divergence VINS.
+           On marque donc la rupture (break=true) au lieu de mentir : le
+           rendu lèvera le crayon, le trou est visible au lieu d'être comblé. */
+        const nowMs = performance.now();
+        const last = trail[trail.length - 1];
+        const gap = last && (nowMs - lastPoseMs) > POSE_GAP_MS;
+        lastPoseMs = nowMs;
+        if (!last || gap || Math.hypot(p.x - last.x, p.y - last.y) > 0.015) {
+          trail.push({ x: p.x, y: p.y, mode: mode || "MINS", break: !!gap });
+          if (trail.length > TRAIL_MAX) trail.shift();
+          if (gap) gapCount++;
+        }
+        msgTimes.push(performance.now());
+        if (msgTimes.length > 40) msgTimes.shift();
+      });
+
+    new ROSLIB.Topic({ ros, name: "/leo_navigation/pose_source", messageType: "std_msgs/String" })
+      .subscribe((m) => { mode = m.data; refreshModeUI(); });
+
+    new ROSLIB.Topic({ ros, name: "/tag_detections",
+                       messageType: "apriltag_ros/AprilTagDetectionArray", throttle_rate: 500 })
+      .subscribe((m) => {
+        if (!m.detections.length || !pose) return;
+        const now = performance.now();
+        if (now - lastTagStamp < 3000) return;      /* 1 node max / 3 s */
+        lastTagStamp = now;
+        tags.push({ x: pose.x, y: pose.y, id: m.detections[0].id[0] });
+        if (tags.length > 200) tags.shift();
+        $("hTags").textContent = tags.length;
+      });
+
+    srv = new ROSLIB.Service({ ros, name: "/pose_selector/set_source",
+                               serviceType: "std_srvs/SetBool" });
+
+    /* ── /tf : repères map/base_link ─────────────────────────────────────────
+       On s'abonne au topic /tf brut (pas de tf2_web_republisher requis) et on
+       garde la transform odom->base_link. NOTE HONNÊTE : il n'existe AUCUN
+       frame `map` sur /tf dans cette architecture (audit REP-105, cf. rapport
+       §tf2) — la racine réelle de l'arbre dynamique est `odom`. On dessine donc
+       le repère d'origine comme ODOM (la vraie racine), pas un map fictif. */
+    new ROSLIB.Topic({ ros, name: "/tf", messageType: "tf2_msgs/TFMessage",
+                       throttle_rate: 100 })
+      .subscribe((m) => {
+        for (const t of m.transforms) {
+          if (t.child_frame_id === "base_link" && t.header.frame_id === "odom") {
+            const q = t.transform.rotation, tr = t.transform.translation;
+            const yaw = Math.atan2(2 * (q.w * q.z + q.x * q.y),
+                                   1 - 2 * (q.y * q.y + q.z * q.z));
+            tfBase = { x: tr.x, y: tr.y, yaw };
+          }
+        }
+      });
+
+    /* ── Télémétrie backend : compteurs buffer + résultat d'export ─────────── */
+    new ROSLIB.Topic({ ros, name: "/mission/telemetry", messageType: "std_msgs/String",
+                       throttle_rate: 200 })
+      .subscribe((m) => {
+        let d; try { d = JSON.parse(m.data); } catch (e) { return; }
+        if (d.calib) refreshCalibUI(d.calib);
+        const tr = d.traj_rec; if (!tr) return;
+        $("expTile").style.display = "";
+        $("hBuf").textContent = "MINS " + (tr.mins || 0) + " · VINS " + (tr.vins || 0);
+        matlabAvail = !!tr.matlab_available;
+        if (tr.current_test && tr.current_test !== currentTest) {
+          currentTest = tr.current_test;             /* état backend fait foi */
+          refreshTestUI();
+        }
+        const rec = tr.robust_recording, badge = $("recBadge");
+        activeRec = rec;                 /* mémorisé pour selectTest() */
+        if (rec) {
+          const dur = Math.max(0, Math.round(Date.now() / 1000 - rec.started_ts));
+          badge.textContent = "● REC " + rec.test + " — " + dur + " s (rosbag détaché)";
+          badge.style.color = "#3fdc97";
+        } else {
+          badge.textContent = "— pas d'enregistrement —";
+          badge.style.color = "var(--dim)";
+        }
+        if (matlabAvail) $("btnPlot").style.display = "";
+        const ex = tr.last_export;
+        if (ex && ex.ts && ex.ts !== lastExportTs) {
+          lastExportTs = ex.ts;                  /* nouvel export vu */
+          const c = ex.counts || {};
+          $("hExp").textContent = "export " + ex.ts + " · MINS " +
+            (c.mins || 0) + " / VINS " + (c.vins || 0);
+          /* Téléchargement SEULEMENT si CE client a cliqué (exportPending) :
+             un rechargement de page qui découvre un export antérieur met à
+             jour le texte mais ne re-télécharge rien. */
+          if (exportPending) {
+            if (matlabAvail) {
+              /* Fichiers ecrits, mais le resultat VISIBLE attendu est
+                 l'ouverture de MATLAB : on garde le bouton verrouille et on
+                 attend le verdict de matlab_launch. */
+              expNotice("wait", "Fichiers écrits (MINS " + (c.mins || 0)
+                              + " / VINS " + (c.vins || 0)
+                              + ") \u00b7 ouverture de MATLAB\u2026");
+            } else {
+              exportPending = false;
+              exportLock(false);
+              expNotice("ok", "Export terminé \u00b7 MINS " + (c.mins || 0)
+                            + " / VINS " + (c.vins || 0)
+                            + " \u00b7 téléchargement du .mat");
+              if (ex.mat) triggerDownload("/exports/" + ex.mat);
+            }
+          }
+        }
+
+        /* ── Verdict du lancement MATLAB ──────────────────────────────────
+           Le backend surveille le journal du processus DETACHE et publie
+           ici son etat. Sans cela, un echec de licence (error 5001) etait
+           totalement muet : le cockpit attendait une fenetre absente. */
+        const ml = tr.matlab_launch;
+        if (ml && ml.ts !== lastMlTs) {
+          lastMlTs = ml.ts;
+          if (ml.state === "running") {
+            exportPending = false;
+            exportLock(false);
+            expNotice("ok", "MATLAB est ouvert sur le tracé.");
+          } else if (ml.state === "closed") {
+            exportLock(false);
+            expNotice("wait", "MATLAB a été fermé. Le .mat reste dans "
+                            + "web/exports/.");
+          } else if (ml.state === "failed" || ml.state === "unknown") {
+            exportLock(false);
+            expNotice("err", "MATLAB n'a pas pu s'ouvrir \u2014 " + ml.detail
+                           + " Les CSV et le .mat sont bien écrits : "
+                           + "téléchargement lancé.");
+            /* REPLI : l'export a reussi, seul l'affichage a echoue. On livre
+               donc le .mat plutot que de laisser l'operateur les mains vides. */
+            if (exportPending) {
+              exportPending = false;
+              const exx = tr.last_export;
+              if (exx && exx.mat) triggerDownload("/exports/" + exx.mat);
+            }
+          }
+        }
+      });
+
+    cmdTopic = new ROSLIB.Topic({ ros, name: "/mission/command",
+                                  messageType: "std_msgs/String" });
+  }
+
+  /* Téléchargement immédiat côté navigateur : le .mat est servi par le MÊME
+     serveur statique que cette page (serve.py) -> chemin relatif même-origine. */
+  function triggerDownload(path) {
+    const a = document.createElement("a");
+    a.href = path; a.download = path.split("/").pop();
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  function sendCmd(obj) {
+    if (!cmdTopic) return false;
+    cmdTopic.publish(new ROSLIB.Message({ data: JSON.stringify(obj) }));
+    return true;
+  }
+
+  /* ── Retour visuel de l'export ────────────────────────────────────────
+     Trois etats seulement, parce que l'operateur n'a besoin que de trois
+     reponses : « c'est parti », « c'est fait », « ca a echoue et voici quoi ».
+     Le bouton est VERROUILLE pendant l'action : un double-clic relancait
+     silencieusement un second export par-dessus le premier. */
+  let exportWatchdog = null;
+  function expNotice(kind, msg) {
+    const el = $("expNotice");
+    if (!el) return;
+    const col = kind === "ok"   ? "#3fdc97"
+              : kind === "err"  ? "#ff6b6b"
+              : "#ffb454";
+    el.style.display = "block";
+    el.style.borderLeftColor = col;
+    el.style.color = col;
+    el.style.background = kind === "err" ? "rgba(255,107,107,.07)"
+                                         : "rgba(255,255,255,.03)";
+    el.textContent = msg;
+  }
+  function exportLock(on, label) {
+    const b = $("btnExport");
+    if (!b) return;
+    b.disabled = !!on;
+    b.classList.toggle("busy", !!on);
+    b.textContent = on ? (label || "\u23f3 EXPORT EN COURS\u2026")
+                       : "\u2b07 EXPORT TO MATLAB";
+    clearTimeout(exportWatchdog);
+    if (on) {
+      /* Filet de securite : si aucune reponse n'arrive (backend redemarre en
+         plein export, rosbridge decroche), le bouton doit redevenir cliquable
+         plutot que de rester verrouille pour toujours. */
+      exportWatchdog = setTimeout(() => {
+        exportLock(false);
+        expNotice("err", "Aucune réponse du backend après 150 s — "
+                       + "vérifiez qu'il tourne, puis réessayez.");
+      }, 150000);
+    }
+  }
+
+  $("btnExport").onclick = () => {
+    // MATLAB présent -> export PUIS ouverture de l'application sur le tracé
+    // (demande opérateur). Sinon -> repli téléchargement du .mat.
+    $("expTile").style.display = "";
+    exportLock(true);
+    /* exportPending reste VRAI meme quand MATLAB est disponible : si son
+       lancement echoue (licence), on veut quand meme livrer le .mat. */
+    exportPending = true;
+    if (matlabAvail) {
+      if (!sendCmd({ action: "export_matlab", open_matlab: true })) {
+        exportLock(false);
+        expNotice("err", "Non envoyé : pas de connexion au backend.");
+        return;
+      }
+      expNotice("wait", "Export des trajectoires, puis ouverture de MATLAB "
+                      + "(~30 s)\u2026");
+    } else {
+      if (!sendCmd({ action: "export_matlab" })) {
+        exportLock(false);
+        expNotice("err", "Non envoyé : pas de connexion au backend.");
+        return;
+      }
+      expNotice("wait", "Export des trajectoires\u2026");
+    }
+  };
+  $("btnPlot").onclick = () => {
+    if (sendCmd({ action: "plot_matlab" }))       /* rouvre le dernier export */
+      $("hExp").textContent = "MATLAB : ouverture de l'application (~30 s)…";
+  };
+
+  function switchTo(target) {
+    if (!srv) return;
+    $("btnVins").disabled = $("btnMins").disabled = true;
+    srv.callService(new ROSLIB.ServiceRequest({ data: target === "MINS" }), (res) => {
+      $("btnVins").disabled = $("btnMins").disabled = false;
+      if (!res.success) { $("wsstate").textContent = res.message.toUpperCase().slice(0, 40); }
+    }, () => { $("btnVins").disabled = $("btnMins").disabled = false; });
+  }
+  $("btnVins").onclick = () => switchTo("VINS");
+  $("btnMins").onclick = () => switchTo("MINS");
+
+  /* Bascule d'essai. Le backend REFUSE de changer d'étiquette tant qu'un
+     enregistrement tourne (sinon on écraserait/mélangerait des données), et
+     renvoie l'ancienne valeur par télémétrie — ce qui faisait "revenir tout
+     seul" le bouton sans la moindre explication (retour opérateur 28/07).
+     On explique maintenant le refus AVANT de l'envoyer, avec l'action à
+     faire, au lieu de laisser l'UI se rétracter silencieusement. */
+  function selectTest(test) {
+    /* Déjà en train d'enregistrer CET essai : rien à faire. */
+    if (activeRec && activeRec.test === test) return;
+
+    /* Un AUTRE essai enregistre encore : on propose de le terminer proprement
+       (export) et d'enchaîner, au lieu de refuser (le refus laissait
+       l'opérateur bloqué, le bouton "revenant tout seul" — 28/07). */
+    if (activeRec && activeRec.test !== test) {
+      const dur = Math.max(0, Math.round(Date.now() / 1000 - activeRec.started_ts));
+      const ok = confirm(
+        "L'enregistrement de " + activeRec.test.toUpperCase() +
+        " tourne depuis " + dur + " s.\n\n" +
+        "OK  → terminer et SAUVEGARDER " + activeRec.test.toUpperCase() +
+        ", puis démarrer " + test.toUpperCase() + "\n" +
+        "Annuler → ne rien changer\n\n" +
+        "(pour JETER l'essai en cours à la place, utilise « RESET »)");
+      if (!ok) return;
+      $("hExp").textContent = "fin de " + activeRec.test + " + export…";
+      $("expTile").style.display = "";
+      sendCmd({ action: "set_test", test, finalize: true });
+      return;                     /* l'UI suivra la télémétrie du backend */
+    }
+
+    /* Aucun enregistrement en cours (démarrage, ou après un RESET) :
+       le clic démarre simplement l'essai demandé. */
+    currentTest = test;
+    refreshTestUI();
+    sendCmd({ action: "set_test", test });
+  }
+  function refreshTestUI() {
+    $("btnTest1").classList.toggle("active", currentTest === "test1");
+    $("btnTest2").classList.toggle("active", currentTest === "test2");
+  }
+  $("btnTest1").onclick = () => selectTest("test1");
+  $("btnTest2").onclick = () => selectTest("test2");
+  $("btnTrajReset").onclick = () => {
+    if (!confirm("JETER l'enregistrement en cours" +
+                 (activeRec ? " (" + activeRec.test.toUpperCase() + ")" : "") +
+                 " sans le sauvegarder ?\n\n" +
+                 "Après le reset, clique Test 1 ou Test 2 pour démarrer le prochain essai.")) return;
+    sendCmd({ action: "traj_reset" });
+  };
+  /* ── Calibration terrain ────────────────────────────────────────────────
+     Etat maitre = BACKEND (telemetrie), jamais le clic local : si la page est
+     rechargee ou ouverte sur un second appareil, l'operateur retrouve la
+     session en cours au lieu d'en demarrer une fantome. Meme principe que le
+     badge REC. */
+  let calib = null, calibPrevState = null;
+  function calibSend(op, extra) {
+    sendCmd(Object.assign({ action: "calib", op }, extra || {}));
+  }
+  $("cbRotG").onclick = () => calibSend("set_mode", { mode: "rotation", sens: "gauche" });
+  $("cbRotD").onclick = () => calibSend("set_mode", { mode: "rotation", sens: "droite" });
+  $("cbDro").onclick  = () => calibSend("set_mode", { mode: "droite" });
+  $("cbAction").onclick = () => {
+    if (!calib) return;
+    calibSend(calib.state === "armed" ? "mark_end" : "mark_start");
+  };
+  $("cbSubmit").onclick = () => {
+    const v = parseFloat(($("cbValue").value || "").replace(",", "."));
+    if (!(v > 0)) { alert("Saisis la mesure réelle (nombre positif)."); return; }
+    calibSend("submit", { value: v });
+    $("cbValue").value = "";
+  };
+  $("cbValue").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("cbSubmit").click();
+  });
+  $("cbUndo").onclick  = () => calibSend("undo_pass");
+  $("cbReset").onclick = () => {
+    if (confirm("Effacer toutes les passes de calibration ?")) calibSend("reset");
+  };
+
+  function refreshCalibUI(c) {
+    calib = c;
+    if (!c) return;
+    const rot = c.mode === "rotation";
+    const unite = rot ? "deg" : "cm";
+    $("cbRotG").classList.toggle("active", rot && c.sens === "gauche");
+    $("cbRotD").classList.toggle("active", rot && c.sens === "droite");
+    $("cbDro").classList.toggle("active", !rot);
+
+    const quoi = rot ? ("rotation " + c.sens) : "ligne droite 1 m";
+    let recap = "";
+    if (c.series) {
+      const noms = { rotation_gauche: "90°G", rotation_droite: "90°D", droite: "1m" };
+      const parts = Object.entries(c.series).map(([k, n]) => (noms[k] || k) + ":" + n);
+      if (parts.length) recap = "  [" + parts.join(" ") + "]";
+    }
+    $("cbState").textContent = quoi + " · " + c.n_passes + " passe(s)" + recap;
+
+    const armed = c.state === "armed", pending = c.state === "pending";
+    $("cbAction").style.display = pending ? "none" : "";
+    $("cbAction").textContent = armed ? "▣ MARQUER L'ARRIVÉE" : "▶ MARQUER LE DÉPART";
+    $("cbAction").style.background = armed ? "#ffb454" : "#3fdc97";
+    $("cbInputRow").style.display = pending ? "block" : "none";
+    /* Exemples VOLONTAIREMENT non ronds. La version precedente proposait
+       « ex : 90 » juste apres un virage visant 90 deg : elle invitait a saisir
+       la CONSIGNE au lieu de la MESURE. Resultat le 29/07 : quatre capteurs
+       d'accord sur 121.7 deg pendant que 90 etait saisi — on mesurait alors
+       de combien le robot rate sa consigne, pas l'echelle du capteur. */
+    $("cbValue").placeholder = rot ? "angle MESURÉ au rapporteur (ex : 87,5)"
+                                   : "distance MESURÉE au ruban (ex : 1,07)";
+
+    /* Le panneau gauche defile (.hud overflow-y:auto) et le champ apparait
+       SOUS le bouton d'action : sur un ecran court il naissait hors du pli,
+       invisible. Retour terrain du 29/07 : trois manoeuvres completes faites,
+       zero passe enregistree, faute d'avoir pu voir le champ. On l'amene donc
+       a l'operateur — mais UNIQUEMENT a la transition vers "pending", sinon
+       la telemetrie (5 Hz) lui arracherait le defilement en continu. */
+    if (pending && calibPrevState !== "pending") {
+      try {
+        $("cbInputRow").scrollIntoView({ behavior: "smooth", block: "center" });
+        $("cbValue").focus({ preventScroll: true });
+      } catch (e) { $("cbInputRow").scrollIntoView(); }
+    }
+    calibPrevState = c.state;
+
+    /* Mesure BRUTE affichee AVANT la saisie : l'operateur voit ce que le
+       robot a cru parcourir sans que sa propre saisie n'influence sa lecture. */
+    let prev = "";
+    if (pending && c.preview) {
+      for (const [k, v] of Object.entries(c.preview)) {
+        prev += k + " a cru : " + (rot ? (v * 180 / Math.PI).toFixed(1) + " deg"
+                                       : v.toFixed(3) + " m") + "\n";
+      }
+    }
+    $("cbPreview").textContent = prev;
+
+    /* Refus de saisie : affiche EN ROUGE dans le panneau. Le backend le
+       journalise aussi, mais cette page n'affiche pas /mission/log — sans ça
+       l'operateur croirait sa passe enregistree. */
+    $("cbRefus").textContent = c.refus || "";
+    $("cbRefus").style.display = c.refus ? "block" : "none";
+
+    let out = "";
+    if (c.result) {
+      for (const [k, r] of Object.entries(c.result)) {
+        let note = "";
+        if (r.disperse)         note = "  ⚠ dispersé — refaire";
+        else if (r.deja_juste)  note = "  ✓ déjà juste";
+        out += k.padEnd(10) + " ×" + r.facteur.toFixed(4) +
+               "  (" + (r.erreur_pct > 0 ? "+" : "") + r.erreur_pct + " %)" + note + "\n";
+      }
+      if (rot && c.result["gyro brut"] && !c.result["gyro brut"].disperse) {
+        out += "\n→ ~gyro_scale = " + c.result["gyro brut"].facteur.toFixed(4) +
+               "\n   (comparer gauche ET droite avant d'appliquer :" +
+               "\n    >5 % d'écart = mécanique, pas échelle)";
+      }
+    }
+    $("cbResult").textContent = out;
+    $("cbResult").style.color = "var(--dim)";
+  }
+
+  function refreshModeUI() {
+    $("hMode").textContent = mode || "—";
+    $("hMode").style.color = COLORS[mode] || "var(--txt)";
+    $("btnVins").classList.toggle("active", mode === "VINS");
+    $("btnMins").classList.toggle("active", mode === "MINS");
+  }
+
+  connectRos();
+
+  /* Latence WS : ping via topic proxy — round-trip d'un getTopics léger */
+  setInterval(() => {
+    if (!ros || !ros.isConnected) return;
+    const t0 = performance.now();
+    ros.getTopics(() => { $("hPing").textContent = Math.round(performance.now() - t0); },
+                  () => {});
+  }, 3000);
+
+  /* ═══ Rendu canvas — fond charbon, grille fine, trail estompé ═══ */
+  function resize() {
+    const r = cv.parentElement.getBoundingClientRect();
+    cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio;
+  }
+  window.addEventListener("resize", resize); resize();
+
+  /* ═══ Fluidité (2026-07-13) ═══
+     La pose arrive à ~8-10 Hz avec ~250 ms de latence WS : dessinée brute,
+     elle SAUTE. On interpole la pose AFFICHÉE vers la pose reçue à chaque
+     frame (easing), et le viewport (centre+échelle) est lissé de la même
+     façon — fini les à-coups d'autoscale quand un point sort du cadre. */
+  const disp = { x: 0, y: 0, yaw: 0, cx: 0, cy: 0, s: 0, init: false };
+  function lerpAngle(a, b, t) {
+    const d = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+    return a + d * t;
+  }
+  let frameN = 0;
+  let bounds = { minx: -1, maxx: 1, miny: -1, maxy: 1 };
+  function computeBounds() {
+    if (!trail.length && !pose) return;
+    let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+    for (let i = 0; i < trail.length; i++) {
+      const p = trail[i];
+      if (p.x < minx) minx = p.x; if (p.x > maxx) maxx = p.x;
+      if (p.y < miny) miny = p.y; if (p.y > maxy) maxy = p.y;
+    }
+    if (pose) {
+      if (pose.x < minx) minx = pose.x; if (pose.x > maxx) maxx = pose.x;
+      if (pose.y < miny) miny = pose.y; if (pose.y > maxy) maxy = pose.y;
+    }
+    for (const t of tags) {
+      if (t.x < minx) minx = t.x; if (t.x > maxx) maxx = t.x;
+      if (t.y < miny) miny = t.y; if (t.y > maxy) maxy = t.y;
+    }
+    if (minx <= maxx) bounds = { minx, maxx, miny, maxy };
+  }
+
+  function draw() {
+    const W = cv.width, H = cv.height, dpr = devicePixelRatio;
+    ctx.fillStyle = "#0B0E14"; ctx.fillRect(0, 0, W, H);
+
+    /* bornes recalculées à 6 Hz (pas 60) puis viewport LISSÉ vers la cible */
+    if (frameN++ % 10 === 0) computeBounds();
+    const span = Math.max(bounds.maxx - bounds.minx, bounds.maxy - bounds.miny, 1.0) * 1.3;
+    const tgt = { cx: (bounds.minx + bounds.maxx) / 2,
+                  cy: (bounds.miny + bounds.maxy) / 2,
+                  s: Math.min(W, H) / span };
+    if (!disp.init) {
+      Object.assign(disp, { cx: tgt.cx, cy: tgt.cy, s: tgt.s });
+      if (pose) { disp.x = pose.x; disp.y = pose.y; disp.yaw = pose.yaw; disp.init = true; }
+    } else {
+      disp.cx += (tgt.cx - disp.cx) * 0.06;
+      disp.cy += (tgt.cy - disp.cy) * 0.06;
+      disp.s  += (tgt.s  - disp.s)  * 0.06;
+      if (pose) {
+        disp.x   += (pose.x - disp.x) * 0.22;
+        disp.y   += (pose.y - disp.y) * 0.22;
+        disp.yaw  = lerpAngle(disp.yaw, pose.yaw, 0.22);
+      }
+    }
+    const cxw = disp.cx, cyw = disp.cy, s = disp.s;
+    const X = (wx) => W / 2 + (wx - cxw) * s;
+    const Y = (wy) => H / 2 - (wy - cyw) * s;   /* y monde vers le haut */
+
+    /* grille métrique subtile (pas adaptatif 0.5/1/2/5 m) */
+    const step = [0.25, 0.5, 1, 2, 5, 10].find(st => st * s > 55 * dpr) || 10;
+    ctx.strokeStyle = "rgba(255,255,255,.045)"; ctx.lineWidth = 1;
+    ctx.font = `${10 * dpr}px ui-monospace, monospace`; ctx.fillStyle = "rgba(255,255,255,.18)";
+    for (let gx = Math.floor((cxw - span) / step) * step; gx < cxw + span; gx += step) {
+      ctx.beginPath(); ctx.moveTo(X(gx), 0); ctx.lineTo(X(gx), H); ctx.stroke();
+      ctx.fillText(gx.toFixed(step < 1 ? 2 : 0), X(gx) + 3 * dpr, H - 6 * dpr);
+    }
+    for (let gy = Math.floor((cyw - span) / step) * step; gy < cyw + span; gy += step) {
+      ctx.beginPath(); ctx.moveTo(0, Y(gy)); ctx.lineTo(W, Y(gy)); ctx.stroke();
+      ctx.fillText(gy.toFixed(step < 1 ? 2 : 0), 4 * dpr, Y(gy) - 4 * dpr);
+    }
+
+    /* trail estompé, couleur par mode AU MOMENT du point.
+       PERF : 3000 strokes individuels janktaient le rendu — les segments
+       sont regroupés en 6 tranches d'âge x mode (≤ ~12 chemins par frame). */
+    ctx.lineWidth = 1.6 * dpr; ctx.lineCap = "round";
+    const SLICES = 6, n = trail.length;
+    for (let sl = 0; sl < SLICES; sl++) {
+      const i0 = Math.max(1, Math.floor(n * sl / SLICES));
+      const i1 = Math.floor(n * (sl + 1) / SLICES);
+      if (i1 <= i0) continue;
+      const age = (sl + 0.5) / SLICES;
+      ctx.globalAlpha = 0.08 + 0.9 * age * age;
+      let curMode = null;
+      for (let i = i0; i < i1; i++) {
+        const a = trail[i - 1], b = trail[i];
+        /* b.break : des poses ont été perdues avant ce point. On lève le
+           crayon plutôt que de tracer une droite fictive (cf. commentaire
+           sur POSE_GAP_MS). Le trou reste visible — c'est l'information. */
+        if (b.mode !== curMode || b.break) {
+          if (curMode !== null) ctx.stroke();
+          curMode = b.mode;
+          ctx.strokeStyle = COLORS[curMode] || "#888";
+          ctx.beginPath();
+          ctx.moveTo(X(b.break ? b.x : a.x), Y(b.break ? b.y : a.y));
+          if (b.break) continue;          /* pas de segment depuis a */
+        }
+        ctx.lineTo(X(b.x), Y(b.y));
+      }
+      if (curMode !== null) ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    /* nodes AprilTag */
+    tags.forEach(t => {
+      ctx.fillStyle = "#3fdc97";
+      ctx.beginPath(); ctx.arc(X(t.x), Y(t.y), 4 * dpr, 0, 7); ctx.fill();
+      ctx.strokeStyle = "rgba(63,220,151,.4)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(X(t.x), Y(t.y), 9 * dpr, 0, 7); ctx.stroke();
+      ctx.fillStyle = "rgba(63,220,151,.8)";
+      ctx.fillText("TAG " + t.id, X(t.x) + 12 * dpr, Y(t.y) - 6 * dpr);
+    });
+
+    /* ── Repères TF : axes X (rouge) / Y (vert) ──────────────────────────────
+       ODOM à l'origine du tracé (racine réelle de /tf — pas de `map` publié,
+       cf. audit), BASE_LINK à la pose courante issue de /tf (repli sur la pose
+       fused si /tf pas encore reçu — même donnée sous-jacente). */
+    const Lax = step * 0.7;                       /* longueur d'axe, en mètres */
+    const drawFrame = (wx, wy, yaw, label, dim) => {
+      const ox = X(wx), oy = Y(wy);
+      const xe = [X(wx + Lax * Math.cos(yaw)), Y(wy + Lax * Math.sin(yaw))];
+      const ye = [X(wx - Lax * Math.sin(yaw)), Y(wy + Lax * Math.cos(yaw))];
+      ctx.lineWidth = (dim ? 2.0 : 2.6) * dpr; ctx.globalAlpha = dim ? 0.75 : 1;
+      ctx.strokeStyle = "#ff3b30";                /* X rouge */
+      ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(xe[0], xe[1]); ctx.stroke();
+      ctx.strokeStyle = "#34dc6b";                /* Y vert */
+      ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(ye[0], ye[1]); ctx.stroke();
+      ctx.fillStyle = "#ff3b30"; ctx.beginPath(); ctx.arc(xe[0], xe[1], 2.6*dpr, 0, 7); ctx.fill();
+      ctx.fillStyle = "#34dc6b"; ctx.beginPath(); ctx.arc(ye[0], ye[1], 2.6*dpr, 0, 7); ctx.fill();
+      ctx.fillStyle = "rgba(201,209,217,.9)";
+      ctx.font = `${10 * dpr}px ui-monospace, monospace`;
+      ctx.fillText(label, ox + 5 * dpr, oy - 5 * dpr);
+      ctx.globalAlpha = 1;
+    };
+    drawFrame(0, 0, 0, "odom", true);             /* racine réelle de /tf */
+    const bl = tfBase || (pose ? { x: disp.x, y: disp.y, yaw: disp.yaw } : null);
+    if (bl) drawFrame(bl.x, bl.y, bl.yaw, "base_link", false);
+
+    /* rover : triangle orienté à la pose INTERPOLÉE (fluide), halo mode */
+    if (pose) {
+      const px = X(disp.x), py = Y(disp.y), c = COLORS[mode] || "#ccc";
+      ctx.save(); ctx.translate(px, py); ctx.rotate(-disp.yaw + Math.PI / 2);
+      ctx.shadowColor = c; ctx.shadowBlur = 14 * dpr;
+      ctx.fillStyle = c;
+      ctx.beginPath(); ctx.moveTo(0, -9 * dpr); ctx.lineTo(6 * dpr, 7 * dpr);
+      ctx.lineTo(-6 * dpr, 7 * dpr); ctx.closePath(); ctx.fill();
+      ctx.restore();
+      $("hX").textContent   = pose.x.toFixed(3);
+      $("hY").textContent   = pose.y.toFixed(3);
+      $("hYaw").textContent = (pose.yaw * 57.2958).toFixed(1);
+    }
+
+    /* HUD droite */
+    $("hVlin").textContent = vlin.toFixed(2);
+    $("hVang").textContent = vang.toFixed(2);
+    $("hPts").textContent  = trail.length;
+    if (msgTimes.length > 5) {
+      const dt = (msgTimes[msgTimes.length - 1] - msgTimes[0]) / (msgTimes.length - 1);
+      const hz = dt > 0 ? 1000 / dt : 0;
+      $("hHz").textContent = hz > 0 ? hz.toFixed(1) : "—";
+      /* Le topic sort à ~81 Hz et rosbridge le throttle à 10 Hz : recevoir
+         nettement moins veut dire que le navigateur perd des poses, donc que
+         le tracé n'est PLUS fidèle (trous comblés en droites avant le fix du
+         2026-07-28, ruptures visibles depuis). On le dit à l'écran plutôt que
+         de laisser interpréter un artefact comme un défaut d'estimateur. */
+      const g = $("hGap");
+      if (hz > 0 && hz < 7) {
+        g.textContent = "Hz — AFFICHAGE INCOMPLET (" + gapCount + " trous)";
+        g.style.color = "#ff6b35";
+      } else {
+        g.textContent = "Hz"; g.style.color = "";
+      }
+    }
+    $("stamp").textContent = new Date().toISOString().slice(11, 19) + " UTC · échelle " + step + " m";
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

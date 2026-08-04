@@ -1,0 +1,15 @@
+# Tags AprilTag présents dans l'environnement.
+# 'size' = côté du carré NOIR intérieur en mètres — À MESURER sur vos balises
+# imprimées avant tout test (une taille fausse = distance fausse).
+standalone_tags:
+  [
+    {id: 0, name: balise_0, size: 0.16},
+    {id: 1, name: balise_1, size: 0.16},
+    {id: 2, name: balise_2, size: 0.16},
+    {id: 285, name: balise_285, size: 0.2032}
+  ]
+# id 285 = le tag REEL de la balise du labo. Mesure utilisateur (2026-07-07) :
+# dessin 7.5x10 pouces, modules de 1 pouce -> 36h11 standard : bordure noire
+# 8 modules = 8 pouces = 0.2032 m (les 10 pouces = tag + bordure blanche).
+# apriltag_ros attend le cote du CARRE NOIR -> size 0.2032.
+tag_bundles: []

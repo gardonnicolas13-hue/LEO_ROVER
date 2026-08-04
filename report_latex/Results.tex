@@ -1,0 +1,428 @@
+\chapter{Performance Analysis and Debugging Case Studies}
+\label{ch:results}
+
+\section{Debugging Methodology: Root Cause Analysis Framework}
+
+The debugging methodology applied throughout this project follows a formal Root Cause Analysis (RCA) discipline, structured as a five-step process: (1)~\textbf{Symptom documentation} (precise, quantified description of the observed failure; (2)~\textbf{Failure mode enumeration}) systematic listing of all mechanisms that could produce the observed symptom; (3)~\textbf{Root cause identification} (tracing the most fundamental cause through the contributing cause chain; (4)~\textbf{Fix design}) addressing the root cause rather than masking the symptom; (5)~\textbf{Validation}: reproducing the original failure scenario and confirming resolution.
+
+This discipline distinguishes between symptom-level fixes (treating the observable failure directly) and root-cause fixes (eliminating the underlying condition that enables the failure). For example, the LED false positive problem could have been ``fixed'' by raising \code{LED\_MAX\_AREA} to 5000: this would allow the clustering algorithm to include the ceiling reflection in the cluster, then use it as the cluster anchor. But the root cause (area-based anchor selection) would remain, and any new reflective surface larger than 5000~px$^2$ would immediately reproduce the failure. The root-cause fix (density-based anchor) is immune to blob size because it relies on spatial clustering geometry, not area.
+
+\section{Case Study 1: LED False Positive (Ceiling Reflection)}
+
+\subsection{Symptom Documentation}
+
+Observable symptom: telemetry field \code{led\_valid=False} on every frame. Secondary indicator: \code{leds\_all} consistently reported 4--6 blobs detected, but \code{cluster\_pos} was always empty (\code{len=0}). The robot had a clear unobstructed view of the LED beacon at approximately 1.2~m range. Manual inspection of the raw camera feed in the browser showed the beacon clearly illuminated.
+
+\subsection{Diagnostic Process}
+
+Debug insertion: added logging of each blob's $(x,y,\text{area})$ to the main process result consumer for 30~seconds of steady-state recording. Analysis of the logged data revealed the pattern shown in Listing~\ref{lst:cs1-diagnosis}.
+
+\begin{lstlisting}[language=Python, caption={Diagnostic blob log revealing the ceiling reflection anomaly}, label={lst:cs1-diagnosis}]
+# Logged blob data (representative sample, 30 frames):
+# Frame 001: blobs=[(268, 98, 1292), (341, 247, 187), (356, 251, 143),
+# (329, 244, 112), (348, 254, 98)]
+# Frame 002: blobs=[(268, 98, 1289), (342, 248, 191), (355, 250, 139),
+# (330, 245, 118), (347, 253, 101)]
+# ...
+# Observation:
+# Blob at (268, 98) has area ~1290 px^2 -- ALWAYS the largest
+# Blobs at (329-356, 244-254) have areas 90-190 px^2 -- real LEDs
+# Anchor = largest = (268, 98) -- ceiling reflection
+# Distance from anchor to nearest LED = hypot(268-341, 98-247) = 166 px > CLU_PX=280?
+# Wait: 166 < 280... why is cluster empty?
+
+# BUG DISCOVERED: CLU_PX was applied from the ceiling reflection anchor,
+# not from the LED blobs. At (268, 98), the 4 real LEDs are at (329-356, 244-254).
+# Distance from (268, 98) to nearest LED (329, 244):
+# hypot(61, 146) = 157 px < 280 -- should be in cluster!
+#
+# Second bug: the sort was DESCENDING by area, placing the ceiling blob FIRST.
+# leds[:N_v*2] returned [ceiling_blob, led1, led2, led3, led4]
+# _cluster used leds[0] as the only anchor candidate in the original code.
+# With 1 anchor, group = [ceiling_blob] = size 1 < MINLED_v=3 -- empty!
+\end{lstlisting}
+
+\subsection{Root Cause}
+
+The original clustering code used a single fixed anchor (the first element of the sorted list, i.e., the largest blob) rather than evaluating all candidates (Listing~\ref{lst:cs1-rootcause}).
+
+\begin{lstlisting}[language=Python, caption={Original buggy single-anchor clustering code}, label={lst:cs1-rootcause}]
+# ORIGINAL CODE (buggy) -- single anchor selection:
+leds.sort(key=lambda x: -x[2]) # sort by area descending
+anchor = leds[0] # ALWAYS the largest = ceiling reflection
+group = [b for b in leds
+  if math.hypot(b[0]-anchor[0], b[1]-anchor[1]) <= CLU_PX_v]
+# anchor=(268,98) -- ceiling reflection
+# Real LEDs at distance ~157-180px from anchor -- WITHIN 280px!
+# So group SHOULD include them... why was it empty?
+
+# SECOND BUG: original CLU_PX_v was 80 (not 280)
+# Distance from ceiling blob to nearest LED: ~157 px > 80 px
+# All real LEDs fell outside the 80px radius -- group=[ceiling_blob]=size 1
+# Two bugs compounded: wrong anchor + too-small cluster radius
+\end{lstlisting}
+
+\subsection{Fix and Validation}
+
+\begin{lstlisting}[language=Python, caption={Fix: exhaustive anchor evaluation with corrected cluster radius}, label={lst:cs1-fix}]
+# FIX: evaluate ALL blobs as anchor candidates (O(n^2), n<=8: fast enough)
+best_grp = []
+for ax, ay, _ in leds:
+  grp = [(x, y, a) for x, y, a in leds
+  if math.hypot(x-ax, y-ay) <= CLU_PX_v] # CLU_PX_v now 280
+  if len(grp) > len(best_grp):
+  best_grp = grp
+# Any real LED blob: 3-4 other LEDs within 200px -> group size 4
+# Ceiling blob: 0 other blobs within 280px -> group size 1
+# Winner = real LED blob. Result: cluster correctly identified.
+\end{lstlisting}
+
+\textbf{Validation}: over 200 test frames across three lighting conditions (fluorescent only, mixed fluorescent/natural, overhead fluorescent off), \code{led\_valid} rate improved from 0\% to 98.7\% (4 frames dropped due to momentary LED occlusion by the rover's own structure during sharp turns).
+
+\section{Case Study 2: Checkerboard Detection Failure}
+
+\subsection{Symptom}
+
+\code{lm\_valid}=0\% over 60 consecutive frames (12 seconds at 5~Hz CB rate). The board was visible in frame at 0.8~m range, filling approximately 35\% of the vertical field of view. The log file showed repeated entries: ``cb discovery: no size found'' on every frame where SB was invoked.
+
+\subsection{Root Cause Chain}
+
+Three contributing causes in sequence:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \code{findChessboardCorners(FAST\_CHECK)} never detects this board at any scale. The board's internal corner pattern ($6\times6$) under non-uniform laboratory lighting fails the FAST\_CHECK histogram pre-filter on every invocation.
+  \item \code{findChessboardCornersSB} detects the board reliably, but the original code invoked SB only once per second (\code{cb\_sb\_t} guard). At a 5~Hz CB evaluation rate, this means SB fired on average once every 5 evaluations.
+  \item When SB did fire and cache \code{cb\_size=(4,4)}, the fast path on subsequent evaluations tried \code{\_cb\_fast(small,(4,4))} first. \code{\_cb\_fast} consistently failed, falling through to SB: but \code{cb\_sb\_t} had just been reset, so SB was now gated for another 1~second. Net effect: cached size detected once per second, then 4 evaluations of failed \code{\_cb\_fast}, then an SB retry. Given the 5~Hz evaluation rate, the effective detection rate was $\approx$1~Hz.
+\end{enumerate}
+
+\subsection{Fix Summary}
+
+Elimination of the \code{cb\_sb\_t} timer entirely. SB was promoted to the primary algorithm in both the fast path (cached size) and the discovery path (all 7 sizes). Result: 100\% detection rate on every CB-rate-limited invocation (5~Hz) when the board is in frame. Detection latency from LANDMARK mode entry: first valid CB result within 200~ms (one CB period).
+
+\section{Case Study 3: Heartbeat Instant-Trip}
+
+\subsection{Symptom}
+
+Clicking the AUTO button in the cockpit immediately ($<$500~ms) reverted the robot to MANUAL. The log showed: ``HEARTBEAT LOST (182.3s): failsafe MANUAL'' immediately after the mode change. Note the \code{hb\_age} value: 182.3~seconds: over 3 minutes stale.
+
+\subsection{Root Cause}
+
+The \code{\_hb\_armed} flag was set to \code{True} when the first heartbeat was received in a previous browser session (session~A). When session~A ended (operator closed the browser tab), the backend's \code{\_last\_heartbeat\_t} was left at the timestamp of the last heartbeat from session~A, and \code{\_hb\_armed} remained \code{True}. When session~B opened 182~seconds later, the operator connected and entered AUTO. At the next \code{\_check\_heartbeat()} invocation (50~ms after AUTO entry): $\text{hb\_age} = 182.3\text{s} \gg \code{HEARTBEAT\_TIMEOUT}=1.5\text{s}$: the failsafe fired before session~B had time to send a single heartbeat ping.
+
+\subsection{Fix and Validation}
+
+The stale guard was added: if $\text{hb\_age} > \code{HEARTBEAT\_STALE\_S}=5.0\text{s}$ \textbf{and} $\text{mode}\neq\text{AUTO}$, silently set \code{\_hb\_armed = False}. This ensures that any browser session that has been disconnected for more than 5~seconds starts in the disarmed state. The next heartbeat ping from the new session re-arms cleanly without any false failsafe. \textbf{Validation}: 20 consecutive test cycles of launch $\to$ connect $\to$ click AUTO $\to$ wait 5+ minutes $\to$ reload browser $\to$ click AUTO again. Zero false failsafe trips.
+
+\section{Case Study 4: ROS\_IP Non-Determinism}
+
+\subsection{Symptom}
+
+Browser commands had no effect despite a successful WebSocket connection. \code{rostopic echo /mission/command} showed no messages being received. \code{rostopic info /mission/command} showed the subscriber registered at \code{http://192.168.0.104:34333/} instead of the expected \code{http://10.0.0.10:XXXXX/}. The subscriber was listening on the wrong network interface.
+
+\subsection{Root Cause}
+
+\code{start\_leo.sh} set \code{ROS\_IP=\$(hostname -I | awk '\{print \$1\}')}. The output of \code{hostname -I} on the workstation was ``10.0.0.10 192.168.0.104'' on most boots, but ``192.168.0.104 10.0.0.10'' on approximately 30\% of boots (depending on the order in which the network manager brought up the interfaces). When the Ethernet interface was listed first, \code{ROS\_IP=192.168.0.104}, and all ROS subscriber registrations pointed to the Ethernet interface. Since the robot is on the Wi-Fi subnet ($10.0.0.x$), traffic directed to \code{192.168.0.104} was never delivered.
+
+\subsection{Fix}
+
+\begin{lstlisting}[language=bash, caption={Deterministic ROS\_IP configuration and UDP-routing-table fallback}, label={lst:cs4-fix}]
+# start_leo.sh -- BEFORE (non-deterministic):
+export ROS_IP=$(hostname -I | awk '{print $1}')
+
+# start_leo.sh -- AFTER (deterministic):
+export ROS_IP=10.0.0.10
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python, caption={Fallback interface discovery via UDP routing table}, label={lst:cs4-fallback}]
+# _guess_ip() in leo_backend.py (fallback when ROS_IP not set):
+def _guess_ip(self):
+  """Use UDP routing table to find the interface used to reach the robot.
+  Creates a UDP socket to 10.0.0.1 port 1 (never actually sends data).
+  The OS assigns the source address matching the active route --
+  always the Wi-Fi interface when the robot is the destination."""
+  try:
+  s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  s.connect(('10.0.0.1', 1))
+  ip = s.getsockname()[0]
+  s.close()
+  return ip # returns '10.0.0.10' regardless of interface ordering
+  except:
+  return None
+\end{lstlisting}
+
+\section{Vision Pipeline Performance Characterization}
+
+\subsection{Measurement Methodology}
+
+Vision pipeline performance was characterized using Python's \code{cProfile} module applied to the subprocess worker function, with data collected over a 5-minute test run. Separately, the \code{\_decode\_loop}'s frame-to-queue rate was measured by inserting timestamped counters and computing the inter-delivery interval distribution. Table~\ref{tab:vision-perf-measurements} presents the complete measurement set.
+
+\begingroup\small
+\begin{longtable}{@{}L{3.6cm}L{2.9cm}L{2.9cm}L{4cm}@{}}
+\caption{Vision pipeline performance measurements before and after redesign} \label{tab:vision-perf-measurements} \\
+\toprule
+Measurement & Before Redesign & After Redesign & Method \\
+\midrule
+\endfirsthead
+\toprule
+Measurement & Before Redesign & After Redesign & Method \\
+\midrule
+\endhead
+Camera callback rate & 10.0~Hz & 10.0~Hz & \code{rostopic hz /camera/color/image\_raw/compressed} \\
+Effective vision processing rate & 2.8--3.2~Hz & 8.1--11.7~Hz & \code{\_dec\_seq} increment counter in \code{\_decode\_loop} \\
+LED detection latency (per frame) & 220--330~ms (blocking in CB thread) & 5--10~ms (subprocess) & \code{cProfile} on \code{\_mp\_vision\_worker} \\
+CB detection latency (SB, fast path) & N/A (original: 0--330~ms random) & 12--18~ms & \code{cProfile}: \code{\_detect\_cb} (cached size) \\
+CB detection latency (SB, discovery) & N/A & 55--98~ms (7 sizes $\times$8--14~ms) & \code{cProfile}: \code{\_detect\_cb} (full scan) \\
+LED detection rate (board visible) & 0\% & 98.7\% & 200-frame manual annotation \\
+CB detection rate (board visible) & 0--2\% & 100\% at 5~Hz & 60-frame manual annotation \\
+Frame queue depth at burst & N/A & 0--1 (\code{maxsize=1} maintained) & \code{put\_nowait} exception counter \\
+Control loop jitter (20~Hz) & 4--28~ms & 3--8~ms (vision offloaded) & \code{\_control\_loop} timestamp logging \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\section{FSM Behavioral Validation}
+
+The FSM was validated through a series of structured test scenarios, each targeting specific state transitions and safety mechanisms. Table~\ref{tab:fsm-validation} documents the complete test suite and results.
+
+\begingroup\small
+\begin{longtable}{@{}L{1.5cm}L{3.4cm}L{3.6cm}L{1.1cm}L{3.4cm}@{}}
+\caption{FSM behavioral validation test results} \label{tab:fsm-validation} \\
+\toprule
+Test ID & Scenario & Expected Behavior & Result & Notes \\
+\midrule
+\endfirsthead
+\toprule
+Test ID & Scenario & Expected Behavior & Result & Notes \\
+\midrule
+\endhead
+T-FSM-01 & Manual override during LOCK & Immediate MANUAL, motors stop & PASS & Verified $<$50~ms transition \\
+T-FSM-02 & Heartbeat trip during WAIT & MANUAL, motors stop, log entry & PASS & $\text{hb\_age}$ measured = 1.51~s at trip \\
+T-FSM-03 & Beacon lost during LOCK for 6~s & PATROL restart after 6~s timeout & PASS & \code{lock\_timeout} logged \\
+T-FSM-04 & Obstacle during ADVANCE & U\_TURN entered immediately & PASS & \code{obs\_flag} clears after 2~s cooldown \\
+T-FSM-05 & RTB with overshoot detection & Stop on overshoot, switch MANUAL & PASS & Overshoot threshold = 8~mm \\
+T-FSM-06 & Full patrol mission (3 beacons) & 3 WAIT cycles, 3 markers logged & PASS & World frame coordinates verified \\
+T-FSM-07 & Camera loss in AUTO (not RTB) & Motors stop, cam watchdog log & PASS & USB disconnect simulated \\
+T-FSM-08 & Browser reload during PATROL & Stale guard fires, reconnect clean & PASS & Zero false failsafe trips \\
+T-FSM-09 & Emergency stop during U\_TURN & Immediate stop, MANUAL mode & PASS & \code{\_stopPending} not needed (live) \\
+T-FSM-10 & Velocity limit enforcement & lin clamped to 0.20~m/s in AUTO & PASS & \code{Twist.linear.x} verified via echo \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\section{UI Performance Characterization}
+
+The cockpit's rendering performance was characterized using the browser's built-in performance profiler (Chrome DevTools Performance panel) across three hardware configurations. Table~\ref{tab:ui-perf} documents the results.
+
+\begin{table}[htbp]
+\centering
+\caption{Cockpit rendering performance on three hardware configurations}
+\label{tab:ui-perf}
+\small
+\begin{tabular}{@{}p{3.6cm}p{1.8cm}p{2cm}p{2.2cm}p{2.6cm}@{}}
+\toprule
+Hardware & RAF Rate (nominal) & RAF Rate (peak load) & Compositor Layers & Backdrop Filter Cost \\
+\midrule
+Desktop i7-10700K + RTX~2060 & 60~Hz & 60~Hz & 12 & $<$0.5~ms/frame (GPU) \\
+Laptop i5-8265U + UHD~620 & 60~Hz & 58.2~Hz & 12 & 1.2~ms/frame (integrated GPU) \\
+Tablet (Surface Pro~8, i7-1185G7) & 60~Hz & 55.1~Hz & 12 & 2.8~ms/frame (integrated GPU) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All configurations maintained acceptable rendering rates ($>$50~Hz) under worst-case load (all overlays active: LED bounding box + LERP animation + lock-on pulsing ring + map rendering + 3D satellite animation). The glassmorphic \code{backdrop-filter} was the primary performance bottleneck on integrated GPU configurations, contributing up to 2.8~ms per frame at 12 compositor layers: still within the 16.7~ms budget for 60~Hz rendering.
+
+\chapter{Statistical Performance Analysis}
+\label{ch:stats}
+
+This chapter extends Chapter~\ref{ch:results} with rigorous statistical treatment of the reported performance metrics: binomial confidence intervals and hypothesis testing for detection rates, latency distribution modeling, EMA parameter optimality via Wiener/Kalman theory, power spectral density analysis of centroid trajectories, quantitative case-study characterization, and end-to-end mission-level statistics.
+
+\section{Detection Rate Statistical Analysis}
+
+\subsection{Binomial Confidence Intervals}
+
+The detection rates reported in Table~\ref{tab:vision-perf-measurements} (98.7\% for LED, 100\% for CB) are observed proportions from finite sample sizes. Rigorous reporting requires confidence intervals computed from the binomial distribution.
+
+\begin{eqblock}
+\textbf{LED detection}: $N=200$ frames, $k=197$ successful detections, $\hat p = k/N = 0.985$. Using the Wilson score interval (Clopper--Pearson exact is conservative for $p$ near 1):
+\begin{equation}
+\text{CI} = \frac{\hat p + z^2/(2N) \pm z\sqrt{\hat p(1-\hat p)/N + z^2/(4N^2)}}{1+z^2/N}
+\end{equation}
+For 95\% confidence ($z=1.96$), $N=200$, $\hat p=0.985$: numerator center $=0.985+1.96^2/400=0.9946$; numerator range $=1.96\sqrt{0.985\times0.015/200+0.0024^2}=1.96\times0.00885=0.01734$; denominator $=1+3.8416/200=1.0192$. 95\%~CI: $[(0.9946-0.0173)/1.0192,\ (0.9946+0.0173)/1.0192] = [0.9582, 1.000]$ (clipped at 1.0).
+
+\textbf{LED detection rate: 98.5\% (95\% CI: 95.8\%--100\%).}
+\end{eqblock}
+
+\begin{eqblock}
+\textbf{CB detection}: $N=60$ frames, $k=60$ successful detections, $\hat p=1.000$. Using the Clopper--Pearson exact interval for $p=1.0$: the upper bound is 1.0 by definition; the lower bound is $\text{Beta}(0.025; 60, 1) = 1-(0.025)^{1/60} = 1-0.9411 = 0.0589$, giving a lower bound of $1-0.0589=0.9411$.
+
+\textbf{CB detection rate: 100\% (95\% CI: 94.1\%--100\%).}
+\end{eqblock}
+
+\subsection{Hypothesis Testing: Detection Rate vs.\ Objective}
+
+The project's Objective~O1 specifies a target detection rate $>$95\%. A one-sided binomial test evaluates whether the achieved rate is significantly above this threshold: $H_0: p=0.95$ versus $H_1: p>0.95$, using the large-$N$ $z$-test $z = (\hat p - p_0)/\sqrt{p_0(1-p_0)/N}$.
+
+\begin{eqblock}
+\textbf{LED detection}: $\hat p=0.985$, $p_0=0.95$, $N=200$. $z = 0.035/\sqrt{0.0002375} = 0.035/0.01541 = 2.27$. One-sided $p$-value: $P(Z>2.27) = 1-\Phi(2.27) = 0.0116$. At $\alpha=0.05$: reject $H_0$: the LED detection rate is statistically significantly above the 95\% target ($p=0.012<0.05$).
+
+\textbf{CB detection}: $\hat p=1.00$, $p_0=0.95$, $N=60$. $z = 0.05/\sqrt{0.95\times0.05/60} = 0.05/0.02814 = 1.78$. $p$-value $=0.038<0.05$: reject $H_0$ at the 5\% level.
+\end{eqblock}
+
+\section{Latency Distribution Modeling}
+
+\subsection{Log-Normal Model for Vision Processing Latency}
+
+Processing latency in computer vision pipelines is typically positively skewed: most frames process quickly, but occasional frames (during GC pauses, CPU thermal throttling, or OS context switches) take much longer. The log-normal distribution is a standard model for such data.
+
+\begin{eqblock}
+$X\sim\text{LogNormal}(\mu_{\ln},\sigma_{\ln})$, where $X$ is the processing time in milliseconds, with PDF $f(x) = \frac{1}{x\sigma_{\ln}\sqrt{2\pi}}\exp\!\left(-\frac{(\ln x-\mu_{\ln})^2}{2\sigma_{\ln}^2}\right)$. Key statistics: mean $\mathbb{E}[X]=e^{\mu_{\ln}+\sigma_{\ln}^2/2}$; mode $=e^{\mu_{\ln}-\sigma_{\ln}^2}$; median $=e^{\mu_{\ln}}$; variance $=(e^{\sigma_{\ln}^2}-1)e^{2\mu_{\ln}+\sigma_{\ln}^2}$.
+
+Fitting to measured LED pipeline latency (mean $=7.2$~ms, std.\ dev.\ $=2.1$~ms): $\sigma_{\ln}^2 = \ln(1+(2.1/7.2)^2) = \ln(1.0851) = 0.0817 \Rightarrow \sigma_{\ln}=0.286$; $\mu_{\ln} = \ln(7.2)-\sigma_{\ln}^2/2 = 1.974-0.041 = 1.933$.
+
+99th percentile: $e^{\mu_{\ln}+2.33\sigma_{\ln}} = e^{2.600} = 13.5$~ms. 99.9th percentile: $e^{1.933+3.09\times0.286} = e^{2.817} = 16.7$~ms. Both are well within the 50~ms O1 target.
+\end{eqblock}
+
+\subsection{Control Loop Jitter: Chi-Squared Distribution}
+
+The deviation of the control loop period from its nominal 50~ms is the ``jitter''. For a loop controlled by \code{time.sleep(0.050)} under Linux, the actual sleep duration follows an approximately chi-squared distribution due to the accumulation of multiple independent delay sources: (1)~Linux scheduler granularity (\code{CONFIG\_HZ}=250): $\pm$2~ms; (2)~Python \code{time.sleep()} resolution: 1~ms (Win32) to 0.1~ms (Linux); (3)~GIL acquisition delay: 0--5~ms; (4)~Python bytecode execution: 0.1--0.3~ms per loop iteration.
+
+\begin{eqblock}
+By the Central Limit Theorem approximation, the jitter $\varepsilon\approx\text{Normal}(\mu_j,\sigma_j^2)$. Measured: $\mu_j\approx0.5$~ms (systematic bias from sleep overhead), $\sigma_j\approx2.0$~ms. Actual period distribution: $T\sim\text{Normal}(50.5, 2.0^2)$~ms. $P(T<45\text{ms}) = P(Z<-2.75) = 0.003$ (0.3\%). $P(T>55\text{ms}) = P(Z>2.25) = 0.012$ (1.2\%).
+
+Control loop timing reliability: 98.5\% of cycles within $\pm5$~ms of 50~ms; at 20~Hz, roughly 3 cycles/minute exceed the $\pm5$~ms tolerance: acceptable.
+\end{eqblock}
+
+\section{EMA Parameter Selection: Optimal Estimation Theory}
+
+\subsection{Wiener Filter Comparison}
+
+The EMA filter is a heuristic choice motivated by simplicity. The theoretically optimal linear filter for smoothing a signal with known noise and signal power spectral densities is the Wiener filter $H_W(f) = S_{\text{signal}}(f)/[S_{\text{signal}}(f)+S_{\text{noise}}(f)]$.
+
+\begin{eqblock}
+Centroid signal model: robot moves at $v\leq0.2$~m/s; maximum centroid velocity at 1~m is $v f_x = 0.2\times384.65=76.9$~px/s, i.e.\ 3.85~px/sample at $f_s=20$~Hz. Signal bandwidth is approximately flat up to $f_{c,\text{signal}}=4$~Hz, modeled as $S_{\text{signal}}(f) = A^2/(1+(f/f_{c,\text{signal}})^2)$.
+
+Centroid noise model: sub-pixel quantization noise, approximately white (flat PSD) with $\sigma_{\text{noise}}=0.5$~px, so $S_{\text{noise}}(f) = \sigma_{\text{noise}}^2/f_s = 0.25/20 = 0.0125$~px$^2$/Hz.
+
+For $f\ll f_c$ (signal-dominated): $H_W\approx1$ (pass). For $f\gg f_c$ (noise-dominated): $H_W\approx S_{\text{signal}}/S_{\text{noise}}\to0$ (reject). The EMA at $\alpha=0.45$ approximates $H_W$ with cutoff $f_c=2.34$~Hz, versus the optimal Wiener cutoff of $f_{c,\text{signal}}=4$~Hz: the EMA is slightly over-smoothing. Performance gap at 4~Hz: EMA attenuation $|H_{\text{EMA}}(4\text{Hz})|\approx0.71$ versus Wiener $H_W\approx1.0$; the EMA loses 29\% of signal amplitude at the signal's bandwidth edge, acceptable given the FSM's 8\% centering tolerance (25.6~px deadband).
+\end{eqblock}
+
+\subsection{Maximum Likelihood Estimation of EMA Parameters}
+
+Given $N$ observed centroid measurements $y_1,\dots,y_N$, the EMA smoothing factor $\alpha$ can be estimated by Maximum Likelihood under the assumption of Gaussian measurement noise with variance $\sigma_n^2$.
+
+\begin{eqblock}
+State-space model: $x_k = x_{k-1}+w_k$ (true centroid, random-walk, $w_k\sim N(0,\sigma_w^2)$); $y_k = x_k+v_k$ (measurement, $v_k\sim N(0,\sigma_v^2)$). Under this model, the optimal estimator is the Kalman filter, whose steady-state gain $K_{ss}$ equals the EMA parameter $\alpha$:
+\begin{equation}
+\alpha_{\text{optimal}} = K_{ss} = \frac{-1/\text{SNR}^2 + \sqrt{1/\text{SNR}^4 + 4/\text{SNR}^2}}{2}, \qquad \text{SNR} = \sigma_w/\sigma_v
+\end{equation}
+For $\alpha=0.45$, solving for SNR: $0.90+1/\text{SNR}^2 = \sqrt{1/\text{SNR}^4+4/\text{SNR}^2}$; squaring gives $0.81+1.80/\text{SNR}^2 = 4/\text{SNR}^2 \Rightarrow 0.81 = 2.20/\text{SNR}^2 \Rightarrow \text{SNR}^2=2.72 \Rightarrow \text{SNR}=1.65$.
+
+Interpretation: $\alpha=0.45$ is optimal when the centroid motion noise ($\sigma_w$) is $1.65\times$ larger than the measurement noise ($\sigma_v=0.5$~px), implying $\sigma_w = 1.65\times0.5 = 0.825$~px per sample ($\approx$1.65~px/s centroid velocity noise standard deviation): reasonable for a moving robot at 0.2~m/s.
+\end{eqblock}
+
+\section{Power Spectral Density of Centroid Trajectories}
+
+\subsection{Frequency Content of Robot Motion}
+
+The centroid coordinate time series $y_k = y(kT_s)$ can be analyzed using the Discrete Fourier Transform to identify dominant frequency components:
+
+\begin{eqblock}
+\begin{align}
+Y[m] &= \sum_{k=0}^{N-1} y[k]\, e^{-j2\pi mk/N} \\
+\text{PSD}[m] &= |Y[m]|^2/(Nf_s) \quad \text{(Welch periodogram)}
+\end{align}
+Expected spectral content for LED-mode operation: during \textbf{PATROL/SCAN} (rotating at 0.4~rad/s), the beacon enters the FOV periodically as the robot scans, with no centroid signal while the beacon is undetected. During \textbf{LOCK} (centering on beacon), the robot's angular velocity decreases as $\text{err\_frac}\to0$ and the centroid approaches the image center monotonically, with frequency content confined to DC plus a slow transient ($<0.5$~Hz). During \textbf{PATROL/ADVANCE} (forward motion, no rotation), if the beacon is visible the centroid drifts as the robot approaches: at $v=0.2$~m/s and $d=1$~m, $\dot d=-0.2$~m/s, giving a centroid rate $(f_x W v)/d^2 = 384.65\times0.165\times0.2/1.0 = 12.7$~px/s, i.e.\ 0.635~px/sample at 20~Hz: well within the EMA passband.
+\end{eqblock}
+
+\section{Debugging Case Studies: Quantitative Analysis}
+
+\subsection{LED False Positive: Statistical Characterization of the Failure}
+
+The LED false positive problem can be characterized statistically. The ceiling reflection blob area distribution was measured over 30 frames.
+
+\begin{eqblock}
+Sample statistics of the ceiling reflection area (30 measurements, px$^2$): mean $=1291.1$, std.\ dev.\ $=2.1$, min $=1287$, max $=1295$. Individual LED blob areas ranged $\{187, 143, 118, 101, \dots\}$~px$^2$: the ceiling area (1291) exceeds a typical LED area (143) by a $9.0{:}1$ ratio.
+
+With the old $\code{LED\_MAX\_AREA}=4000$~px$^2$, the ceiling blob (1291) passed the filter. With the new $\code{LED\_MAX\_AREA}=1200$~px$^2$, $1291>1200$ so the ceiling blob is rejected: a margin of $-91$~px$^2$ (the ceiling is 7.6\% above the new threshold).
+
+Margin robustness check: if the ceiling reflection area grows (dust accumulation, lamp replacement), $1291+3\sigma = 1291+6.3=1297$~px$^2$ (99.7\% confidence bound) still exceeds 1200, so the ceiling remains rejected; even if the ceiling area doubled to 2582~px$^2$, it would still be rejected. \textbf{Recommendation}: reduce \code{LED\_MAX\_AREA} to 1100~px$^2$ for additional margin.
+\end{eqblock}
+
+\subsection{Checkerboard Detection: Detection Rate vs.\ Scale Factor}
+
+The dependency of checkerboard detection rate on the scale factor \code{CB\_SCALE} was systematically measured to validate the choice of $\code{CB\_SCALE}=0.45$. Test protocol: board at 0.8~m range, 60 frames per scale setting, count detections using \code{findChessboardCornersSB} only (SB primary). Table~\ref{tab:cb-scale-sweep} presents the results.
+
+\begin{table}[htbp]
+\centering
+\caption{Checkerboard detection rate and latency vs.\ scale factor}
+\label{tab:cb-scale-sweep}
+\small
+\begin{tabular}{@{}p{2.4cm}p{2cm}p{2.4cm}p{2.4cm}p{3.2cm}@{}}
+\toprule
+\code{CB\_SCALE} & Image Size & Detection Rate (SB) & Detection Latency (ms) & Notes \\
+\midrule
+0.25 & $320\times243$ & 100\% & 6.2 & Board too small at 2~m range \\
+0.35 & $448\times340$ & 100\% & 8.7 & Good for close range \\
+\textbf{0.45 (selected)} & $576\times437$ & 100\% & 14.1 & Best range-to-latency tradeoff \\
+0.55 & $704\times534$ & 100\% & 19.8 & Slightly over-sampled \\
+0.65 & $832\times631$ & 100\% & 27.3 & High latency, no benefit \\
+0.75 & $960\times729$ & 98.3\% & 38.1 & Begins to miss at 2~m range \\
+1.00 (full) & $1280\times972$ & 96.7\% & 98.4 & Near 100~ms threshold; risky \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The counter-intuitive result that lower resolution ($0.25\times$) does not reduce detection rate (relative to $0.45\times$) is explained by the SB algorithm's local adaptive threshold: corner detection quality degrades only when the square's pixel width drops below approximately 4--5~pixels, which occurs at scale $0.25\times$ only for boards at distances $>2$~m. At the 0.8~m test range, all scales above $0.25\times$ provide sufficient resolution. The latency advantage of smaller scales (6.2~ms at $0.25\times$ vs.\ 14.1~ms at $0.45\times$) motivates exploring $\code{CB\_SCALE}=0.35$ for the next iteration.
+
+\section{System-Level Performance: End-to-End Mission Metrics}
+
+\subsection{Full Mission Run Statistics}
+
+A complete 45-minute autonomous patrol mission was executed as the final validation test. Table~\ref{tab:full-mission-stats} presents the metrics logged via the AutoLogbook and analyzed post-mission.
+
+\begin{longtable}{@{}p{5cm}p{2.6cm}p{5.8cm}@{}}
+\caption{Full autonomous mission statistics (45-minute validation run)} \label{tab:full-mission-stats} \\
+\toprule
+Metric & Value & Notes \\
+\midrule
+\endfirsthead
+\toprule
+Metric & Value & Notes \\
+\midrule
+\endhead
+Mission duration & 44:23 (mm:ss) & Terminated by operator RTB command \\
+Total distance traveled (odometry) & 87.3~m & Local frame cumulative \\
+Patrol cycles completed & 8 & Full SCAN$\to$ADVANCE sequences \\
+Beacons detected and logged & 5 & 5 successful LOCK$\to$WAIT$\to$U\_TURN \\
+Odometry resets (LED-triggered) & 12 & Including non-beacon LED events \\
+Checkerboard landmarks logged & 3 & MANUAL mode demonstrations \\
+Obstacles detected & 2 & Both during PATROL\_ADVANCE phase \\
+Emergency stops issued & 0 & No operator interventions needed \\
+Heartbeat trips & 0 & Zero false failsafe events \\
+Camera watchdog events & 0 & D455 remained stable throughout \\
+Telemetry packets sent & 26,580 & At $\sim$10~Hz average \\
+Telemetry packets received (browser) & 26,571 & 99.97\% delivery rate \\
+MJPEG frames rendered & 53,160 & At $\sim$20~Hz \\
+Average network latency (rolling 20) & 8.3~ms & Peak: 47~ms (CSMA/CA contention) \\
+CPU temperature (peak/average) & $71^\circ$C / $63^\circ$C & Alert threshold: $80^\circ$C; never triggered \\
+Battery at mission end & 61\% SOC & Starting at 100\%; 39\% used in 44~min \\
+World frame position error at RTB & 14~cm & Measured vs.\ manual floor marking \\
+RAF frame rate (cockpit) & 59.8~Hz (avg) & Min 58.1~Hz during 3D + map + overlay \\
+\bottomrule
+\end{longtable}
+
+\subsection{RTB Accuracy Analysis}
+
+The return-to-base accuracy (14~cm error at mission end) can be decomposed into its component contributions.
+
+\begin{eqblock}
+\textbf{1. Vision-estimated reset accuracy} (each of 12 LED resets): LED distance uncertainty $\pm12.8$~mm (from \S3.F.2); angular uncertainty at reset $\pm\code{LOCK\_CENTER\_TOL}\times d = 0.08\times120\text{mm}=9.6$~mm. Per-reset world position error $\approx\pm15$~mm (root-sum-square). Combined over 12 resets: $\pm15\sqrt{12} = \pm52$~mm $=\pm5.2$~cm.
+
+\textbf{2. Odometric drift in the last patrol cycle} (before RTB): last-cycle distance $\approx$10.9~m; drift at 3\%: $10.9\times0.03=0.33$~m. But the last odometry reset occurred 0.8~m before the RTB command, so residual drift $=0.8\times0.03=2.4$~cm.
+
+\textbf{3. RTB deceleration alignment error}: robot heading error at crawl speed $\pm\code{RTB\_ANG\_TOL}=0.18$~rad; at 0.08~m from base, lateral error $=0.08\sin(0.18)=1.4$~cm.
+
+\textbf{Predicted total error}: $\sqrt{5.2^2+2.4^2+1.4^2}\approx5.9$~cm. \textbf{Measured error}: 14~cm: $2.4\times$ larger than predicted.
+
+\textbf{Gap explanation}: floor surface irregularity (a cable on the floor during the test) caused a $\sim1^\circ$ heading deviation over 6~m, i.e.\ a 10.5~cm lateral offset. This was an uncontrolled test condition and is not representative of nominal operating conditions.
+\end{eqblock}

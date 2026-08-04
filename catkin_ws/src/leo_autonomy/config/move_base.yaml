@@ -1,0 +1,19 @@
+base_global_planner: global_planner/GlobalPlanner
+base_local_planner: teb_local_planner/TebLocalPlannerROS
+
+controller_frequency: 10.0
+planner_frequency: 1.0
+planner_patience: 5.0
+controller_patience: 5.0
+
+# Récupération : rotation de dégagement puis nettoyage costmap — PAS de
+# recovery aggressive (un LEO coincé sous un bureau ne doit pas forcer).
+recovery_behavior_enabled: true
+recovery_behaviors:
+  - {name: conservative_reset, type: clear_costmap_recovery/ClearCostmapRecovery}
+  - {name: rotate_recovery,    type: rotate_recovery/RotateRecovery}
+
+GlobalPlanner:
+  allow_unknown: true       # l'exploration DOIT pouvoir planifier vers l'inconnu
+  default_tolerance: 0.15
+  use_dijkstra: false       # A* : plus rapide, qualité équivalente ici

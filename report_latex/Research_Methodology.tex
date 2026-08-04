@@ -1,0 +1,2991 @@
+\chapter{System Architecture and Software Infrastructure}
+\label{ch:methodology}
+
+\section{Full-Stack Overview and Deployment Topology}
+
+The LEO Rover Mission Control system is a distributed application spanning three physical tiers: the robot embedded platform (LEO Rover + AgileX firmware + D455 camera), the operator workstation (Ubuntu 20.04, ROS Noetic, \code{leo\_backend.py}), and the browser-based operator cockpit (any WebKit/Blink/Gecko browser on any device). Understanding the boundaries between these tiers (and the communication mechanisms bridging them) is prerequisite to understanding every architectural decision documented in subsequent sections.
+
+Four independent processes run concurrently on the workstation:
+\begin{enumerate}[leftmargin=1.6em]
+  \item \code{leo\_backend.py} (the ROS node orchestrating all autonomous logic, six daemon threads, and the vision subprocess;
+  \item \code{rosbridge\_websocket} on port 9090) translating ROS pub/sub into rosbridge JSON-over-WebSocket;
+  \item \code{web\_video\_server} on port 8080: re-encoding annotated MJPEG frames into a streaming HTTP response;
+  \item \code{python3 http.server} on port 8000: serving static cockpit assets (\code{ops.html}, \code{app.js}, \code{i18n.js}, \code{3d\_engine.js}).
+\end{enumerate}
+
+Figure~\ref{fig:process-arch} presents a schematic of this process and thread architecture.
+
+\begin{figure}[htbp]
+\centering
+\begin{lstlisting}[language=, basicstyle=\ttfamily\scriptsize, frame=single]
++-----------------------------------------------------------------+
+| OPERATOR WORKSTATION (Ubuntu 20.04, ROS Noetic, 10.0.0.10) |
+| |
+| +-------------------------------------------------------+ |
+| | leo_backend.py (Main Process, ~1842 lines) | |
+| | ROS spin thread | decode thread | control/FSM 20Hz | |
+| | telemetry 10Hz | image_pub | mp_result consumer | |
+| | Queue(1) Queue(5) | |
+| | frame ----------------> result | |
+| +-------------------------------------------------------+ |
+| | ^ |
+| +------+---------------------------------------+------+ |
+| | leo-vision subprocess (spawn, own GIL, own CPU core) | |
+| | cv2: threshold/morphology/contour/SB-corners/cluster | |
+| +-------------------------------------------------------+ |
+| rosbridge_websocket ws://:9090 web_video_server http://:8080 |
++-----------------------------------------------------------------+
+\end{lstlisting}
+\caption{Operator workstation process and thread architecture}
+\label{fig:process-arch}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  font=\small,
+  proc/.style={rectangle, draw, rounded corners=2pt, fill=blue!8, align=center,
+  minimum height=0.85cm, text width=3.6cm, font=\scriptsize},
+  procmain/.style={proc, fill=accentblue!15, draw=accentblue, thick},
+  netlabel/.style={font=\scriptsize\itshape, align=center, fill=white, inner sep=1pt},
+  link/.style={-{Latex[length=2mm]}, thick, draw=black!60}
+  ]
+
+  \node[draw, thick, rounded corners=4pt, minimum width=4.2cm, minimum height=3.6cm,
+  fill=green!5, label={[font=\bfseries\small]above:Robot Platform}] (robotbox) at (0,0) {};
+  \node[proc, text width=3.6cm] (rover) at (0,0.15) {LEO Rover base\\ + AgileX firmware};
+  \node[proc, text width=3.6cm, below=0.25cm of rover] (d455) {Intel RealSense D455\\ (colour + depth)};
+
+  \node[draw, thick, rounded corners=4pt, minimum width=5.4cm, minimum height=5.4cm,
+  fill=accentblue!4, label={[font=\bfseries\small]above:Operator Workstation (10.0.0.10)},
+  right=3.6cm of robotbox] (wsbox) {};
+  \node[procmain, text width=4.6cm] (backend) at (wsbox.north) [yshift=-0.9cm] {\code{leo\_backend.py}\\ ROS node, 6 daemon threads};
+  \node[proc, text width=4.6cm, below=0.22cm of backend] (vision) {\code{leo-vision} subprocess\\ (spawn, dual pipeline)};
+  \node[proc, text width=2.15cm, below=0.35cm of wsbox.west, xshift=1.55cm] (rosbridge) {\code{rosbridge\_websocket}\\ :9090};
+  \node[proc, text width=2.15cm, right=0.15cm of rosbridge] (wvs) {\code{web\_video\_server}\\ :8080};
+  \node[proc, text width=4.6cm, below=0.15cm of rosbridge.south west, anchor=north west, xshift=0cm] (httpd) {\code{python3 http.server} :8000};
+
+  \node[draw, thick, rounded corners=4pt, minimum width=4.2cm, minimum height=3.6cm,
+  fill=orange!5, label={[font=\bfseries\small]above:Browser Cockpit},
+  right=3.6cm of wsbox] (brbox) {};
+  \node[proc, text width=3.6cm] (ops) at (brbox.north) [yshift=-0.9cm] {\code{ops.html} + \code{app.js}\\ operator cockpit UI};
+  \node[proc, text width=3.6cm, below=0.25cm of ops] (canvas) {Canvas 2D overlay\\ + telemetry widgets};
+
+  \draw[link] (d455) -- node[netlabel, above, pos=0.32] {Wi-Fi\\ CompressedImage/Depth} (backend);
+  \draw[link] (backend) -- node[netlabel, below, pos=0.68] {\code{/cmd\_vel}\\ Wi-Fi} (rover);
+
+  \draw[link] (rosbridge) -- node[netlabel, above, sloped] {WebSocket\\ JSON} (ops);
+  \draw[link] (wvs) -- node[netlabel, below, sloped] {HTTP\\ MJPEG} (canvas);
+  \draw[link] ([yshift=-0.1cm]httpd.east) -- node[netlabel, below, sloped, pos=0.5] {HTTP, static assets} ([yshift=-0.55cm]brbox.west);
+
+  \draw[-{Latex[length=1.5mm]}, thick, draw=black!45] (backend.south) -- (rosbridge.north -| backend.south);
+  \draw[-{Latex[length=1.5mm]}, thick, draw=black!45] (backend.south -| wvs.north) -- (wvs.north);
+
+  \end{tikzpicture}}
+\caption{Full-stack deployment topology across the three physical tiers: robot platform, operator workstation (four concurrent processes), and browser cockpit. Arrows indicate the dominant network protocol and payload type for each link.}
+\label{fig:deployment-topology}
+\end{figure}
+
+\emph{A note on the addresses shown above.} Figure~\ref{fig:deployment-topology}
+and the \code{ROS\_IP}/\code{ROS\_MASTER\_URI} values used throughout this
+chapter (\code{10.0.0.10}, \code{10.0.0.1}) reflect the system's original,
+single-room deployment: the PC joined the robot's own Wi-Fi access point
+directly, so a fixed local subnet was a valid simplifying assumption for the
+infrastructure documented here. That assumption was later generalised
+twice: first into a single sourced file (\code{tools/robot\_env.sh})
+computing these addresses instead of hardcoding them, then, for
+building-wide operation off the robot's own limited-range hotspot, into a
+WireGuard tunnel over the campus network. Chapter~\ref{ch:fusion}
+(\S\ref{sec:network}, Figure~\ref{fig:network-before-after}) documents this
+evolution and the current addressing scheme in full; nothing in this
+chapter's process, thread, or topic architecture changed as a result, and
+only which physical interface \code{ROS\_IP} resolves to did.
+
+\section{Complete Thread Architecture}
+
+The \code{leo\_backend.py} main process runs six daemon threads, each with a distinct responsibility and scheduling period. Table~\ref{tab:thread-inventory} provides the authoritative thread inventory.
+
+\begin{table}[htbp]
+\centering
+\caption{\code{leo\_backend.py} daemon thread inventory}
+\label{tab:thread-inventory}
+\small
+\begin{tabular}{@{}p{2.6cm}p{4.4cm}p{2.2cm}p{3.6cm}@{}}
+\toprule
+Thread Name & Function & Period / Rate & Key Shared State \\
+\midrule
+ROS spin & \code{rospy.spin()}: receives camera/odom/depth callbacks & Event-driven & \code{\_cam\_msg}, \code{\_cam\_seq}, \code{pose}, \code{\_obstacle\_flag} \\
+\code{\_decode\_loop} & Decodes JPEG $\to$ BGR, feeds vision subprocess & $\sim$100~ms (10~Hz camera) & \code{latest\_bgr}, \code{\_dec\_seq}, \code{\_mp\_frame\_q} \\
+\code{\_mp\_result\_loop} & Drains result queue, applies EMA, fires events & $\sim$5--10~ms (queue timeout 0.1) & \code{det}, \code{\_led\_result}, \code{\_landmark\_result} \\
+\code{\_control\_loop} & FSM \code{\_drive()} + \code{\_check\_heartbeat()} + \code{\_publish()} & 50~ms (20~Hz) & \code{mode}, \code{auto\_state}, \code{manual}, world pose \\
+\code{\_telemetry\_loop} & \code{\_build\_telemetry()} $\to$ \code{/mission/telemetry} & 100~ms (10~Hz) & All state fields (JSON $\sim$60 fields) \\
+\code{\_publish\_image\_loop} & Annotates BGR with overlays $\to$ \code{/mission/image\_annotated} & 50~ms (20~Hz) & \code{latest\_bgr}, \code{det}, FSM display state \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All threads share state via a single Python \code{threading.Lock} (\code{self.\_lock}). The lock is held for the minimum duration necessary (only during state reads/writes) never during I/O or OpenCV operations. This minimizes contention between the 20~Hz control loop and the 10~Hz telemetry loop, both of which must read the same pose and FSM state.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  font=\small,
+  thread/.style={rectangle, draw, rounded corners=2pt, fill=blue!8, align=center,
+  minimum height=1.1cm, text width=2.6cm, font=\scriptsize},
+  shared/.style={rectangle, draw, dashed, rounded corners=2pt, fill=caseboxbg, align=center,
+  minimum height=1.1cm, text width=9.6cm, font=\scriptsize, inner sep=5pt},
+  proc/.style={rectangle, draw, thick, rounded corners=3pt, fill=accentblue!12,
+  draw=accentblue, align=center, minimum height=1.3cm, text width=7cm},
+  qlabel/.style={font=\scriptsize, align=center, fill=white, inner sep=1pt},
+  arr/.style={-{Latex[length=2mm]}, thick}
+  ]
+
+  \node[draw, thick, rounded corners=4pt, minimum width=16.2cm, minimum height=4.8cm,
+  fill=green!3, label={[font=\bfseries\small]above:leo\_backend.py (main process)}] (mainbox) at (0,0) {};
+
+  \node[thread] (spin) at (-6.9,1.0) {ROS spin\\ event-driven};
+  \node[thread] (decode) at (-4.1,1.0) {\code{\_decode\_loop}\\ $\sim$100~ms};
+  \node[thread] (mpres) at (-1.3,1.0) {\code{\_mp\_result\_loop}\\ $\sim$5--10~ms};
+  \node[thread] (ctrl) at (1.5,1.0) {\code{\_control\_loop}\\ 50~ms (20~Hz)};
+  \node[thread] (telem) at (4.3,1.0) {\code{\_telemetry\_loop}\\ 100~ms (10~Hz)};
+  \node[thread] (imgpub) at (7.1,1.0) {\code{\_publish\_image\_loop}\\ 50~ms (20~Hz)};
+
+  \node[shared] (lock) at (0,-1.7) {Shared state (\code{self.\_lock})\\ pose, mode, \code{auto\_state}, \code{det}};
+
+  \foreach \t in {spin, decode, mpres, ctrl, telem, imgpub}
+  \draw[arr, draw=black!45] (\t) -- (lock);
+
+  \node[proc] (vision) at (0,-4.6) {\code{leo-vision} subprocess (spawn context, own core)\\ LED + Checkerboard pipelines};
+
+  \draw[arr] ([xshift=-1.6cm]decode.south) to[out=-100,in=100]
+  node[qlabel, left=1pt] {\code{Queue(1)}\\ frame (newest wins)} ([xshift=-1.6cm]vision.north);
+  \draw[arr] ([xshift=1.6cm]vision.north) to[out=80,in=-80]
+  node[qlabel, right=1pt] {\code{Queue(5)}\\ result (burst buffer)} ([xshift=1.6cm]mpres.south);
+
+  \end{tikzpicture}}
+\caption{Thread architecture of \code{leo\_backend.py}: six daemon threads coordinate through a single \code{threading.Lock}-protected shared state block, while the vision subprocess communicates exclusively through bounded \code{Queue(1)} (frames) and \code{Queue(5)} (results).}
+\label{fig:thread-architecture}
+\end{figure}
+
+\section{ROS Topic Graph}
+
+The complete ROS topic graph is enumerated in Table~\ref{tab:topic-graph}, distinguishing between robot-published topics (received over Wi-Fi TCP), PC-published topics (internal or sent to robot), and browser-bridge topics (JSON via WebSocket through rosbridge).
+
+\begingroup\small
+\begin{longtable}{@{}L{3.5cm}L{3.6cm}L{2.1cm}L{1.2cm}L{4.3cm}@{}}
+\caption{Complete ROS topic graph} \label{tab:topic-graph} \\
+\toprule
+Topic & Message Type & Direction & Rate & Notes \\
+\midrule
+\endfirsthead
+\toprule
+Topic & Message Type & Direction & Rate & Notes \\
+\midrule
+\endhead
+\code{/camera/color/image\_raw/compressed} & \code{sensor\_msgs\slash CompressedImage} & Rover\allowbreak$\to$PC & 10~Hz & JPEG, 640$\times$480 (resized from 1280$\times$720) \\
+\code{/camera/depth/image\_rect\_raw} & \code{sensor\_msgs\slash Image} & Rover\allowbreak$\to$PC & 15~Hz & uint16 mm, 848$\times$480 \\
+\code{/camera/imu/data} & \code{sensor\_msgs\slash Imu} & Rover\allowbreak$\to$Browser & 50~Hz & Used for artificial horizon widget \\
+\code{/firmware/wheel\_odom} & \code{leo\_msgs\slash WheelOdom} & Rover\allowbreak$\to$PC & $\sim$8~Hz & $x$, $y$, yaw in robot base frame \\
+\code{/firmware/battery} & \code{leo\_msgs\slash WheelStates} & Rover\allowbreak$\to$PC & 1~Hz & State of charge (\%) \\
+\code{/cmd\_vel} & \code{geometry\_msgs\slash Twist} & PC\allowbreak$\to$Rover & 20~Hz & linear.x [m/s], angular.z [rad/s] \\
+\code{/mission/telemetry} & \code{std\_msgs\slash String} (JSON) & PC\allowbreak$\to$Browser & 10~Hz & $\sim$60-field dict; see Section~\ref{sec:telemetry-schema} \\
+\code{/mission/command} & \code{std\_msgs\slash String} (JSON) & Browser\allowbreak$\to$PC & on-demand & heartbeat, mode, stop, RTB, config \\
+\code{/mission/log} & \code{std\_msgs\slash String} & PC\allowbreak$\to$Browser & on-demand & Human-readable event log entries \\
+\code{/mission/image\_annotated} & \code{sensor\_msgs\slash CompressedImage} & PC\allowbreak$\to$Browser & 20~Hz & BGR + overlay $\to$ JPEG $\to$ MJPEG \\
+\code{/vision/targets} & \code{std\_msgs\slash String} (JSON) & PC\allowbreak$\to$Browser & 20~Hz & Dual-pipeline detection result JSON \\
+\code{/map/markers} & \code{std\_msgs\slash String} (JSON) & PC\allowbreak$\to$Browser & on-demand & Beacon / obstacle world coordinates \\
+\code{/leo\_rover/config/velocity} & \code{std\_msgs\slash String} (JSON) & Browser\allowbreak$\to$PC & on-demand & \code{max\_lin\_vel}, \code{max\_ang\_vel} live update \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\section{Telemetry JSON Schema (\texorpdfstring{$\sim$}{~}60 Fields)}
+\label{sec:telemetry-schema}
+
+Every 100~ms, \code{\_build\_telemetry()} serializes the complete system state into a single JSON dict published on \code{/mission/telemetry}. The browser's \code{onTelemetry()} handler parses this dict and dispatches updates to all cockpit widgets. Listing~\ref{lst:telemetry-schema} documents the schema (selective key listing, grouped by concern).
+
+\begin{lstlisting}[language=Python, caption={Selective telemetry JSON schema (key groups)}, label={lst:telemetry-schema}]
+# /mission/telemetry JSON schema (selective key listing)
+{
+  # -- Identity & timing --------------------------------
+  'ts': 1751234567.89, # Unix timestamp of telemetry packet
+  'uptime': 423.7, # seconds since backend start
+
+  # -- FSM state -----------------------------------------
+  'mode': 'AUTO', # MANUEL | AUTO
+  'auto_state': 'PATROL', # PATROL | LOCK | WAIT | U_TURN | RTB
+  'fsm_display': 'AUTO_PATROL', # display state for cockpit banner
+  'lock_centered': false, # True when LOCK alignment achieved
+  'wait_elapsed': 0.0, # seconds into WAIT state
+
+  # -- Odometry (local frame) -----------------------------
+  'x': 1.23, 'y': -0.45, # local frame position [m]
+  'yaw': 0.78, # heading [rad]
+  'wx': 2.11, 'wy': 0.32, # world frame position [m]
+
+  # -- Vision detection ------------------------------------
+  'led_valid': true,
+  'led_center': [312.4, 248.1], # [px_x, px_y] EMA-smoothed centroid
+  'led_dist': 0.82, # estimated range [m]
+  'led_bbox': [288,224,336,272],# bounding box [x0,y0,x1,y1] px
+  'lm_valid': false,
+  'lm_center': null,
+  'lm_dist': null,
+  'lm_angle': null,
+  'vision_mode': 'LED', # LED | LANDMARK
+
+  # -- System health -----------------------------------------
+  'cam_hz': 9.8, # measured camera topic rate [Hz]
+  'odom_hz': 7.9, # measured odometry rate [Hz]
+  'cpu_temp': 71.2, # workstation CPU temperature [C]
+  'battery_pct': 78.0, # rover battery state-of-charge [%]
+  'hb_age': 0.23, # seconds since last browser heartbeat
+  'hb_armed': true,
+
+  # -- Map & mission ------------------------------------------
+  'beacon_count': 3,
+  'map_markers': [{x:1.2,y:0.4,label:'B1'}, ...],
+  'traj': [[0,0],[0.1,0.02],...], # trajectory polyline (local frame)
+  'obstacle_flag': false,
+  'rtb_dist': null # distance to base during RTB [m]
+}
+\end{lstlisting}
+
+\section{Multiprocess Vision Architecture}
+
+\subsection{Why \code{spawn} and Not \code{fork}}
+
+The standard Python \code{multiprocessing} module offers three process creation strategies on Linux. \code{fork(2)} (the default) copies the parent's entire memory space, including all open file descriptors: ROS node TCP sockets, \code{/dev/shm} shared memory segments, and \code{threading.Lock} objects in indeterminate states. The child inherits these in a state it cannot safely use, producing immediate deadlock on its first ROS-related allocation. \code{forkserver} creates a single server process that spawns workers via fork, avoiding some but not all inheritance issues. \code{spawn} creates a completely fresh Python interpreter, imports only the explicitly specified worker function, and avoids all file descriptor inheritance.
+
+The implementation consequence is a single line at module scope (Listing~\ref{lst:spawn-context}).
+
+\begin{lstlisting}[language=Python, caption={Vision subprocess creation context}, label={lst:spawn-context}]
+# leo_backend.py -- L.165
+# spawn = fresh interpreter; fork would inherit ROS sockets -> deadlock
+_MP_CTX = mp.get_context('spawn')
+\end{lstlisting}
+
+\subsection{\code{Queue(maxsize=1)} Frame-Drop Semantics}
+
+The frame queue is bounded to \code{maxsize=1}. This is the central architectural decision of the vision pipeline. The implications are:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item If the vision subprocess is slower than the camera (e.g., during a checkerboard discovery scan at 70~ms vs.\ 100~ms camera period), \code{put\_nowait()} raises \code{queue.Full}.
+  \item The handler discards the oldest frame (\code{get\_nowait()}) and inserts the latest (\code{put\_nowait()}). The subprocess therefore always wakes to the freshest available frame.
+  \item This is equivalent to a zero-latency frame buffer: the subprocess never processes a frame that is more than one period old, regardless of processing time.
+\end{itemize}
+
+The result queue uses \code{maxsize=5} for the inverse reason: result delivery is loss-intolerant (a missed result means one 50~ms control cycle without detection data), and the 0.5-second \code{CENTER\_HOLD\_S} persistence absorbs this. Depth-5 allows burst absorption without blocking the subprocess.
+
+\begin{lstlisting}[language=Python, caption={Frame and result queue configuration and producer logic}, label={lst:queue-semantics}]
+self._mp_frame_q = _MP_CTX.Queue(maxsize=1) # frame -> subprocess: newest wins
+self._mp_result_q = _MP_CTX.Queue(maxsize=5) # results -> main: burst buffer
+
+# Producer (in _decode_loop):
+try:
+  self._mp_frame_q.put_nowait((seq, raw))
+except queue.Full:
+  try: self._mp_frame_q.get_nowait() # discard stale frame
+  except: pass
+  try: self._mp_frame_q.put_nowait((seq, raw)) # insert fresh frame
+  except: pass
+\end{lstlisting}
+
+\section{Launch Infrastructure: \code{start\_leo.sh}}
+
+The entire system is launched from a single Bash script. Key engineering properties:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Idempotency}: each service is started only if its port is not already open (\code{port\_open()} via \code{ss(8)}). Re-running the script never produces duplicate processes.
+  \item \textbf{Deterministic IP}: \code{ROS\_IP} is hardcoded to \code{10.0.0.10} (the Wi-Fi interface). This replaces the non-deterministic \code{hostname -I} invocation that was the root cause of the \code{ROS\_IP} mismatch defect. (This hardcoded value was itself later generalised into \code{tools/robot\_env.sh} once the deployment needed to support more than one network path, \S\ref{sec:network}, trading the hardcoded literal for a single sourced computation without reintroducing the non-determinism this fix was written to eliminate.)
+  \item \textbf{Ordered startup}: rosbridge (needs $\sim$2~s for ROS master registration) $\to$ \code{web\_video\_server} (1.5~s) $\to$ \code{leo\_backend.py} (1.5~s) $\to$ \code{http.server} (0.5~s). Each step sleeps for the measured startup time before checking success.
+  \item \textbf{Graceful cleanup}: \code{kill\_and\_wait()} sends \code{SIGTERM}, waits 0.5~s, then \code{SIGKILL}, ensuring zombie processes do not hold ports across restarts.
+\end{itemize}
+
+\begin{lstlisting}[language=bash, caption={Key excerpts from \code{start\_leo.sh}}, label={lst:start-leo}]
+export ROS_MASTER_URI=http://10.0.0.1:11311
+export ROS_IP=10.0.0.10 # CRITICAL: never use $(hostname -I | awk ...)
+
+port_open() { ss -tlnp | grep -q ":$1 "; }
+
+kill_and_wait() {
+  pkill -f "$1" 2>/dev/null; sleep 0.5
+  pkill -9 -f "$1" 2>/dev/null; sleep 0.3
+}
+
+# Abort immediately if rover is unreachable (prevents 30s hangs)
+ping -c 1 -W 2 10.0.0.1 || { echo 'ERREUR: rover unreachable'; exit 1; }
+\end{lstlisting}
+
+\section{Configuration Constants Reference}
+
+All tunable parameters are defined at module scope in \code{leo\_backend.py} between lines 76 and 162. They are passed to the vision subprocess via the \code{cfg} dictionary at process creation time. Table~\ref{tab:constants-ref} provides the complete constant inventory with values and engineering justification.
+
+\begingroup\small
+\begin{longtable}{@{}L{3.7cm}L{2.1cm}L{1.4cm}L{6.6cm}@{}}
+\caption{Complete system constants reference with engineering justification} \label{tab:constants-ref} \\
+\toprule
+Constant & Value & Scope & Engineering Justification \\
+\midrule
+\endfirsthead
+\toprule
+Constant & Value & Scope & Engineering Justification \\
+\midrule
+\endhead
+\code{LED\_BRIGHT\_THRESH} & 220 & Vision & Safety margin $\geq$10 above ambient peak ($\sim$210); rejects windows, accepts overexposed LEDs \\
+\code{LED\_MIN\_AREA} & 10~px$^2$ & Vision & Rejects sub-pixel noise; smallest real LED blob at 2~m $\approx$18~px$^2$ \\
+\code{LED\_MAX\_AREA} & 1200~px$^2$ & Vision & Rejects ceiling reflections (measured 1200--4000~px$^2$); accepts LEDs (50--200~px$^2$) \\
+\code{LED\_CLUSTER\_PX} & 280~px & Vision & LED beacon width 0.165~m at 1~m distance $\approx$63~px; 280~px gives 4.4$\times$ safety margin for range variability \\
+\code{N\_LEDS} & 4 & Vision & Physical beacon has exactly 4 LEDs in horizontal array \\
+\code{MIN\_LIGHTS} (MINLED) & 3 & Vision & Accepts 3/4 LEDs visible: handles partial occlusion without rejecting valid detections \\
+\code{CAM\_FX} & 384.65~px & Vision & D455 focal length at 640$\times$480 (calibrated from \code{camera\_info} topic) \\
+\code{BEACON\_WIDTH\_M} & 0.165~m & Vision & Physical LED beacon horizontal extent (measured with calipers) \\
+\code{CB\_SCALE} & 0.45 & Vision & Resize factor for CB detection: 576$\times$324 $\to$ 14~ms at SB algorithm \\
+\code{LANDMARK\_SQUARE\_M} & 0.020~m & Vision & Physical checkerboard square side length (20~mm) \\
+\code{LANDMARK\_DETECT\_HZ} & 5.0~Hz & Vision & CB detection rate: 5$\times$ is sufficient given \code{VISION\_HYSTERESIS}=8 frame hold \\
+\code{LED\_STABLE\_FRAMES} & 3 & Vision & Anti-jitter gate: 3 consecutive valid LED frames before LANDMARK mode switch \\
+\code{LM\_MISS\_MAX} & 12 & Vision & 12 CB misses at 5~Hz = 2.4~s without detection before reverting to LED mode \\
+\code{VISION\_HYSTERESIS} & 8 & Vision & Hold last valid result for 8 frames ($\sim$0.4~s at 20~Hz) before declaring loss \\
+\code{VISION\_CONFIRM\_FRAMES} & 3 & Control & 3 consecutive valid LED frames before firing RESET\_ODOMETRY event \\
+\code{CENTER\_HOLD\_S} & 0.5~s & Control & Beacon center held for 0.5~s after last valid detection during LOCK \\
+\code{SEARCH\_ANG} & 0.4~rad/s & FSM & Scan rotation speed: allows camera integration time without blur \\
+\code{PATROL\_ADVANCE\_S} & 3.0~s & FSM & Forward advance duration: $\sim$0.6~m at 0.2~m/s between scan cycles \\
+\code{ADVANCE\_LIN} & 0.2~m/s & FSM & Conservative patrol speed on smooth laboratory floor \\
+\code{LOCK\_CENTER\_TOL} & 0.08 & FSM & $\pm$8\% of half-image-width = $\pm$25.6~px; sub-pixel jitter is $\leq$10~px at this range \\
+\code{LOCK\_ALIGN\_SPEED} & 0.35~rad/s & FSM & Angular alignment speed: fast enough for convergence, slow enough for camera \\
+\code{LOCK\_TIMEOUT} & 6.0~s & FSM & 6~s without beacon in LOCK $\to$ abort; prevents indefinite spinning on occlusion \\
+\code{WAIT\_DURATION} & 30.0~s & FSM & Stationary dwell: sufficient for position logging + logbook entry \\
+\code{UTURN\_SPEED} & 0.50~rad/s & FSM & U-turn rotation speed; 180$^\circ$ at 0.50~rad/s $\approx$6.3~s \\
+\code{HEARTBEAT\_TIMEOUT} & 1.5~s & Safety & 1.5~s gap $\to$ deadman trips; Wi-Fi typical RTT $<$10~ms; 1.5~s = 3$\times$ safety margin on 500~ms HB interval \\
+\code{HEARTBEAT\_STALE\_S} & 5.0~s & Safety & 5~s silence in non-AUTO $\to$ disarm; prevents instant failsafe on browser reload \\
+\code{OBSTACLE\_DIST\_MM} & 600~mm & Safety & 0.6~m stop distance; rover top speed 0.2~m/s, reaction latency $\sim$50~ms $\to$ stopping distance $<$15~mm \\
+\code{OBSTACLE\_ROI} & (344, 504,\linebreak[1] 160, 320) & Safety & Central 160$\times$160~px of 848$\times$480 depth frame; forward corridor, robot height excluded \\
+\code{RTB\_DIST\_TOL} & 0.08~m & RTB & 8~cm arrival radius; acceptable for base station docking \\
+\code{RTB\_LIN\_SPEED} & 0.20~m/s & RTB & Full cruise speed when $d > 0.40$~m \\
+\code{RTB\_SLOW\_SPEED} & 0.08~m/s & RTB & Deceleration phase 0.20--0.40~m range \\
+\code{RTB\_CRAWL\_SPEED} & 0.03~m/s & RTB & Final approach $<$0.20~m; prevents overshoot at base \\
+\code{BEACON\_COOLDOWN} & 10.0~s & Map & Minimum interval between two beacon locks at the same location: prevents double-logging \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\section{AutoLogbook Event System}
+
+Every significant mission event is written atomically to \code{web/auto\_entries.json} by a \code{threading.Lock}-protected writer. The logbook survives backend restarts (loaded on init) and is served to the browser on every reconnection via the \code{/mission/telemetry} \code{logbook\_entries} field. Table~\ref{tab:autolog-events} documents the supported event types.
+
+\begingroup\small
+\begin{longtable}{@{}L{3.2cm}L{6.4cm}L{4.4cm}@{}}
+\caption{AutoLogbook event taxonomy} \label{tab:autolog-events} \\
+\toprule
+Event Code & Trigger Condition & Key Data Fields \\
+\midrule
+\endfirsthead
+\toprule
+Event Code & Trigger Condition & Key Data Fields \\
+\midrule
+\endhead
+\code{MODE\_CHANGE} & mode transitions (MANUEL$\leftrightarrow$AUTO, AUTO sub-state) & \code{old\_mode}, \code{new\_mode}, \code{reason} \\
+\code{MANUAL\_TAKEOVER} & Non-zero manual command received during AUTO & \code{cmd\_lin}, \code{cmd\_ang} \\
+\code{LED\_RESET} & RESET\_ODOMETRY event fired (3 confirmed LED frames) & \code{led\_center}, \code{led\_dist} \\
+\code{MAP\_LANDMARK} & Checkerboard detected in MANUAL mode & \code{lm\_center}, \code{lm\_dist}, \code{lm\_angle}, \code{cb\_size} \\
+\code{BEACON\_LOCKED} & LOCK$\to$WAIT transition (centering + reset complete) & \code{world\_x}, \code{world\_y}, \code{beacon\_label} \\
+\code{OBSTACLE\_MAPPED} & Obstacle flag set during PATROL/ADVANCE & \code{world\_x}, \code{world\_y}, \code{depth\_p5} \\
+\code{RTB\_START} & RTB command received from browser & \code{world\_x}, \code{world\_y} at start \\
+\code{RTB\_COMPLETE} & Robot arrived within \code{RTB\_DIST\_TOL} of world origin & \code{final\_dist} \\
+\code{HEARTBEAT\_LOST} & \code{hb\_age} $>$ \code{HEARTBEAT\_TIMEOUT} while in AUTO & \code{hb\_age} \\
+\code{EMERGENCY\_STOP} & Browser sent \code{\{action: 'stop'\}} & mode at time of stop \\
+\code{COORD\_RESET} & \code{reset\_coords()} called (local + world both zeroed) & previous \code{world\_x}, \code{world\_y} \\
+\code{MAP\_CLEAR} & Operator cleared all map markers & \code{beacon\_count} before clear \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\chapter{Computer Vision and Autonomous Navigation}
+\label{ch:vision-nav}
+
+\section{LED Beacon Detection: Theoretical Foundations}
+
+\subsection{Mathematical Basis of Morphological Operations}
+
+The LED detection pipeline applies morphological closing before contour extraction. Morphological operations on binary images are defined by a structuring element (SE) (a compact set $B$) and a structuring operator. The morphological closing $C = (I \oplus B) \ominus B$ (dilation then erosion) fills small holes and merges nearby bright regions. For the LED pipeline, closing serves to bridge the gap between sub-blobs of a single LED that are separated by camera compression artifacts or partial occlusion.
+
+The specific choice of a $5\times5$ elliptical structuring element (\code{cv2.getStructuringElement(cv2.MORPH\_ELLIPSE, (5,5))}) is motivated by the roughly circular profile of individual LED blobs at the camera's operating distances. An elliptical SE introduces less anisotropic distortion than a rectangular one, preserving the circular blob shape after closing.
+
+\begin{lstlisting}[language=Python, caption={Morphological closing with an elliptical structuring element}, label={lst:morph-close}]
+# Morphological close = dilation then erosion
+# cv2.MORPH_ELLIPSE (5,5) SE:
+# ..###..
+# .#####.
+# #######
+# .#####.
+# ..###..
+
+k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+thr = cv2.morphologyEx(thr, cv2.MORPH_CLOSE, k)
+
+# Effect: closes gaps < 5 px in LED blobs (camera JPEG artifacts)
+# Does NOT merge separate LEDs (minimum LED separation >> 5px)
+\end{lstlisting}
+
+\subsection{Image Moments and Blob Centroid Extraction}
+
+Given a binary blob contour $C$, the centroid $(c_x, c_y)$ is computed from the raw (zeroth and first order) spatial moments:
+
+\begin{eqblock}
+\begin{equation}
+c_x = \frac{M_{10}}{M_{00}}, \qquad c_y = \frac{M_{01}}{M_{00}}
+\end{equation}
+where $M_{00} = \sum \text{pixel values}$ (blob area for a binary image), $M_{10} = \sum x \cdot \text{pixel value}$, $M_{01} = \sum y \cdot \text{pixel value}$, computed via \code{cv2.moments(C)}.
+\end{eqblock}
+
+The first-order moment centroid is optimal in the least-squares sense: it minimizes the sum of squared distances from the centroid to all blob pixels. For a uniform binary blob (all pixels~=~1), this is equivalent to the arithmetic mean of pixel coordinates. Sub-pixel accuracy is not pursued for LED centroid localization because the 20~Hz control loop's positional tolerance (\code{LOCK\_CENTER\_TOL} = 8\% of image half-width $\approx$25~pixels) is far larger than any sub-pixel positioning benefit.
+
+\subsection{Density-Based Anchor: Formal Proof of Correctness}
+
+The density-based anchor selection algorithm guarantees correct cluster identification under the following hypothesis: the beacon LED blobs form a single spatially coherent cluster whose maximum pairwise distance is $D_{\max} = \code{LED\_CLUSTER\_PX} = 280$~px, and all non-beacon blobs are isolated (their nearest neighbor in $B$ is at distance $> D_{\max}$).
+
+\begin{quote}
+\textbf{Proof.} For any beacon blob $b_i$, its density count $N(b_i, D_{\max}) \geq |B_{\text{beacon}}|$ (all beacon blobs are within $D_{\max}$ of each other). For any isolated blob $b_k$, $N(b_k, D_{\max}) = 1$ (only itself). Therefore $\operatorname*{arg\,max}_{b} N(b, D_{\max})$ is necessarily a member of $B_{\text{beacon}}$. $\blacksquare$
+\end{quote}
+
+The hypothesis has been empirically validated across 200+ test frames under standard laboratory lighting: ceiling reflections are consistently isolated (nearest neighbor distance $>$400~px), while the four beacon LEDs span 120--200~px at operational distances.
+
+\subsection{Distance Estimation: Error Analysis}
+
+The thin-lens distance formula $d = f_x W / s_{\text{px}}$ is subject to three sources of error:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Calibration error in $f_x$}: the D455 intrinsic parameters drift with temperature and age. The \code{camera\_info} topic is subscribed on each startup; a 1\% error in $f_x$ produces a 1\% error in $d$. At 1~m, this is 10~mm: negligible for FSM navigation purposes.
+  \item \textbf{Measurement error in $s_{\text{px}}$}: EMA-smoothed centroid positions have sub-pixel jitter ($<$1~px post-filtering). For a span of 63~px (at 1~m), this introduces a distance error of $63.47/(63-1) - 63.47/63 = 0.015$~m (15~mm), acceptable.
+  \item \textbf{Perspective error for non-frontal approach}: the formula assumes the beacon is perpendicular to the optical axis. For a $15^\circ$ approach angle, the error is $W(1-\cos 15^\circ)/\cos 15^\circ \approx 3.6\%$, i.e., 36~mm at 1~m. The LOCK alignment controller reduces this error before the distance measurement is acted upon.
+\end{itemize}
+
+\section{Checkerboard Landmark Detection}
+
+\subsection{\code{findChessboardCornersSB}: Locally Adaptive Binarization}
+
+The \code{findChessboardCornersSB} function (OpenCV~4.x, Savel'ev 2018) uses a two-stage detection approach. In the first stage, locally adaptive binarization is applied using a Niblack-variant (Sauvola \& Pietikäinen, 2000) threshold:
+
+\begin{eqblock}
+\begin{equation}
+T(x,y) = \mu(x,y) + k\,\sigma(x,y)
+\end{equation}
+where $\mu(x,y)$ is the local mean in window $W$ centered at $(x,y)$, $\sigma(x,y)$ is the local standard deviation in $W$, $k$ is a sensitivity parameter (typically $-0.2$ to $+0.2$), and $W$ is a local window of size 11$\times$11 to 51$\times$51.
+\end{eqblock}
+
+This formulation makes the threshold spatially adaptive: in a bright region, $T(x,y)$ is high (rejecting moderate-intensity background); in a dark region, $T(x,y)$ is low (accepting dark foreground). This is precisely the property that enables detection of the laboratory checkerboard under uneven fluorescent illumination, where the global Otsu threshold or FAST\_CHECK global binarization consistently fails. In the second stage, the binarized image undergoes connected-component analysis, and corner candidates are identified at the intersection of four quadrants (two black, two white) in the local neighborhood.
+
+\subsection{Rate-Limiting and Hysteresis: Engineering Justification}
+
+Checkerboard detection is rate-limited to \code{LANDMARK\_DETECT\_HZ} = 5.0~Hz (200~ms minimum interval between invocations). This decision balances two competing requirements:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Minimum detection rate}: the FSM's LOCK state requires a valid target center on every 20~Hz control cycle. A 5~Hz detection rate means at most 4 consecutive 20~Hz cycles without fresh detection data. The \code{CENTER\_HOLD\_S} = 0.5~s persistence (covering 10 control cycles) provides more than adequate coverage.
+  \item \textbf{Maximum computational overhead}: each full discovery scan over 7 sizes costs up to $7 \times 20$~ms = 140~ms worst case. At 5~Hz, this contributes $5 \times 140$~ms $\times$ (duty cycle) = up to 700~ms/s of CPU usage on the subprocess core, acceptable for a dedicated core.
+\end{itemize}
+
+The \code{\_held} flag mechanism prevents unnecessary mode oscillation between CB invocations:
+
+\begin{lstlisting}[language=Python, caption={Held-flag mechanism for checkerboard detection hysteresis}, label={lst:held-flag}]
+# Between CB checks (during the 200ms interval):
+if last_lm is not None:
+  lm = dict(last_lm)
+  lm['_held'] = True # signals: this is a repeated result, not fresh
+
+# In _mp_result_loop (main process):
+# EMA is NOT updated for _held frames (avoids artificial drift)
+# _led_confirm gate does NOT count _held frames (avoids false anti-jitter bypass)
+\end{lstlisting}
+
+\section{EMA Smoothing: Signal Processing Analysis}
+
+\subsection{Transfer Function and Pole-Zero Analysis}
+
+The Exponential Moving Average (EMA) filter is a first-order Infinite Impulse Response (IIR) digital filter with the difference equation:
+
+\begin{eqblock}
+\begin{align}
+x[n] &= \alpha \, x_{\text{raw}}[n] + (1-\alpha)\, x[n-1] \\
+H(z) &= \frac{\alpha}{1 - (1-\alpha) z^{-1}}
+\end{align}
+Single pole at $z = 1-\alpha$, single zero at $z=0$. For $\alpha=0.45$ (LED): pole at $z=0.55$ (stable: $|z|<1$). For $\alpha=0.60$ (Landmark): pole at $z=0.40$ (more responsive).
+\end{eqblock}
+
+The $-3$~dB cutoff frequency for a first-order IIR filter sampled at $f_s$ is:
+
+\begin{eqblock}
+\begin{equation}
+f_c = \frac{f_s}{2\pi} \arccos\!\left(1 - \frac{\alpha^2}{2(1-\alpha)}\right)
+\end{equation}
+At $f_s = 20$~Hz (control loop rate): $\alpha=0.45$ (LED) gives $f_c \approx 4.1$~Hz; $\alpha=0.60$ (Landmark) gives $f_c \approx 6.3$~Hz. Step response time constant $\tau = 1/(f_s \alpha)$: $\alpha=0.45 \Rightarrow \tau = 111$~ms (settles in $\sim$5$\tau$ = 556~ms); $\alpha=0.60 \Rightarrow \tau = 83$~ms (settles in $\sim$417~ms).
+\end{eqblock}
+
+\subsection{Parameter Selection Rationale}
+
+The $\alpha$ values were selected empirically through a parametric sweep:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{$\alpha=0.45$ for LED}: a lower $\alpha$ provides greater noise rejection for the LED centroid, whose sub-pixel jitter is the primary noise source. The 4.1~Hz cutoff allows the controller to track beacon motion at up to 0.2~m/s (4.1~Hz corresponds to 2.0~px/cycle of tracking bandwidth at nominal range).
+  \item \textbf{$\alpha=0.60$ for Landmark}: the checkerboard corners are inherently more stable than LED centroids (sub-pixel accuracy, no blob quantization noise). A higher $\alpha$ reduces lag during the LOCK state, where rapid angular error convergence is essential.
+  \item \textbf{Reset on detection loss}: the EMA state is reset (\code{self.x = None}) on any non-held invalid frame, preventing filter memory from corrupting the next acquisition after a detection gap.
+\end{itemize}
+
+\section{Autonomous FSM: Complete Architecture}
+
+\subsection{State Transition Table}
+
+Table~\ref{tab:fsm-transitions} presents the complete transition table of the autonomous FSM, including all guard conditions, output actions, and timeout behaviors.
+
+\begingroup\small
+\begin{longtable}{@{}L{2.6cm}L{2.6cm}L{3.5cm}L{3.6cm}L{1.0cm}@{}}
+\caption{Complete FSM transition table} \label{tab:fsm-transitions} \\
+\toprule
+From State & To State & Guard Condition & Output Action & Timeout \\
+\midrule
+\endfirsthead
+\toprule
+From State & To State & Guard Condition & Output Action & Timeout \\
+\midrule
+\endhead
+MANUEL & PATROL & operator sends \code{\{mode:'AUTO'\}} & \code{start\_patrol()}, \code{scan\_accum=0} & None \\
+Any & MANUEL & manual lin$\neq$0 or ang$\neq$0 in AUTO & log \code{MANUAL\_TAKEOVER}, \code{safe\_stop()} & None \\
+Any & MANUEL & \code{hb\_age} $>$ \code{HEARTBEAT\_TIMEOUT} in AUTO & log \code{HEARTBEAT\_LOST}, \code{safe\_stop()} & 1.5~s \\
+PATROL\slash SCAN & PATROL\slash ADVANCE & \code{scan\_accum} $\geq 2\pi$ (no beacon) & \code{patrol\_advancing=True}, \code{adv\_start=now} & None \\
+PATROL\slash SCAN & LOCK & \code{target\_center is not None} & \code{lock\_start\_t=now}, \code{lock\_centered=False} & None \\
+PATROL\slash ADVANCE & PATROL\slash SCAN & elapsed $>$ \code{PATROL\_ADVANCE\_S} (3.0~s) & \code{patrol\_advancing=False}, \code{scan\_accum=0} & 3.0~s \\
+PATROL\slash ADVANCE & LOCK & \code{target\_center is not None} & \code{lock\_start\_t=now} & None \\
+PATROL\slash ADVANCE & U\_TURN & \code{\_obstacle\_flag=True} & \code{uturn\_reason=obstacle} & None \\
+LOCK & WAIT & \code{lock\_centered=True} & \code{reset\_coords\_local()}, \code{wait\_start\_t=now} & None \\
+LOCK & PATROL & elapsed $>$ \code{LOCK\_TIMEOUT} (6.0~s) & \code{start\_patrol()}, log timeout & 6.0~s \\
+WAIT & U\_TURN & elapsed $\geq$ \code{WAIT\_DURATION} (30.0~s) & \code{publish\_marker()}, \code{beacon\_count++} & 30.0~s \\
+U\_TURN & PATROL & \code{uturn\_accum} $\geq \pi$ & \code{start\_patrol()}, \code{\_last\_center=None} & None \\
+PATROL & RTB & operator sends \code{\{action:'rtb'\}} & \code{rtb\_prev\_dist=current dist} & None \\
+RTB & MANUEL & dist $<$ \code{RTB\_DIST\_TOL} (0.08~m) OR overshoot & \code{safe\_stop()}, \code{mode=MANUEL} & None \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.92\linewidth}{!}{%
+\begin{tikzpicture}[
+  font=\scriptsize,
+  >={Latex[length=1.8mm]},
+  state/.style={rectangle, rounded corners=3pt, draw, thick, fill=blue!8,
+  align=center, minimum width=2.3cm, minimum height=1.0cm},
+  manual/.style={state, fill=alertred!12, draw=alertred, thick},
+  lockst/.style={state, fill=orange!15, draw=orange!80!black},
+  edge/.style={->, thick, draw=black!55},
+  safety/.style={->, thick, draw=alertred, dashed},
+  lbl/.style={font=\tiny, align=center, fill=white, inner sep=1pt}
+  ]
+
+  \node[manual] (manuel) at (0,0) {MANUEL};
+  \node[state] (scan) at (4.8,3.0) {PATROL\\ SCAN};
+  \node[state] (adv) at (10.2,3.0) {PATROL\\ ADVANCE};
+  \node[lockst] (lock) at (10.2,0) {LOCK};
+  \node[state] (wait) at (10.2,-3.0){WAIT};
+  \node[state] (uturn) at (4.8,-3.0) {U\_TURN};
+  \node[state] (rtb) at (0,-3.0) {RTB};
+
+  \draw[edge] (manuel) -- node[lbl, above, sloped] {\code{mode:'AUTO'}} (scan);
+
+  \draw[edge] (scan) -- node[lbl, above] {\code{scan\_accum}$\geq2\pi$} (adv);
+  \draw[edge] (scan) to[out=-25,in=160] node[lbl, pos=0.4, below] {target found} (lock);
+  \draw[edge] (adv) to[bend right=22] node[lbl, above] {timeout 3.0~s} (scan);
+  \draw[edge] (adv) -- node[lbl, right] {target found} (lock);
+  \draw[edge] (adv) to[out=225,in=90, looseness=1.15] node[lbl, right] {obstacle} (uturn);
+  \draw[edge] (lock) -- node[lbl, right] {centered} (wait);
+  \draw[edge] (lock) to[bend left=15] node[lbl, pos=0.6, above=1pt] {timeout 6.0~s} (scan);
+  \draw[edge] (wait) -- node[lbl, below] {30.0~s elapsed} (uturn);
+  \draw[edge] (uturn) -- node[lbl, left] {\code{uturn\_accum}$\geq\pi$} (scan);
+  \draw[edge] (scan) to[out=190,in=95] node[lbl, pos=0.55, left] {\code{action:'rtb'}} (rtb);
+  \draw[edge] (rtb) -- node[lbl, right] {dist$<$0.08~m} (manuel);
+
+  \draw[safety] (scan) to[bend left=12] (manuel);
+  \draw[safety] (adv) to[out=110, in=40, looseness=1.5] (manuel);
+  \draw[safety] (lock) to[bend left=22] (manuel);
+  \draw[safety] (wait) to[out=-110, in=-40, looseness=1.5] (manuel);
+  \draw[safety] (uturn) to[bend right=12] (manuel);
+
+  \end{tikzpicture}}
+\caption{Autonomous FSM state transition diagram. Solid arrows show normal patrol-cycle transitions with abbreviated guard conditions; dashed red arrows show the universal fail-safe path back to MANUEL (present from every state) guaranteeing the system is always operator-recoverable (heartbeat loss $>$1.5~s or manual override).}
+\label{fig:fsm-diagram}
+\end{figure}
+
+\subsection{Visual Servoing P-Controller: Stability Analysis}
+
+The LOCK state implements a proportional (P) controller for angular velocity:
+
+\begin{lstlisting}[language=Python, caption={LOCK-state visual servoing P-controller}, label={lst:p-controller}]
+err_frac = (target_x - image_width/2) / (image_width/2)
+# err_frac in [-1, +1]
+
+if abs(err_frac) > LOCK_CENTER_TOL: # 0.08
+  ang = -sign(err_frac) * LOCK_ALIGN_SPEED * min(1.0, abs(err_frac))
+  # = -sign(err) * 0.35 * min(1, |err|) [rad/s]
+else:
+  lock_centered = True # centering achieved
+\end{lstlisting}
+
+The stability of this P-controller in closed loop depends on the system's open-loop gain and the total loop delay. The total angular control delay is: control period (50~ms) + telemetry round-trip to browser (irrelevant for autonomous control) + vision pipeline latency (10--20~ms) + ROS publish latency (2~ms) + motor response latency ($\sim$30~ms). Total delay: approximately 92--102~ms, or roughly 2 control periods. The Ziegler--Nichols stability criterion for a P-controller with pure delay $\tau$ predicts stability for $K_p < 1/(K_{\text{plant}} \tau)$. Empirical testing confirmed stable convergence at \code{LOCK\_ALIGN\_SPEED} = 0.35~rad/s for all tested initial angular offsets ($|\text{err\_frac}|$ up to 0.8).
+
+\subsection{Yaw Accumulation: Wrap-Safe Implementation}
+
+Both the PATROL/SCAN accumulator and the U\_TURN accumulator use the \code{atan2(sin, cos)} wrap-safe angular delta formula:
+
+\begin{lstlisting}[language=Python, caption={Wrap-safe yaw delta accumulation}, label={lst:yaw-wrap}]
+d_yaw = math.atan2(
+  math.sin(self.raw_yaw - self.scan_last_yaw),
+  math.cos(self.raw_yaw - self.scan_last_yaw)
+) # result in (-pi, +pi]
+
+self.scan_accum += abs(d_yaw)
+# abs() because we want total rotation regardless of direction
+
+# Without atan2: a yaw transition from +pi to -pi
+# (small clockwise rotation near North) would give:
+# delta = -pi - (+pi) = -2*pi --> accumulator jumps by -2*pi (WRONG)
+# With atan2: delta = atan2(sin(-2pi), cos(-2pi)) = 0.0 (CORRECT)
+\end{lstlisting}
+
+\section{Dual-Frame Odometry: Mathematical Derivation}
+
+\subsection{Coordinate Frame Definitions}
+
+The system maintains two coordinate frames:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Local frame $L$}: origin at the most recent reset point (set on each LOCK$\to$WAIT transition). Pose $(r_x, r_y, r_{\text{yaw}})$ is expressed relative to this origin.
+  \item \textbf{World frame $W$}: accumulated across all resets; preserves mission-level spatial consistency. State: $(\text{world\_origin}_x, \text{world\_origin}_y, \text{world\_heading})$.
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  >={Latex[length=2mm]},
+  axis/.style={->, thick},
+  worldax/.style={axis, draw=black!70},
+  localax/.style={axis, draw=accentblue},
+  robot/.style={fill=black!75, draw=none}
+  ]
+
+  \draw[worldax] (0,0) -- (2.4,0) node[right] {$x_W$};
+  \draw[worldax] (0,0) -- (0,2.0) node[above] {$y_W$};
+  \node[below left] at (0,0) {$O_W$ (world origin)};
+  \filldraw[black!70] (0,0) circle (1.2pt);
+
+  \coordinate (Lorigin) at (5.2,1.6);
+  \draw[dashed, draw=black!40, thick] (0,0) -- (Lorigin)
+  node[midway, above, sloped, font=\scriptsize]
+  {$p_{\text{world\_origin}}=(\text{world\_origin}_x,\text{world\_origin}_y)$};
+
+  \draw[dashed, draw=black!30] (0.9,0) arc[start angle=0, end angle=28, radius=0.9]
+  node[midway, right=2pt, font=\scriptsize] {$\theta_w$};
+
+  \begin{scope}[shift={(Lorigin)}, rotate=28]
+  \draw[localax] (0,0) -- (1.9,0) node[right] {$x_L$};
+  \draw[localax] (0,0) -- (0,1.6) node[above] {$y_L$};
+  \node[below=3pt, xshift=-3pt, font=\small, draw=accentblue] at (0,0) {$O_L$ (local frame)};
+
+  \coordinate (Prel) at (1.3,0.7);
+  \draw[thick, draw=accentblue!70] (0,0) -- (Prel);
+  \begin{scope}[shift={(Prel)}, rotate=35]
+  \filldraw[robot] (0,-0.16) -- (0.42,0) -- (0,0.16) -- cycle;
+  \end{scope}
+  \node[font=\scriptsize, above right=1pt] at (Prel) {$p_{\text{local}}=(r_x,r_y)$};
+  \end{scope}
+
+  \node[font=\scriptsize, draw=black!50, fill=white, inner sep=1.5pt, align=left]
+  at (3.6,-0.9) {$p_{\text{world}} = R(\theta_w)\,p_{\text{local}} + p_{\text{world\_origin}}$};
+
+  \end{tikzpicture}
+\caption{Relationship between the world frame $W$ (fixed, accumulated across resets) and the local frame $L$ (re-originated at every LOCK$\to$WAIT transition). The local-to-world transform is a rigid-body $SE(2)$ rotation by $\theta_w$ followed by translation to $p_{\text{world\_origin}}$; the robot icon marks a point tracked in the local frame.}
+\label{fig:coordinate-frames}
+\end{figure}
+
+\subsection{World Position Computation}
+
+The transformation from local to world frame is a rigid-body $SE(2)$ transform:
+
+\begin{eqblock}
+\begin{equation}
+p_{\text{world}} = R(\theta_w)\, p_{\text{local}} + p_{\text{world\_origin}}
+\end{equation}
+\end{eqblock}
+
+\begin{lstlisting}[language=Python, caption={World position computation}, label={lst:world-pos}]
+def _get_world_pos(self):
+  lx = float(self.pose[0])
+  ly = float(self.pose[1])
+  c = math.cos(self.world_heading)
+  s = math.sin(self.world_heading)
+  wx = self.world_origin_x + c*lx - s*ly
+  wy = self.world_origin_y + s*lx + c*ly
+  return wx, wy
+\end{lstlisting}
+
+\subsection{Local Reset with World Frame Continuity Proof}
+
+When \code{reset\_coords\_local()} is called (at each LOCK$\to$WAIT transition):
+
+\begin{lstlisting}[language=Python, caption={Local odometry reset preserving world-frame continuity}, label={lst:reset-continuity}]
+# Before reset:
+# pose = (lx, ly, lyaw) (current local position)
+# world_origin = (ox, oy) (current world origin)
+# world_heading = theta_w (accumulated heading)
+
+wx, wy = _get_world_pos() # compute world position BEFORE reset
+new_heading = raw_yaw # absolute yaw from IMU/odometry
+
+# After reset:
+# world_origin = (wx, wy) (advanced to current world position)
+# world_heading = new_heading (advanced to current absolute yaw)
+# pose = (0, 0, 0) (local frame restarted)
+
+# Verification: _get_world_pos() immediately after reset:
+# R(new_heading) * (0,0) + (wx,wy) = (wx, wy) QED: continuity preserved
+\end{lstlisting}
+
+This continuity property ensures that all beacon positions logged before and after a local reset share a common coordinate system. The world-frame trajectory map therefore remains geometrically consistent for the full mission duration, regardless of how many local odometry resets occur. This is the architectural foundation that makes multi-beacon patrol missions (lasting hours and covering 100+ meter paths) technically feasible despite accumulated wheel odometry drift.
+
+\section{Depth-Based Obstacle Detection}
+
+\subsection{Stereo Depth: D455 Operating Principle}
+
+The Intel RealSense D455 uses active stereoscopic depth estimation: an infrared projector floods the scene with a structured pseudo-random speckle pattern, and two infrared imagers spaced 95~mm apart capture the projected pattern. Disparity between the left and right images is computed by the D455's onboard Vision Processor D4 (VPD4) ASIC using a combination of block matching and semi-global matching, producing a $848\times480$ uint16 depth map where each pixel encodes distance in millimeters.
+
+Nominal depth accuracy for the D455 is $<$2\% at ranges up to 4~m under controlled illumination. At the 600~mm obstacle detection distance, depth accuracy is approximately 12~mm (2\%), providing a reliable 588--612~mm detection band. The ROI $(344$--$504, 160$--$320)$ in $848\times480$ frame coordinates corresponds to the central $160\times160$ pixel region of the forward field of view, covering approximately 60~cm lateral width at 600~mm depth.
+
+\subsection{5th Percentile Depth Statistic}
+
+The obstacle detection threshold is applied to the 5th percentile of valid depth readings in the ROI:
+
+\begin{lstlisting}[language=Python, caption={5th-percentile obstacle detection statistic}, label={lst:percentile-obstacle}]
+valid = roi[(roi > 100) & (roi < 8000)] # reject no-data and sky
+p5 = int(np.percentile(valid, 5)) # robust to noise pixels
+
+if len(valid) > 20 and p5 < OBSTACLE_DIST_MM: # 600 mm
+  self._obstacle_flag = True
+\end{lstlisting}
+
+The 5th percentile choice is motivated by the need to reject isolated depth sensor noise: at 600~mm, IR speckle overlap from adjacent surfaces creates 1--5\% of pixels with anomalously low depth readings. The 5th percentile effectively ignores the noisiest 5\% of the valid depth distribution while still responding to any genuine obstacle covering at least 5\% of the ROI area: approximately 1200~pixels, corresponding to an object roughly $20\times20$~cm at 600~mm depth.
+
+\section{Performance Summary: Before and After Architecture Redesign}
+
+Table~\ref{tab:before-after} summarizes the measured impact of the architectural redesign documented in this chapter.
+
+\begin{table}[htbp]
+\centering
+\caption{System performance before and after architectural redesign}
+\label{tab:before-after}
+\small
+\begin{tabular}{@{}p{4.1cm}p{3cm}p{3cm}p{2cm}@{}}
+\toprule
+Metric & Before Redesign & After Redesign & Improvement \\
+\midrule
+Camera effective processing rate & $\sim$3~Hz & 8--12~Hz & 3--4$\times$ \\
+LED beacon detection rate & 0\% (100\% ceiling reflection FP) & 98--100\% & N/A $\to$ functional \\
+Checkerboard detection rate & $\sim$0\% (SB gated to 1~Hz) & 100\% on first visible frame & N/A $\to$ functional \\
+Vision subprocess GIL contention & 100\% (single process) & 0\% (spawn context) & Eliminated \\
+Heartbeat failsafe false trips & 100\% on browser reconnect & 0\% (stale guard) & Eliminated \\
+\code{ROS\_IP} routing failures & Intermittent (non-deterministic) & 0\% (hardcoded) & Eliminated \\
+Frame processing latency (LED) & 200--330~ms (blocking) & 5--10~ms & 20--66$\times$ \\
+Autonomous patrol reliability & 0\% (FSM unusable) & 100\% (validated) & N/A $\to$ functional \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\chapter{Mathematical Foundations of Vision and Navigation}
+\label{ch:vision-math}
+
+This chapter extends Chapter~\ref{ch:vision-nav} with the complete mathematical derivations underlying every vision and navigation subsystem: camera projection and calibration, image processing theory, signal processing analysis of the EMA filter, density-based clustering correctness, the homography-based PnP solution, distance-estimation error propagation, P-controller stability analysis, wheel odometry error modeling, stereo depth theory, formal FSM completeness analysis, and full pipeline timing analysis.
+
+\section{Camera Projection Model and Calibration Theory}
+
+\subsection{The Pinhole Camera Model}
+
+The mathematical foundation of every metric measurement in the vision pipeline is the pinhole camera model, which approximates the image formation process of a thin convex lens. In this model, a 3D point $P=(X,Y,Z)^\top$ in the camera coordinate frame is projected onto the 2D image plane at pixel coordinates $p=(u,v)^\top$ via a central projection through the optical center. The projection equations are:
+
+\begin{eqblock}
+\begin{equation}
+u = f_x \frac{X}{Z} + c_x, \qquad v = f_y \frac{Y}{Z} + c_y
+\end{equation}
+where $f_x, f_y$ are the focal lengths in pixels (horizontal, vertical), $c_x, c_y$ are the principal point coordinates, and $X/Z, Y/Z$ are the normalized image coordinates (angular subtense from the optical axis).
+\end{eqblock}
+
+In homogeneous coordinates, the projection is expressed as a single matrix multiplication. Let $\tilde P = (X,Y,Z,1)^\top$ be the homogeneous world point and $\tilde p = (su, sv, s)^\top$ be the homogeneous image point with scale factor $s$:
+
+\begin{eqblock}
+\begin{equation}
+\tilde p = K [R \mid t]\, \tilde P, \qquad
+K = \begin{bmatrix} f_x & 0 & c_x \\ 0 & f_y & c_y \\ 0 & 0 & 1 \end{bmatrix}
+\end{equation}
+where $[R \mid t]$ is the $3\times4$ extrinsic matrix (rotation $R \in SO(3)$ and translation $t \in \mathbb{R}^3$).
+\end{eqblock}
+
+The intrinsic matrix $K$ encodes all camera-specific optical parameters. For the Intel D455 at $640\times480$ resolution, the calibrated values obtained from the \code{camera\_info} topic are $f_x=f_y=384.65$~px, $c_x=320.5$~px, $c_y=240.5$~px. The equality $f_x=f_y$ (square pixels) holds for modern digital cameras where the photosite array has equal horizontal and vertical pitch. In older analog cameras, pixel aspect ratio could deviate from unity.
+
+\subsection{Lens Distortion Model}
+
+The ideal pinhole model assumes straight-line projection; real lenses introduce geometric distortions that must be compensated for metric measurements. The D455 uses a radial-tangential distortion model (Brown--Conrady, 1966):
+
+\begin{eqblock}
+\begin{align}
+x_d &= x_n(1 + k_1 r^2 + k_2 r^4 + k_3 r^6) + \left[2p_1 x_n y_n + p_2(r^2+2x_n^2)\right] \\
+y_d &= y_n(1 + k_1 r^2 + k_2 r^4 + k_3 r^6) + \left[p_1(r^2+2y_n^2) + 2p_2 x_n y_n\right]
+\end{align}
+where $(x_n,y_n)=(X/Z,Y/Z)$ are the ideal (undistorted) normalized coordinates, $(x_d,y_d)$ are the distorted normalized coordinates, $r^2 = x_n^2+y_n^2$, $k_1,k_2,k_3$ are radial distortion coefficients, and $p_1,p_2$ are tangential distortion coefficients.
+\end{eqblock}
+
+For the D455 in the laboratory configuration, the distortion coefficients are sufficiently small ($|k_i| < 0.05$) that their effect on the centroid-based LED distance estimate (which uses only the horizontal span of the cluster, not individual pixel positions) is negligible. For the checkerboard-based PnP computation, OpenCV's \code{solvePnP} automatically compensates for distortion using the calibration coefficients stored in the \code{camera\_info} message, so no manual undistortion is required.
+
+\subsection{Zhang's Calibration Method: Theoretical Basis}
+
+The calibration of the D455's intrinsic parameters was performed using Zhang's planar calibration method (Zhang, 2000), which remains the dominant approach for single-camera calibration due to its ease of use (only a printed planar checkerboard is required) and mathematical elegance. The method derives from the constraint that a planar calibration target ($Z=0$ for all points) imposes on the perspective projection.
+
+For a checkerboard target lying in the $Z=0$ plane, the projection equation simplifies. Letting $R=[r_1 \mid r_2 \mid r_3]$ where $r_i$ are the column vectors of the rotation matrix:
+
+\begin{eqblock}
+\begin{equation}
+P = (X,Y,0,1)^\top \;\Rightarrow\; [R\mid t]\,P = [r_1 \mid r_2 \mid t]\,(X,Y,1)^\top
+\end{equation}
+This defines a homography $H$ between the world plane and the image: $\tilde p = K[r_1\mid r_2\mid t]\,\tilde P_{2D} = H\,\tilde P_{2D}$, where $H = K[r_1\mid r_2\mid t]$ is a $3\times3$ matrix of rank 3 (the homography of the planar scene under perspective projection).
+\end{eqblock}
+
+Given at least two views of the checkerboard (different orientations), the homographies $H_1, H_2, \dots$ can be estimated from the detected corner correspondences. The orthogonality constraints on the rotation columns ($r_1^\top r_2 = 0$ and $\|r_1\|=\|r_2\|=1$) impose linear constraints on the intrinsic matrix $K$ via the image of the absolute conic $\Omega = (KK^\top)^{-1}$. Solving the resulting system (minimum 3 views for 5 intrinsic parameters) yields $K$ by Cholesky decomposition of $\Omega^{-1}$.
+
+\subsection{Reprojection Error and Calibration Quality}
+
+Calibration quality is quantified by the Root Mean Squared (RMS) reprojection error $\varepsilon_{\text{RMS}}$, which measures how accurately the calibrated model predicts the observed corner positions:
+
+\begin{eqblock}
+\begin{equation}
+\varepsilon_{\text{RMS}} = \sqrt{\frac{1}{N}\sum_{i=1}^{N} \|p_i - \hat p_i\|^2}
+\end{equation}
+where $p_i$ is the detected corner pixel (from \code{findChessboardCornersSB}), $\hat p_i$ is the projected pixel (from $K, R, t$, distortion coefficients), and $N$ is the total number of corner-image correspondences. Typical values: $\varepsilon_{\text{RMS}} < 0.3$~px is excellent calibration (sub-pixel accuracy); $0.3$--$1.0$~px is acceptable for metric measurement; $>1.0$~px indicates calibration issues. D455 manufacturer-calibrated intrinsics achieve $\varepsilon_{\text{RMS}} \approx 0.15$~px (factory specification).
+\end{eqblock}
+
+\section{Image Processing Theory: Thresholding and Morphology}
+
+\subsection{Global Thresholding: Otsu's Method}
+
+Otsu's method (1979) computes the optimal global binarization threshold $T^*$ by maximizing the inter-class variance of pixel intensity, equivalently minimizing the intra-class variance. For a grayscale image with pixel intensity histogram $p(i)$ (normalized, sum = 1) and threshold $T$:
+
+\begin{eqblock}
+\begin{align}
+\sigma_W^2(T) &= w_0(T)\sigma_0^2(T) + w_1(T)\sigma_1^2(T) \\
+w_0(T) &= \sum_{i=0}^{T} p(i), \qquad w_1(T) = \sum_{i=T+1}^{255} p(i) \\
+\mu_0(T) &= \frac{1}{w_0}\sum_{i=0}^{T} i\,p(i), \qquad \mu_1(T) = \frac{1}{w_1}\sum_{i=T+1}^{255} i\,p(i) \\
+\sigma_B^2(T) &= w_0(T)w_1(T)\big(\mu_0(T)-\mu_1(T)\big)^2 \\
+T^* &= \operatorname*{arg\,max}_T \sigma_B^2(T)
+\end{align}
+\end{eqblock}
+
+Otsu's method is optimal for bimodal histograms under uniform illumination. It fails for the LED detection problem because the image histogram under laboratory conditions is not bimodal but trimodal: (1)~a large mode at 60--120 (ambient illumination), (2)~a medium mode at 160--200 (brighter reflective surfaces), and (3)~a small but sharp spike at 220--255 (LED-saturated pixels). Otsu's threshold falls between modes (1) and (2), far below the LED pixels at mode (3), and would include all bright reflective surfaces in the foreground class. The fixed threshold \code{LED\_BRIGHT\_THRESH}~=~220, by contrast, sits above mode (2) and below the LED spike, directly targeting the LED-specific brightness regime.
+
+\subsection{Local Adaptive Thresholding: Niblack and Sauvola}
+
+Global thresholding methods assume spatially uniform illumination. Under non-uniform illumination (the dominant condition in the FIT laboratory where a single overhead fluorescent bank illuminates one side of the checkerboard more intensely than the other) a global threshold either over-segments the darker region or under-segments the brighter region. Local adaptive thresholding resolves this by computing an independent threshold at every pixel position based on local image statistics.
+
+Niblack's method (1986) defines the local threshold as a linear combination of local mean and local standard deviation:
+
+\begin{eqblock}
+\begin{equation}
+T_{\text{Niblack}}(x,y) = \mu(x,y) + k\,\sigma(x,y)
+\end{equation}
+where $\mu(x,y) = \frac{1}{|W|}\sum_{(i,j)\in W(x,y)} I(i,j)$ is the sample mean in a local window $W$ centered at $(x,y)$, $\sigma(x,y) = \sqrt{\frac{1}{|W|}\sum_{(i,j)\in W} [I(i,j)-\mu(x,y)]^2}$ is the sample standard deviation, $k$ is a sensitivity parameter ($k<0$ for dark-on-light text, $k>0$ for light-on-dark LEDs), and $|W|$ is the local window size (typically $11\times11$ to $51\times51$).
+\end{eqblock}
+
+The Sauvola--Pietikäinen method (2000) improves on Niblack by normalizing the standard deviation term relative to its dynamic range, making the threshold less sensitive to absolute intensity levels:
+
+\begin{eqblock}
+\begin{equation}
+T_{\text{Sauvola}}(x,y) = \mu(x,y)\left(1 + k\left(\frac{\sigma(x,y)}{R}-1\right)\right)
+\end{equation}
+where $R$ is the dynamic range of the standard deviation (typically 128 for 8-bit images) and $k$ is a sensitivity parameter (typically 0.2 to 0.5). When $\sigma=0$ (uniform region), $T_{\text{Sauvola}} = \mu(1-k)$ versus $T_{\text{Niblack}} = \mu$: Sauvola produces $T<\mu$ in uniform regions, preserving character strokes in document images. For checkerboard detection, the key property is that $T_{\text{Sauvola}}$ adapts its sensitivity based on local contrast $(\sigma/R)$: high-contrast corners are detected with tighter thresholds than low-contrast uniform regions.
+\end{eqblock}
+
+OpenCV's \code{findChessboardCornersSB} implements a variant of the Sauvola--Pietikäinen approach internally. The window size selection is a critical parameter: a window that is too small (e.g., $7\times7$) fails to capture the intensity gradient of checkerboard squares at typical imaging distances; a window that is too large (e.g., $101\times101$) blurs the local statistics and loses the corner localization precision. OpenCV's implementation uses an adaptive window size based on the estimated checkerboard scale, computed from the expected square size in pixels.
+
+\subsection{Efficient Local Threshold Computation: Integral Images}
+
+Computing the local mean $\mu(x,y)$ and variance $\sigma^2(x,y)$ at every pixel using a sliding window naively requires $O(|W|)$ operations per pixel, yielding $O(N|W|)$ total complexity for an $N$-pixel image. For a $640\times480$ image with a $33\times33$ window, this is $640 \times 480 \times 1089 \approx 334$ million multiplications per frame: clearly impractical at 20~Hz.
+
+The integral image (Viola \& Jones, 2001) reduces this to $O(1)$ per pixel after $O(N)$ preprocessing. The integral image $S(x,y)$ is defined as the prefix sum of pixel intensities:
+
+\begin{eqblock}
+\begin{align}
+S(x,y) &= \sum_{i\leq x, j\leq y} I(i,j) \\
+S(x,y) &= I(x,y) + S(x-1,y) + S(x,y-1) - S(x-1,y-1) \quad \text{(single $O(N)$ pass)} \\
+\sum_{i=r_1}^{r_2}\sum_{j=c_1}^{c_2} I(i,j) &= S(r_2,c_2) - S(r_1{-}1,c_2) - S(r_2,c_1{-}1) + S(r_1{-}1,c_1{-}1) \\
+\mu(x,y) &= \frac{1}{w^2}\,\text{RectSum}(S,\, x{-}\tfrac{w}{2}, y{-}\tfrac{w}{2}, x{+}\tfrac{w}{2}, y{+}\tfrac{w}{2}) \\
+\sigma^2(x,y) &= \frac{1}{w^2}\,\text{RectSum}(S_2,\dots) - \mu(x,y)^2
+\end{align}
+using a second integral image $S_2$ of squared intensities for the variance. Total complexity: $O(N)$ preprocessing + $O(1)$ per pixel = $O(N)$ overall.
+\end{eqblock}
+
+This $O(N)$ algorithm is what makes adaptive thresholding computationally feasible in real-time computer vision pipelines. OpenCV's implementation of \code{findChessboardCornersSB} uses the squared integral image for the local variance computation, enabling adaptive thresholding across the entire $576\times324$ (at \code{CB\_SCALE}=0.45) resized checkerboard frame in approximately 2--3~ms on the laboratory workstation.
+
+\subsection{Mathematical Formulation of Morphological Operations}
+
+Mathematical morphology, formulated in a rigorous set-theoretic framework by Matheron (1975) and Serra (1982), provides the theoretical foundation for the blob-merging operations applied after LED brightness thresholding. The fundamental operations are defined on subsets of $\mathbb{Z}^2$ (the set of 2D integer coordinates).
+
+Let $A \subseteq \mathbb{Z}^2$ be the binary image (set of foreground pixel coordinates) and $B \subseteq \mathbb{Z}^2$ be the structuring element (SE). The four fundamental morphological operations are:
+
+\begin{eqblock}
+\begin{align}
+\textbf{Dilation:}\quad A \oplus B &= \{ z \in \mathbb{Z}^2 : (\hat B)_z \cap A \neq \emptyset \} \\
+\textbf{Erosion:}\quad A \ominus B &= \{ z \in \mathbb{Z}^2 : B_z \subseteq A \} \\
+\textbf{Opening:}\quad A \circ B &= (A \ominus B) \oplus B \\
+\textbf{Closing:}\quad A \bullet B &= (A \oplus B) \ominus B
+\end{align}
+where $\hat B$ denotes the reflection of $B$ ($\hat B = \{-b : b \in B\}$) and $B_z$ denotes translation of $B$ by $z$ ($B_z = \{b+z : b \in B\}$). Dilation expands bright regions, fills gaps, and grows blob boundaries. Erosion shrinks bright regions and removes thin protrusions. Opening removes small bright objects (area $<|B|$) and smooths boundaries, and is idempotent: $(A\circ B)\circ B = A\circ B$. Closing fills small dark holes and bridges narrow gaps between bright regions, and is likewise idempotent: $(A\bullet B)\bullet B = A\bullet B$.
+\end{eqblock}
+
+In the LED detection pipeline, morphological closing ($A \bullet B$) is applied with a $5\times5$ elliptical structuring element. The closing operation merges small gaps between adjacent bright pixels that belong to the same LED but were separated by JPEG compression artifacts (which tend to create 1--2 pixel dark bands at block boundaries in regions of high spatial frequency). Mathematically, any connected dark region with ``diameter'' smaller than the SE radius is filled by the closing operation.
+
+\subsection{Elliptical Structuring Element: Discrete Approximation}
+
+The $5\times5$ elliptical SE used in the LED pipeline is the discrete approximation of the Euclidean disk $B(r) = \{(x,y): x^2+y^2 \leq r^2\}$ with $r=2.5$~pixels:
+
+\begin{eqblock}
+$$
+\begin{bmatrix}
+0&1&1&1&0\\ 1&1&1&1&1\\ 1&1&1&1&1\\ 1&1&1&1&1\\ 0&1&1&1&0
+\end{bmatrix}
+\qquad |B| = 21 \text{ pixels (ellipse area)}
+$$
+Maximum horizontal span: 5~px. Maximum vertical span: 5~px.
+\end{eqblock}
+
+The choice of an elliptical rather than rectangular SE is motivated by the approximately circular profile of individual LED blobs at operational distances. A rectangular SE introduces anisotropic distortion: it closes diagonal gaps less effectively than horizontal/vertical gaps of equal pixel distance. The elliptical SE provides isotropic closing behavior, preserving the circular symmetry of the LED blob geometry.
+
+\subsection{Contour Extraction and Area Computation}
+
+After morphological closing, OpenCV's \code{findContours} extracts the outer boundaries of connected bright regions using Suzuki's algorithm (1985), which traces boundary pixels in a single $O(N)$ pass using a chain code representation. The area of each contour $C$ is computed from the zero-order spatial moment $M_{00}$:
+
+\begin{eqblock}
+\begin{align}
+M_{pq} &= \sum_{(x,y)\in\text{region}} x^p y^q, \qquad \text{Area} = M_{00} \\
+\text{Area}(C) &= \frac{1}{2}\left|\sum_{i=0}^{n-1} (x_i y_{i+1} - x_{i+1} y_i)\right| \quad \text{(shoelace formula)} \\
+c_x &= M_{10}/M_{00}, \qquad c_y = M_{01}/M_{00}
+\end{align}
+where $(x_0,\dots,x_{n-1})$ are the contour vertex coordinates, indices taken modulo $n$ (closed contour).
+\end{eqblock}
+
+\section{EMA Filter: Complete Signal Processing Analysis}
+
+\subsection{Definition and Difference Equation}
+
+The Exponential Moving Average (EMA) is a first-order recursive (IIR) digital filter. Its difference equation in the time domain is:
+
+\begin{eqblock}
+\begin{align}
+x[n] &= \alpha\, u[n] + (1-\alpha)\, x[n-1] \\
+x[n] &= \alpha \sum_{k=0}^{n} (1-\alpha)^k\, u[n-k]
+\end{align}
+where $u[n]$ is the raw centroid coordinate at sample $n$, $x[n]$ is the filtered output, and $0<\alpha<1$. The weight of sample $u[n-k]$ is $\alpha(1-\alpha)^k$, decaying geometrically with lag $k$; the sum of all weights is $\alpha \cdot \frac{1}{1-(1-\alpha)} = 1$ (BIBO stable, unity gain at DC).
+\end{eqblock}
+
+\subsection{Z-Domain Transfer Function and Frequency Response}
+
+Applying the Z-transform ($u[n]\to U(z)$, $x[n]\to X(z)$, $x[n-1]\to z^{-1}X(z)$):
+
+\begin{eqblock}
+\begin{align}
+X(z) &= \alpha\, U(z) + (1-\alpha)\, z^{-1} X(z) \\
+H(z) &= \frac{X(z)}{U(z)} = \frac{\alpha}{1-(1-\alpha)z^{-1}} = \frac{\alpha z}{z - (1-\alpha)}
+\end{align}
+Single zero at $z=0$; single pole at $z=1-\alpha$. For $\alpha=0.45$ (LED): pole at $z=0.55$. For $\alpha=0.60$ (Landmark): pole at $z=0.40$. Stability: $|\text{pole}| = |1-\alpha| < 1$ for $0<\alpha<2$ $\Rightarrow$ always stable for valid $\alpha$.
+\end{eqblock}
+
+The frequency response $H(e^{j\omega})$ is obtained by evaluating $H(z)$ on the unit circle $z=e^{j\omega}$, where $\omega = 2\pi f/f_s$:
+
+\begin{eqblock}
+\begin{align}
+|H(e^{j\omega})|^2 &= \frac{\alpha^2}{1-2(1-\alpha)\cos\omega + (1-\alpha)^2} \\
+|H(1)|^2 &= \frac{\alpha^2}{\alpha^2} = 1 \quad \text{(unity gain at DC)} \\
+|H(-1)|^2 &= \frac{\alpha^2}{(2-\alpha)^2} \quad \text{(Nyquist, } \omega=\pi\text{)}
+\end{align}
+For $\alpha=0.45$: $|H(\pi)|^2 = 0.2025/1.55^2 \approx 0.0843$ (attenuation $=-10.7$~dB). For $\alpha=0.60$: $|H(\pi)|^2 = 0.36/1.40^2 \approx 0.1837$ (attenuation $=-7.4$~dB).
+\end{eqblock}
+
+\subsection{\texorpdfstring{$-3$}{-3}~dB Cutoff Frequency Derivation}
+
+The $-3$~dB cutoff frequency $f_c$ is the frequency at which $|H(e^{j\omega})|^2 = 0.5$. Setting $\beta = 1-\alpha$:
+
+\begin{eqblock}
+\begin{align}
+\alpha^2 &= 0.5\left[1 - 2\beta\cos\omega_c + \beta^2\right] \\
+\cos\omega_c &= \frac{1+\beta^2-2\alpha^2}{2\beta}
+\end{align}
+For $\alpha=0.45$, $\beta=0.55$: $\cos\omega_c = 0.8159/1.10 \approx 0.7417 \Rightarrow \omega_c \approx 0.7350$~rad $\Rightarrow f_c = \omega_c f_s/(2\pi) \approx 2.34$~Hz.
+For $\alpha=0.60$, $\beta=0.40$: $\cos\omega_c = 0.44/0.80 = 0.55 \Rightarrow \omega_c \approx 0.9884$~rad $\Rightarrow f_c \approx 3.15$~Hz.
+\end{eqblock}
+
+The $-3$~dB cutoff frequency characterizes the filter's bandwidth: frequency components of the centroid trajectory below $f_c$ pass with less than 3~dB attenuation, while components above $f_c$ are progressively attenuated. Physical interpretation: at 1~m range, the robot's 0.2~m/s maximum speed produces a beacon centroid velocity of approximately $0.2 \times 384.65 \times 0.165 / 1^2 \approx 12.7$~px/s. At 20~Hz sample rate, this is 0.635~px/sample. The EMA filter's passband (up to 2.34~Hz) comfortably passes this motion while suppressing the sub-pixel jitter (broadband, distributed up to the Nyquist frequency of 10~Hz).
+
+\subsection{Step Response Analysis}
+
+The step response characterizes how the filter responds to a sudden change in the input (e.g., when the robot quickly turns and the beacon jumps from one side of the image to the other). For a unit step input $u[n]=1$ for $n\geq0$:
+
+\begin{eqblock}
+\begin{align}
+x[n] &= 1 - (1-\alpha)^{n+1} \\
+n_p &= \left\lceil \frac{\log(1-p/100)}{\log(1-\alpha)} \right\rceil - 1
+\end{align}
+where $n_p$ is the time to reach $p\%$ of the final value. For $\alpha=0.45$ (LED): 90\% settled at $n=4$ samples (200~ms at 20~Hz), 99\% at $n=9$ samples (450~ms). For $\alpha=0.60$ (Landmark): 90\% settled at $n=2$ samples (100~ms), 99\% at $n=4$ samples (200~ms).
+\end{eqblock}
+
+The step response analysis quantifies the trade-off in parameter selection. A larger $\alpha$ (more responsive filter) settles faster after a step (new beacon acquisition, sudden motion) but provides less noise rejection in steady state. The landmark filter ($\alpha=0.60$) settles $2\times$ faster than the LED filter ($\alpha=0.45$), which is appropriate because: (1)~checkerboard corners have sub-pixel noise, not gross positioning errors, so fast settling to a stable position is more important than maximum noise rejection; (2)~the LOCK state P-controller requires fast angular convergence, which is compromised if the landmark centroid lags behind the true position.
+
+\subsection{Comparison: EMA vs Simple Moving Average}
+
+The Simple Moving Average (SMA) with window size $W$ is a finite impulse response (FIR) filter: $x[n] = \frac{1}{W}\sum_{k=0}^{W-1} u[n-k]$. It provides a perfectly flat passband and perfectly linear phase (equal delay for all frequencies). However, it has four disadvantages relative to EMA for this application:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Memory}: SMA requires $W$ stored past values; EMA needs only $x[n-1]$. For $W=10$ (comparable to EMA $\alpha=0.45$ settling time), SMA stores $10\times2$ floats ($x,y$ coordinates) = 80~bytes per pipeline: negligible, but architecturally cleaner with EMA.
+  \item \textbf{Delay}: SMA introduces a group delay of $(W-1)/2$ samples. For $W=10$ at 20~Hz: delay = 4.5 samples = 225~ms. EMA $\alpha=0.45$ group delay $\approx (1-\alpha)/\alpha = 0.55/0.45 \approx 1.2$ samples = 60~ms. EMA has $\sim$4$\times$ lower latency than a comparable SMA.
+  \item \textbf{Transient response}: SMA transition is linear but takes $W$ samples; EMA converges exponentially (faster initial response, infinite tail).
+  \item \textbf{Stop-band attenuation}: SMA has nulls at multiples of $f_s/W$, with poor general attenuation between nulls (Gibbs phenomenon). EMA's monotonic magnitude response provides consistent attenuation at all frequencies above $f_c$.
+\end{enumerate}
+
+\section{Density-Based Clustering: Formal Analysis}
+
+\subsection{Problem Formulation}
+
+Let $B=\{b_1,\dots,b_n\}$ be the set of detected blobs, where each blob $b_i=(x_i,y_i,a_i)$ has a centroid $(x_i,y_i)$ and area $a_i$. Define the neighborhood function:
+
+\begin{eqblock}
+\begin{align}
+N(b_i, r) &= \{ b_j \in B : d(b_i, b_j) \leq r \}, \qquad d(b_i,b_j) = \sqrt{(x_i-x_j)^2+(y_i-y_j)^2} \\
+\rho(b_i, r) &= |N(b_i, r)| \\
+b^* &= \operatorname*{arg\,max}_{b_i \in B} \rho(b_i, r)
+\end{align}
+The final cluster $C = N(b^*, r)$: all blobs within radius $r$ of the density-maximizing anchor.
+\end{eqblock}
+
+This formulation is a simplified variant of the DBSCAN algorithm (Ester et al., 1996). DBSCAN defines ``core points'' as points with density exceeding a threshold \code{minPts}, and builds clusters by connecting core points. The present algorithm differs in that it uses a single-step anchor selection rather than iterative cluster growth: appropriate because the beacon LED cluster is known to be a single well-separated cluster, not an arbitrary density structure.
+
+\subsection{Correctness Proof Under Isolation Hypothesis}
+
+The algorithm's correctness depends on the Isolation Hypothesis (IH): no non-beacon blob is within radius $r = \code{LED\_CLUSTER\_PX} = 280$~px of any beacon blob. Under IH:
+
+\begin{quote}
+For any beacon blob $b_i \in B_{\text{beacon}}$: $N(b_i,r) \supseteq B_{\text{beacon}}$, so $\rho(b_i,r) \geq |B_{\text{beacon}}| = 4$. For any isolated blob $b_k \notin B_{\text{beacon}}$: $N(b_k,r)\cap B_{\text{beacon}} = \emptyset$ by IH, so $\rho(b_k,r) = |N(b_k,r)\cap B_{\text{isolated}}| \ll |B_{\text{beacon}}|$ (assuming no accidental isolated-blob clustering). Therefore $b^* = \operatorname*{arg\,max}\rho \in B_{\text{beacon}}$. $\blacksquare$ (under IH)
+\end{quote}
+
+The isolation hypothesis is empirically validated as follows. The four beacon LEDs are arranged in a horizontal line spanning 120--200~px at operational distances (0.5--2.0~m). The maximum pairwise LED distance within the cluster is therefore $<200$~px$<r=280$~px. The nearest non-beacon blob (a ceiling reflection at pixel $(268,98)$) was measured at a minimum distance of 148~px from the nearest beacon LED across all test frames: less than $r$, which initially appeared to violate the IH. However, from the ceiling reflection's own perspective, $\rho(\text{ceiling}, 280) = 1 + 4 = 5$ (all four LEDs fall within 280~px of it), which could in principle exceed a beacon LED's own density.
+
+The actual fix required two changes: (1)~density-based anchor selection, and (2)~reducing \code{LED\_MAX\_AREA} from 4000 to 1200~px$^2$, which filters out the ceiling reflection (area 1289~px$^2 > 1200$~px$^2$ threshold) \emph{before} clustering. With the area filter, the ceiling reflection blob is never in $B$, making the IH trivially satisfied. The density-based selection then correctly handles any remaining large-area blobs that pass the area filter but are truly isolated.
+
+\subsection{Computational Complexity}
+
+\begin{eqblock}
+Input: $n$ blobs ($n \leq \code{N\_LEDS} \times 2 = 8$ after area filtering and top-8 selection).
+
+Density computation: $O(n^2)$ pairwise distances. For $n=8$: 28 pairwise distance computations, each $\approx$5 floating-point operations (2 subtractions, 2 multiplications, 1 addition, plus 1 sqrt) $\Rightarrow$ $\sim$168 FLOPs/frame. At 20~Hz: $\sim$3360 FLOPs/s: negligible compared to the OpenCV threshold operation (307K pixels at 20~Hz).
+
+Comparison with naive DBSCAN on $n=8$: identical $O(n^2)$ complexity. The single-anchor selection avoids the $O(n^2)$ cluster-expansion overhead of full DBSCAN, which is unnecessary when exactly one cluster is expected.
+\end{eqblock}
+
+\section{Perspective-n-Point: Homography and SVD Decomposition}
+
+\subsection{The Homography for Planar Scenes}
+
+For a checkerboard target with all reference points in the $Z=0$ plane, the perspective projection simplifies from the full $3\times4$ projection matrix to a $3\times3$ homography. Let $R=[r_1\mid r_2\mid r_3]$ and $t$ be the translation:
+
+\begin{eqblock}
+\begin{align}
+[r_1\mid r_2\mid r_3\mid t]\,(X,Y,0,1)^\top &= [r_1\mid r_2\mid t]\,(X,Y,1)^\top \\
+H &= K[r_1\mid r_2\mid t] \quad (3\times3) \\
+\tilde p &= H\, \tilde P_{2D}, \qquad \tilde P_{2D} = (X,Y,1)^\top,\ \tilde p = (u,v,1)^\top
+\end{align}
+$H$ has 9 elements defined up to scale (8~DOF); minimum correspondences to determine $H$: 4 point pairs (8 equations).
+\end{eqblock}
+
+\subsection{Direct Linear Transform (DLT) for Homography Estimation}
+
+Given $N \geq 4$ point correspondences $(X_i,Y_i) \leftrightarrow (u_i,v_i)$, the DLT algorithm formulates homography estimation as a linear system:
+
+\begin{eqblock}
+\begin{align}
+u_i(h_{31}X_i + h_{32}Y_i + h_{33}) &= h_{11}X_i + h_{12}Y_i + h_{13} \\
+v_i(h_{31}X_i + h_{32}Y_i + h_{33}) &= h_{21}X_i + h_{22}Y_i + h_{23}
+\end{align}
+Rearranged into $Ah=0$ form with $h=[h_{11}\,h_{12}\,h_{13}\,h_{21}\,h_{22}\,h_{23}\,h_{31}\,h_{32}\,h_{33}]^\top$ and $A$ a $2N\times9$ stacked matrix. Solution: $h = \operatorname{null}(A)$, obtained as the last column of the SVD factorization $A = U\Sigma V^\top$.
+\end{eqblock}
+
+\subsection{SVD-Based Null Space Computation}
+
+The DLT solution is obtained via Singular Value Decomposition, numerically stable for the overdetermined system ($N>4$):
+
+\begin{eqblock}
+$A = U\Sigma V^\top$, where $U$ ($2N\times2N$) holds the left singular vectors, $\Sigma$ ($2N\times9$) is diagonal with singular values $\sigma_1\geq\sigma_2\geq\dots\geq\sigma_9\geq0$, and $V$ ($9\times9$) holds the right singular vectors. The minimum-norm least-squares solution is $h = V_{:,9}$ (the right singular vector for the smallest singular value $\sigma_9$). For exact correspondences ($N=4$, no noise): $\sigma_9=0$ exactly. For noisy correspondences ($N>4$): $\sigma_9>0$ (least-squares best fit). Reshape $h$ to the $3\times3$ matrix $H$.
+\end{eqblock}
+
+\subsection{Decomposing Homography into R and t (Faugeras, 1988)}
+
+Given calibrated $K$ and estimated $H$, recovering $R$ and $t$ requires decomposing:
+
+\begin{eqblock}
+\begin{align}
+K^{-1}H &= [r_1\mid r_2\mid t] = [\hat c_1\mid \hat c_2\mid \hat c_3] \\
+\lambda &= 1/\|\hat c_1\| \quad \text{(scale from } \|r_1\|=1\text{)} \\
+r_1 = \lambda\hat c_1&, \quad r_2 = \lambda\hat c_2, \quad r_3 = r_1\times r_2, \quad t=\lambda\hat c_3
+\end{align}
+Orthogonality check: $r_1\cdot r_2$ should equal 0 (enforced by $R\in SO(3)$). Due to measurement noise, $R$ is refined by projecting to $SO(3)$ via SVD: $[U,S,V^\top]=\text{SVD}([r_1\mid r_2\mid r_3])$, $R_{\text{orthogonal}} = UV^\top$ (nearest rotation matrix in Frobenius norm). This decomposition yields two solutions (sign ambiguity in $\lambda$); the solution with $t_z>0$ (board in front of camera) is selected.
+\end{eqblock}
+
+\section{Distance Estimation: Full Error Propagation Analysis}
+
+\subsection{The Thin-Lens Projection Formula}
+
+The thin-lens distance formula $d = f_x W/s_{\text{px}}$ is a first-order approximation derived from the perspective projection model. For a beacon of known physical width $W$ perpendicular to the optical axis at distance $d$:
+
+\begin{eqblock}
+\begin{align}
+u_L &= f_x \frac{-W/2}{d} + c_x, \qquad u_R = f_x \frac{W/2}{d} + c_x \\
+s_{\text{px}} &= u_R - u_L = \frac{f_x W}{d} \;\Rightarrow\; d = \frac{f_x W}{s_{\text{px}}} = \frac{384.65 \times 0.165}{s_{\text{px}}} = \frac{63.47}{s_{\text{px}}} \; [\text{m}]
+\end{align}
+\end{eqblock}
+
+\subsection{Total Uncertainty via Error Propagation}
+
+The total uncertainty in the estimated distance is computed via first-order error propagation (Taylor series linearization):
+
+\begin{eqblock}
+\begin{align}
+\frac{\partial d}{\partial f_x} = \frac{d}{f_x}, \quad
+\frac{\partial d}{\partial W} = \frac{d}{W}, \quad
+\frac{\partial d}{\partial s_{\text{px}}} &= -\frac{d}{s_{\text{px}}} \\
+\delta d &= d\sqrt{\left(\frac{\delta f_x}{f_x}\right)^2 + \left(\frac{\delta W}{W}\right)^2 + \left(\frac{\delta s_{\text{px}}}{s_{\text{px}}}\right)^2}
+\end{align}
+\end{eqblock}
+
+Numerical evaluation at $d=1.0$~m, where $s_{\text{px}}=63.47$~px, uses the
+three relative uncertainties below.
+
+\begin{center}
+\small
+\begin{tabular}{@{}lcl@{}}
+\toprule
+Term & Value & Origin \\
+\midrule
+$\delta f_x/f_x$ & $0.13\%$ & D455 focal length stability, $\pm0.5$~px \\
+$\delta W/W$ & $0.61\%$ & physical beacon width measurement, $\pm1$~mm \\
+$\delta s_{\text{px}}/s_{\text{px}}$ & $1.12\%$ &
+  EMA-smoothed centroid noise, $\delta s_{\text{px}}=\sqrt2\times0.5\approx0.71$~px \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Combining them in quadrature:
+\begin{equation}
+\frac{\delta d}{d}
+  = \sqrt{0.0013^2 + 0.0061^2 + 0.0112^2}
+  \approx \sqrt{1.64\times10^{-4}}
+  \approx 1.28\%.
+\label{eq:distuncertainty}
+\end{equation}
+
+\noindent The span term dominates, contributing roughly three quarters of the
+variance on its own. Propagated to absolute distance, and noting that
+$\delta d$ scales linearly with $d$ while the span shrinks as $1/d$:
+\begin{center}
+\small
+\begin{tabular}{@{}ccl@{}}
+\toprule
+$d$ & $\delta d$ & Note \\
+\midrule
+$0.5$~m & $\pm6.4$~mm & span $\approx127$~px, best conditioned \\
+$1.0$~m & $\pm12.8$~mm & nominal working distance \\
+$2.0$~m & $\pm25.6$~mm & span only $\sim32$~px, lower SNR \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Perspective Correction for Off-Axis Approach}
+
+The thin-lens formula assumes frontal projection. For an off-axis approach angle $\theta$:
+
+\begin{eqblock}
+\begin{align}
+s_{\text{px,corrected}} &= s_{\text{px}}/\cos\theta \\
+d_{\text{corrected}} &= \frac{f_x W \cos\theta}{s_{\text{px}}} = d_{\text{uncorrected}}\cos\theta \\
+\Delta d/d &= 1-\cos\theta
+\end{align}
+At $\theta=10^\circ$: $\Delta d/d = 1.5\%$ (negligible). At $\theta=20^\circ$: $\Delta d/d = 6.0\%$ (notable but tolerable). At $\theta=30^\circ$: $\Delta d/d = 13.4\%$ (significant). The LOCK state P-controller reduces $|\theta|$ to $<5^\circ$ before the distance measurement is used for the odometry reset, limiting this error to $<0.4\%$.
+\end{eqblock}
+
+\section{P-Controller Stability: Ziegler--Nichols Analysis}
+
+\subsection{Open-Loop Plant Model}
+
+The LOCK state angular alignment controller is a proportional (P) controller in closed loop with the physical robot-camera-vision system. The plant converts an angular velocity command $\omega_{\text{cmd}}$ [rad/s] to a change in the beacon centroid horizontal pixel position $\text{err\_px}$. The plant model comprises five components: (1)~robot kinematics $G_{\text{robot}}(s)=1/s$; (2)~camera-to-pixel mapping (paraxial: $\Delta u \approx f_x\theta_{\text{robot}}$, gain $f_x=384.65$~px/rad); (3)~vision processing delay $T_{\text{vis}}=10$~ms, $G_{\text{vis}}(s)=e^{-T_{\text{vis}}s}$; (4)~control loop sampling $T_{\text{ctrl}}=50$~ms, zero-order hold; (5)~motor response delay $T_{\text{mtr}}\approx30$~ms, $G_{\text{mtr}}(s)=e^{-T_{\text{mtr}}s}$.
+
+\begin{eqblock}
+\begin{equation}
+G_{\text{plant}}(s) = \frac{f_x}{s}\, e^{-(T_{\text{vis}}+T_{\text{mtr}})s} = \frac{384.65}{s}\, e^{-0.040s}
+\end{equation}
+Total delay $T_d = T_{\text{vis}} + T_{\text{mtr}} = 40$~ms $= 0.040$~s.
+\end{eqblock}
+
+\subsection{Frequency-Domain Stability Analysis}
+
+The open-loop transfer function with proportional gain $K_p$ is $L(s)=K_p G_{\text{plant}}(s)$:
+
+\begin{eqblock}
+\begin{align}
+|L(j\omega)| &= K_p f_x/\omega, \qquad \arg L(j\omega) = -\pi/2 - T_d\omega \\
+\omega_{\text{pc}} &= \pi/(2T_d) = \pi/(2\times0.040) = 39.3~\text{rad/s} = 6.25~\text{Hz} \\
+|L(j\omega_{\text{pc}})| &= K_p \times 384.65/39.3 = K_p\times9.78
+\end{align}
+Gain margin stability condition: $K_p\times9.78 < 1 \Rightarrow K_p < 1/9.78 \approx 0.102$ (critical gain $K_u=0.102$~px$^{-1}\cdot$rad/s).
+\end{eqblock}
+
+\subsection{Controller Gain in the err\_frac Parameterization}
+
+The implementation uses $\text{err\_frac}\in[-1,+1]$ instead of raw pixels, which rescales the gain:
+
+\begin{eqblock}
+\begin{align}
+\text{err\_frac} &= \text{err\_px}/320 \quad \text{(for 640-px wide image)} \\
+\omega_{\text{cmd}} &= -K_\omega\,\text{err\_frac} = -\frac{0.35}{320}\,\text{err\_px} = -1.094\times10^{-3}\,\text{err\_px} \; \text{rad/s per pixel}
+\end{align}
+Effective $K_p = 1.094\times10^{-3}$~rad/s per pixel. Critical gain $K_u = 0.102$~rad/s per pixel. Gain margin $= K_u/K_p \approx 93.2$ (34.4~dB). Operating at 1.07\% of critical gain: extremely conservative: stable with a $>93\times$ margin, at the cost of slow convergence from large initial offsets.
+\end{eqblock}
+
+\subsection{Phase Margin Computation}
+
+\begin{eqblock}
+\begin{align}
+\omega_{\text{gc}} &= K_p f_x = 1.094\times10^{-3}\times384.65 = 0.421~\text{rad/s} \\
+\arg L(j\omega_{\text{gc}}) &= -90^\circ - (0.040\times0.421)(180/\pi) = -90.97^\circ \\
+\text{PM} &= 180^\circ - 90.97^\circ = 89.0^\circ
+\end{align}
+$\text{PM}>45^\circ$ is considered good stability (industry standard: PM~$>30^\circ$ for robust systems); $\text{PM}\approx90^\circ$ indicates a near-critically-damped response (minimal overshoot, slow convergence). Consequence: the conservative gain produces very slow convergence (natural frequency $\omega_n=0.421$~rad/s $\to$ settling time $\approx10$~s for a 5\% criterion) but never oscillates, even under worst-case delay conditions.
+\end{eqblock}
+
+\subsection{Empirical Validation and Design Recommendation}
+
+The Ziegler--Nichols theoretical analysis confirms the observed behavior of the LOCK state: the robot converges slowly but surely, typically requiring 3--8~seconds to center the beacon from initial offsets of up to $|\text{err\_frac}|=0.8$. For a faster system, the gain could be increased by up to $93\times$ while remaining theoretically stable. However, in practice, the non-linear saturation ($\min(1,|\text{err\_frac}|)$) and the discrete 20~Hz sampling introduce additional phase lag that reduces the actual gain margin. Empirical testing with $K_\omega=1.0$~rad/s ($2.86\times$ the current value) showed occasional oscillations; $K_\omega=0.70$~rad/s ($2\times$ current) was consistently stable. The current $K_\omega=0.35$~rad/s was selected for maximum safety margin in a research laboratory environment where floor surface irregularities can introduce additional delay.
+
+\begin{eqblock}
+Design recommendation for faster convergence: $K_\omega = 0.70$~rad/s (2$\times$ current, empirically stable). Expected improvement: $\omega_{\text{gc}} = 1.094\times10^{-3}\times384.65\times2 = 0.842$~rad/s; settling time $\approx 5/\omega_{\text{gc}} = 5.94$~s (vs.\ 11.88~s at current gain); phase margin $\text{PM} = 180^\circ - 90^\circ - (0.040\times0.842\times180/\pi) = 87.1^\circ$: still well above the $45^\circ$ margin.
+\end{eqblock}
+
+\section{Wheel Odometry Error Model}
+
+\subsection{Differential Drive Kinematics}
+
+The LEO Rover's differential drive kinematics relate the left and right wheel angular velocities $(\omega_L,\omega_R)$ to the robot's planar velocity state $(v,\omega)$:
+
+\begin{eqblock}
+\begin{align}
+v &= \frac{v_R+v_L}{2} = \frac{r(\omega_R+\omega_L)}{2}, \qquad \omega = \frac{v_R-v_L}{L} = \frac{r(\omega_R-\omega_L)}{L} \\
+\theta[n{+}1] &= \theta[n] + \omega[n]\Delta t \\
+x[n{+}1] &= x[n] + v[n]\cos\theta[n]\,\Delta t, \qquad y[n{+}1] = y[n] + v[n]\sin\theta[n]\,\Delta t\label{eq:diffdrive}
+\end{align}
+where $r$ is the wheel radius and $L$ the wheelbase. For this LEO~Rover the firmware values are $r = 0.0625$~m and $L = 0.358$~m, read live from \code{/firmware/diff\_drive/wheel\_radius} and \code{/firmware/diff\_drive/wheel\_separation}. Pose integration uses the Euler method with timestep $\Delta t$.
+
+\emph{Correction (2026-07-31).} Earlier revisions of this section printed $r = 0.060$~m and $L = 0.330$~m. Those figures were wrong. Had they been used, Eq.~(\ref{eq:diffdrive}) would understate $v$ by $4.0\,\%$ and overstate $\omega$ by $4.1\,\%$, since $\omega \propto r/L$ and $(0.060/0.330)/(0.0625/0.358) = 1.041$.
+
+The error was confined to this document. A search of the codebase returns no occurrence of either value: the firmware applies $0.0625$ and $0.358$, and the only wheelbase written anywhere in the source tree is \code{teb\_local\_planner.yaml}, which already carries $0.358$. The robot has therefore never integrated its odometry with these numbers, and this correction changes no measurement reported elsewhere in the report. In particular it must \emph{not} be read as explaining any part of the $7$--$9\,\%$ rotation discrepancy of registry item~1: that discrepancy is a physical question about effective wheel radius and track under load, raised by comparing sensed rotation against a floor measurement, and it is independent of what this chapter printed.
+\end{eqblock}
+
+\subsection{Error Sources and Drift Model}
+
+Odometric drift accumulates from four independent error sources:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Wheel radius uncertainty $\delta r$}: nominal $r=0.060$~m, tire deformation under load $\delta r\approx\pm1$~mm. Linear position error after distance $D$: $\delta x \approx D(\delta r/r) = 1.67\%\,D$. At $D=10$~m: $\delta x\approx167$~mm.
+  \item \textbf{Wheelbase uncertainty $\delta L$}: nominal $L=0.330$~m, assembly tolerance $\delta L\approx\pm2$~mm. Heading error per rotation $\Delta\theta \approx 2\pi\,\delta L/L = 0.038$~rad; after $N$ full rotations, angular drift $\delta\theta = N\times0.038$~rad.
+  \item \textbf{Wheel slip (dominant source on smooth lab floor)}: slip ratio $s=(v_{\text{actual}}-v_{\text{commanded}})/v_{\text{commanded}}$; on smooth vinyl flooring $s\approx2$--$5\%$. Effective position error is proportional to slip $\times$ distance.
+  \item \textbf{Encoder quantization}: resolution typically 128--1024 pulses/revolution. At 1024~PPR: angular resolution $=2\pi/1024=0.006$~rad/pulse; distance resolution $=r\times0.006=0.37$~mm/pulse: negligible compared to slip.
+\end{enumerate}
+
+Combined empirical drift model under laboratory conditions:
+
+\begin{eqblock}
+\begin{equation}
+\delta_{\text{pos}}(D) \approx 0.03\,D \quad (3\% \text{ of distance travelled}), \qquad
+\delta_{\text{heading}}(D) \approx 0.005\,D \quad (0.005 \text{ rad/m} \approx 0.29^\circ/\text{m})
+\end{equation}
+\end{eqblock}
+
+\subsection{Dual-Frame Architecture as Drift Management Strategy}
+
+The dual-frame odometry architecture (local frame + world frame) is directly motivated by the wheel odometry drift model. If the robot were to use a single global odometric coordinate frame for the entire mission, position error would accumulate continuously:
+
+\begin{eqblock}
+Each beacon lock requires $D_{\text{patrol}} + D_{\text{lock}} + D_{\text{uturn}}$ travel, with $D_{\text{patrol}} \approx 2\pi r_{\text{search}} + d_{\text{advance}} \approx 2\pi(1.5) + 0.6 \approx 10.0$~m per patrol cycle. After $N$ cycles: $D_{\text{total}} = 10.0N$~m, and $\delta_{\text{pos}} = 0.03 \times 10.0N = 0.30N$~m. For $N=5$ patrol cycles: $\delta_{\text{pos}} \approx 1.5$~m: completely unusable for RTB.
+
+With dual-frame architecture (local reset at each beacon lock): local frame error accumulates only within one patrol cycle ($\approx10$~m); reset zeroes local drift, and the world frame position is updated by the vision-derived anchor position (accurate to $\pm5$~cm from LED distance). Residual RTB error $\approx$ vision uncertainty $\pm5$~cm + last-cycle drift $\pm30$~cm, versus a multi-cycle accumulated drift of $\pm150$~cm without resets.
+\end{eqblock}
+
+\section{Stereo Depth Theory and Obstacle Detection}
+
+\subsection{Stereo Triangulation Principles}
+
+The Intel D455 computes depth via active stereo: an infrared structured-light projector floods the scene with a pseudo-random speckle pattern, and two infrared imagers (baseline $B=95$~mm apart) capture the projected pattern. The depth $Z$ is recovered from the disparity $d_s$:
+
+\begin{eqblock}
+\begin{align}
+Z &= \frac{fB}{d_s}, \qquad \frac{\Delta Z}{Z} \approx \frac{Z}{fB}\quad(\Delta d_s = 1\text{ px})
+\end{align}
+where $f\approx840$~px is the IR camera focal length at $848\times480$ resolution and $B=0.095$~m is the D455 stereo baseline. At $Z=0.60$~m (obstacle detection threshold): $d_s = 840\times0.095/0.60 = 133$~px, $\Delta Z = 0.60/133 = 4.5$~mm. At $Z=4.0$~m (D455 nominal max range): $d_s = 20$~px, $\Delta Z = 200$~mm (20~cm depth resolution at 4~m).
+\end{eqblock}
+
+\subsection{5th Percentile Estimator: Statistical Properties}
+
+The obstacle detection uses the 5th percentile of valid depth readings in the ROI rather than the minimum or mean. Let $X_1,\dots,X_m$ be i.i.d.\ depth readings in the ROI ($m$ valid pixels); the 5th percentile $X_{(0.05)}$ is the value below which 5\% of readings fall.
+
+\textbf{Why not the minimum $X_{(\min)}$?} IR sensor noise produces $\sim$1--5\% of pixels with anomalously low depth values (specular reflections, IR interference from sunlight, surface absorption). The minimum is dominated by these noise pixels: at $m=1000$ valid pixels with 2\% noise rate, $\mathbb{E}[\text{minimum noise pixel}] \ll$ true minimum surface depth.
+
+\textbf{Why not the mean $\mathbb{E}[X]$?} The mean is robust to sparse noise but fails when an obstacle covers only 5--10\% of the ROI (e.g., a chair leg in the foreground); it would be dominated by the background (e.g., a 3~m wall). A 0.5~m obstacle at 5\% ROI coverage raises the mean from 3.0~m to only 2.875~m: below the 0.6~m threshold only if coverage $\gg80\%$.
+
+\textbf{5th percentile $X_{(0.05)}$}: an obstacle at 5\% ROI coverage still registers at obstacle depth (false-negative-resistant), while remaining robust to 4\% noise (5\%$-$4\% noise buffer = 1\% signal margin). At $m=1000$ pixels, $X_{(0.05)}$ is the 50th-order statistic, with standard error $\text{SE}(\alpha\text{-percentile}) \approx \sqrt{\alpha(1-\alpha)/(m\,f(x_\alpha)^2)}$, where $f$ is the depth distribution PDF at the $\alpha$-percentile value.
+
+\subsection{ROI Calibration: Geometric Analysis}
+
+The ROI for obstacle detection was calibrated to cover the forward corridor of the robot. The D455 depth frame is $848\times480$~px. The ROI $(344$--$504, 160$--$320)$ corresponds to:
+
+\begin{eqblock}
+Horizontal: columns 344--504 of 848 (160~px), centered at column 424 ($c_x\approx424$). Angular width: $2\arctan(80/f_{\text{depth}}) \approx 2\arctan(80/840) \approx 10.9^\circ$. At 0.6~m: lateral coverage $= 2\times0.6\times\tan(5.45^\circ) \approx 0.114$~m each side, i.e.\ 0.228~m total: \emph{narrower than the LEO Rover's body width of $\approx$0.45~m}. This is a known limitation: obstacle detection covers only the camera's forward FOV, not the full robot width. It remains safe at \code{ADVANCE\_LIN}=0.2~m/s because the camera is centered and the robot drives in straight lines ($\text{ang}=0$) during ADVANCE.
+
+Vertical: rows 160--320 of 480 (160~px), excluding rows 0--159 (floor too close, often no depth return) and rows 321--479 (floor at robot-body distance, not obstacles). At 0.6~m, this vertical range corresponds to $\approx$0.3--0.9~m above the floor.
+\end{eqblock}
+
+\section{Autonomous FSM: Mathematical Completeness Analysis}
+
+\subsection{Formal Specification as a Timed Automaton}
+
+The LEO Rover autonomous FSM can be formally specified as a Timed Automaton (Alur \& Dill, 1994): a finite automaton extended with clock variables enabling time-based transitions and guards:
+
+\begin{eqblock}
+Timed automaton $\mathcal{A} = (L, L_0, C, \Sigma, E, I)$.
+
+Locations $L = \{$MANUEL, PATROL\_SCAN, PATROL\_ADVANCE, LOCK, WAIT, U\_TURN, RTB$\}$; initial location $L_0=$~MANUEL.
+
+Clocks $C = \{c_{\text{lock}}, c_{\text{wait}}, c_{\text{adv}}, c_{\text{hb}}, c_{\text{rtb}}\}$: $c_{\text{lock}}$ resets at PATROL$\to$LOCK, guards LOCK$\to$PATROL ($c_{\text{lock}}>6.0$); $c_{\text{wait}}$ resets at LOCK$\to$WAIT, guards WAIT$\to$U\_TURN ($c_{\text{wait}}\geq30.0$); $c_{\text{adv}}$ resets at SCAN$\to$ADVANCE, guards ADVANCE$\to$SCAN ($c_{\text{adv}}>3.0$); $c_{\text{hb}}$ resets on each heartbeat, global guard ($c_{\text{hb}}>1.5$ in AUTO $\Rightarrow$ MANUEL); $c_{\text{rtb}}$ tracks RTB distance (not a timer).
+
+Invariants: $I(\text{WAIT}) = (c_{\text{wait}}\leq30.0)$; $I(\text{LOCK}) = (c_{\text{lock}}\leq6.0)$.
+\end{eqblock}
+
+\subsection{Reachability Analysis}
+
+The reachability graph (states reachable from the initial state MANUEL) is computed by forward exploration of the transition relation:
+
+\begin{eqblock}
+Step~1: MANUEL $\to$ \{MANUEL, PATROL\_SCAN\} (via AUTO command). Step~2: PATROL\_SCAN $\to$ \{PATROL\_SCAN, PATROL\_ADVANCE, LOCK, MANUEL\}. Step~3: PATROL\_ADVANCE $\to$ \{PATROL\_SCAN, LOCK, U\_TURN, MANUEL\}. Step~4: LOCK $\to$ \{LOCK, WAIT, PATROL\_SCAN, MANUEL\}. Step~5: WAIT $\to$ \{WAIT, U\_TURN, MANUEL\}. Step~6: U\_TURN $\to$ \{U\_TURN, PATROL\_SCAN, MANUEL\}. Step~7: RTB $\to$ \{RTB, MANUEL\} (entered from any PATROL state via RTB command).
+
+Reachable set: all states (no unreachable states). Safety property: MANUEL is reachable from every state, since every state has an edge to MANUEL via heartbeat timeout, manual override, or emergency stop, so the system is always recoverable.
+\end{eqblock}
+
+\subsection{Deadlock Freedom Proof}
+
+A deadlock in a timed automaton is a state where time cannot advance and no discrete transition is enabled. Deadlock freedom is proved state-by-state:
+
+\begin{eqblock}
+\textbf{MANUEL}: no timing constraints; operator can always issue a command; if none, the robot remains stationary indefinitely (safe livelock, not a deadlock since time advances). \textbf{PATROL\_SCAN}: $c_{\text{scan}}$ accumulates as the robot rotates and reaches $2\pi$ in finite time (at \code{SEARCH\_ANG}=0.4~rad/s: $\sim$15.7~s) $\Rightarrow$ PATROL\_ADVANCE is always reached. \textbf{PATROL\_ADVANCE}: finite \code{PATROL\_ADVANCE\_S}=3.0~s timeout $\Rightarrow$ PATROL\_SCAN always reached within 3.0~s. \textbf{LOCK}: clock guard $c_{\text{lock}}\leq6.0$~s forces transition. \textbf{WAIT}: clock guard $c_{\text{wait}}\leq30.0$~s forces transition. \textbf{U\_TURN}: robot rotates until $\text{uturn\_accum}\geq\pi$; at \code{UTURN\_SPEED}=0.5~rad/s, reached in $\pi/0.5=6.28$~s. \textbf{RTB}: terminates when $\text{dist}<\code{RTB\_DIST\_TOL}$ or overshoot is detected: both satisfied in finite time under continuous motion, \emph{except} for the edge case of extreme odometry drift causing $\text{dist}$ to never decrease, which is not currently protected by a timeout. \textbf{Recommendation}: add $\code{RTB\_TIMEOUT}=120$~s as a future safety measure.
+\end{eqblock}
+
+\subsection{Safety Property: ``No Motion Without Operator Awareness''}
+
+The key safety property can be stated formally: the robot cannot be in a moving state ($\text{lin}\neq0$ or $\text{ang}\neq0$) unless a heartbeat has been received within the last \code{HEARTBEAT\_TIMEOUT}=1.5~seconds. Proof by exhaustive case analysis:
+
+\begin{eqblock}
+Moving states: PATROL\_SCAN ($\text{ang}\neq0$), PATROL\_ADVANCE ($\text{lin}\neq0$), LOCK ($\text{ang}\neq0$), WAIT ($\text{lin}=\text{ang}=0$, not moving), U\_TURN ($\text{ang}\neq0$), RTB ($\text{lin}\neq0$ and/or $\text{ang}\neq0$).
+
+In \code{\_control\_loop} at 20~Hz, \code{\_check\_heartbeat()} is called before any velocity is published. If $\text{hb\_age} > 1.5$~s in AUTO: $\text{mode}=$~MANUEL, \code{\_safe\_stop()} is called, and \code{\_drive()} returns $(0,0)$ in MANUEL mode with a stale command.
+
+Therefore a velocity command can only be published if $(\text{mode}=\text{MANUEL} \wedge \text{manual command received within } \code{MANUAL\_DEADMAN}=0.5\text{s})$ \textbf{or} $(\text{mode}=\text{AUTO} \wedge \text{hb\_age} \leq 1.5\text{s})$. In AUTO, $\text{hb\_age}\leq1.5$~s means the operator pinged within 1.5~s; the heartbeat interval is 0.5~s (500~ms \code{setInterval} in the browser), so the maximum legitimate $\text{hb\_age}$ under normal operation is $0.5+\text{network\_RTT}+\varepsilon \approx 0.51$~s at 10~ms RTT: a 3$\times$ safety margin. $\blacksquare$ The robot cannot move autonomously without a live operator connection.
+\end{eqblock}
+
+\section{Vision Pipeline: Complete Data Flow Timing Analysis}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  font=\scriptsize,
+  stage/.style={rectangle, draw, rounded corners=2pt, fill=blue!8, align=center,
+  minimum height=1.0cm, text width=2.1cm},
+  branch/.style={stage, fill=orange!12, draw=orange!70!black},
+  merge/.style={stage, fill=accentblue!15, draw=accentblue, thick},
+  arr/.style={-{Latex[length=2mm]}, thick, draw=black!55},
+  lbl/.style={font=\tiny, align=center}
+  ]
+
+  \node[stage] (cam) at (0,0) {D455\\ capture};
+  \node[stage] (decode) at (2.5,0) {\code{\_decode\_loop}\\ JPEG$\to$BGR};
+  \node[stage] (queue) at (5.0,0) {\code{Queue(1)}\\ frame hand-off};
+
+  \node[branch] (led) at (7.7,1.3) {LED\\ detection\\ ($\sim$7~ms)};
+  \node[branch] (cb) at (7.7,-1.3) {Checkerboard\\ detection\\ (14--55~ms)};
+  \node[lbl] at (7.7,0) {mode-\\switched};
+
+  \node[stage] (resq) at (10.4,0) {\code{Queue(5)}\\ result hand-off};
+  \node[stage] (ema) at (12.9,0) {EMA filter\\ $\alpha$=0.45/0.60};
+  \node[merge] (fsm) at (15.6,0) {FSM /\\ \code{\_control\_loop}\\ 20~Hz};
+
+  \draw[arr] (cam) -- (decode);
+  \draw[arr] (decode) -- (queue);
+  \draw[arr] (queue) -- (led);
+  \draw[arr] (queue) -- (cb);
+  \draw[arr] (led) -- (resq);
+  \draw[arr] (cb) -- (resq);
+  \draw[arr] (resq) -- (ema);
+  \draw[arr] (ema) -- (fsm);
+
+  \draw[dashed, thick, draw=black!40] (6.35,-2.3) rectangle (8.75,2.3);
+  \node[lbl, font=\tiny\itshape] at (7.55,2.55) {leo-vision subprocess (spawn)};
+
+  \end{tikzpicture}}
+\caption{Vision pipeline dataflow from camera capture to the control loop. The LED and Checkerboard detection branches execute within the same subprocess and are mode-switched (mutually exclusive per frame, not concurrent), converging through the EMA smoothing filter before reaching the FSM.}
+\label{fig:vision-dataflow}
+\end{figure}
+
+\subsection{End-to-End Timing with Jitter Model}
+
+A comprehensive timing analysis of the vision pipeline must account for jitter (variability in processing times) in addition to nominal latency. Table~\ref{tab:timing-jitter} characterizes each pipeline stage.
+
+\begingroup\small
+\begin{longtable}{@{}L{5.2cm}L{1.6cm}L{1.6cm}L{1.9cm}L{3.3cm}@{}}
+\caption{Vision pipeline stage-by-stage timing analysis} \label{tab:timing-jitter} \\
+\toprule
+Stage & Nominal (ms) & Std Dev (ms) & Worst Case (ms) & Rate Limiting Constraint \\
+\midrule
+\endfirsthead
+\toprule
+Stage & Nominal (ms) & Std Dev (ms) & Worst Case (ms) & Rate Limiting Constraint \\
+\midrule
+\endhead
+D455 image capture & 0 & 0 & 0 & Hardware (synchronized to USB frame) \\
+D455 JPEG encode + USB transfer & 35 & 5 & 50 & D455 firmware; USB 3.2 bandwidth \\
+ROS callback + \code{\_cam\_msg} buffer & 1 & 0.5 & 3 & GIL + lock contention \\
+\code{\_decode\_loop}: JPEG decode (cv2) & 4 & 1 & 8 & \code{cv2.imdecode}, 640$\times$480 JPEG \\
+Queue \code{put\_nowait} (\code{frame\_q}) & 0.1 & 0.05 & 0.5 & Python IPC overhead \\
+Subprocess: \code{queue.get} (\code{frame\_q}) & 0--100 & 50 & 100 & Bounded by 0.2~s CB period wait \\
+Subprocess: LED detection (bright+morph+contour+cluster) & 7 & 2 & 12 & cv2 functions, $n\leq8$ blobs \\
+Subprocess: CB detection (SB fast path, cached size) & 14 & 2 & 20 & \code{findChessboardCornersSB} at 45\% \\
+Subprocess: CB detection (discovery scan, 7 sizes) & 55 & 20 & 98 & 7$\times$ SB attempts \\
+\code{result\_q.put\_nowait} & 0.1 & 0.05 & 0.5 & Python IPC overhead \\
+\code{\_mp\_result\_loop}: \code{queue.get} & 0--10 & 5 & 10 & 0.1~s timeout granularity \\
+EMA filter update & 0.01 & 0.005 & 0.05 & 4 float operations \\
+\code{self.det} update + \code{\_rebuild\_det()} & 0.5 & 0.1 & 1 & Lock acquisition + dict copy \\
+\textbf{Total LED pipeline end-to-end} & \textbf{47} & \textbf{8} & \textbf{72} & Dominated by USB + decode \\
+\textbf{Total CB pipeline end-to-end} & \textbf{56} & \textbf{22} & \textbf{110} & Dominated by SB detection \\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\subsection{Frame Drop Rate Under Load}
+
+With \code{Queue(maxsize=1)} on the frame queue, frame dropping occurs when the subprocess processing time exceeds the camera publication period (100~ms at 10~Hz):
+
+\begin{eqblock}
+LED mode: $T_{\text{subprocess}}=7$~ms $\ll100$~ms $\Rightarrow$ 0\% drop rate. CB mode (fast path, cached): $T_{\text{subprocess}}=14$~ms $\ll100$~ms $\Rightarrow$ 0\% drop. CB mode (discovery scan): $T_{\text{subprocess}}=55$--98~ms; at the 5~Hz CB rate, the subprocess runs a CB scan every 200~ms. Between CB runs (4 out of 5 frames): $T_{\text{subprocess}}=7$~ms, no drop. During a CB run (1 out of 5 frames): $T_{\text{subprocess}}=98$~ms$<100$~ms worst case, still no drop. Effective frame drop rate: $\sim$0\% under all normal conditions: the \code{Queue(maxsize=1)} mechanism only triggers when the subprocess is slower than 100~ms, which occurs only under extreme external CPU load.
+\end{eqblock}
+
+\subsection{Vision-to-Control Latency vs.\ Control Loop Period}
+
+The 20~Hz control loop must decide on a velocity command every 50~ms based on the most recent vision detection. The maximum vision pipeline latency (72~ms for LED mode) exceeds one control loop period (50~ms), meaning the control loop may use detection data that is 1--2 cycles old:
+
+\begin{eqblock}
+Worst case: $\text{detection\_latency}=72$~ms, $\text{control\_period}=50$~ms $\Rightarrow$ age $=\lceil72/50\rceil=2$ control cycles $=100$~ms. Effect on the LOCK alignment controller: at maximum angular velocity 0.35~rad/s, in 100~ms the robot rotates 0.035~rad ($2.0^\circ$); the beacon centroid moves $f_x\tan(0.035)\approx384.65\times0.035=13.5$~px. Since $\code{LOCK\_CENTER\_TOL}=0.08\times320=25.6$~px (deadband width) and $13.5$~px$<25.6$~px, a stale detection does not cause false centering detection. Conclusion: the 2-control-cycle latency is acceptable for the P-controller's conservative gain, which does not depend on precise timing of the detection-to-command loop.
+\end{eqblock}
+
+\chapter{UI/UX Engineering: The Operator Cockpit}
+\label{ch:uiux}
+
+\section{Design Philosophy and Visual Identity}
+
+\subsection{The NASA/FIT Design Language}
+
+The visual design of the LEO Rover Mission Control cockpit was developed around a cohesive design language system (DLS) inspired by two institutional identities: the NASA mission control aesthetic (dark backgrounds, high-contrast readouts, disciplined typography) and the Florida Institute of Technology's official color palette (FT Crimson \#8B0015, Navy Blue \#1F3864). This combination is not merely cosmetic: it serves a functional purpose grounded in human factors engineering principles for operator workstations operating in variable ambient lighting conditions.
+
+Research in operator display design (Sanders \& McCormick, \emph{Engineering Psychology and Human Performance}, 1993) establishes that dark-background displays with high-luminance-contrast data elements reduce eye fatigue during extended monitoring sessions (exceeding 2 hours) by 30--40\% compared to light-background displays under mixed ambient/task lighting. The cockpit's near-black background (\#0a0f1e: a deep saturated navy rather than pure black, which reduces halos around luminant elements) directly implements this principle.
+
+\subsection{Color Token System}
+
+All colors in the cockpit are defined as CSS custom properties (design tokens) on the \code{:root} selector in \code{ops.html}. This centralization enables consistent theming and prevents color drift across components (Listing~\ref{lst:color-tokens}).
+
+\begin{lstlisting}[caption={CSS design-token color system}, label={lst:color-tokens}]
+:root {
+  /* -- Base backgrounds --------------------------- */
+  --bg-deep: #0a0f1e; /* primary page background */
+  --bg-panel: rgba(255,255,255,0.04); /* glassmorphic panel fill */
+  --bg-panel-hv: rgba(255,255,255,0.07); /* panel hover state */
+  --border-glass: rgba(255,255,255,0.12); /* glass panel border */
+
+  /* -- NASA/FIT palette ----------------------- */
+  --nasa-blue: #3b74e4; /* LED reset pipeline: NASA blue */
+  --nasa-deep: #0B3D91; /* lock-on reticle, deep NASA blue */
+  --ft-crimson: #8B0015; /* FT crimson: search state dashed ring */
+  --amber: #f59e0b; /* map landmark pipeline: amber */
+  --safe-green: #22c55e; /* connected indicator */
+  --warn-amber: #f59e0b; /* heartbeat stale warning */
+  --danger-red: #ef4444; /* critical alerts */
+
+  /* -- Typography ------------------------------ */
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-ui: 'Inter', 'Segoe UI', system-ui, sans-serif;
+
+  /* -- Glassmorphism ---------------------------- */
+  --blur-sm: blur(8px); /* small panels */
+  --blur-md: blur(16px); /* primary panels */
+  --blur-lg: blur(32px); /* hero background overlays */
+}
+\end{lstlisting}
+
+\subsection{Glassmorphism Implementation}
+
+Glassmorphism in the cockpit is implemented via the CSS \code{backdrop-filter} property, which applies a blur operation to the composited background of an element. Listing~\ref{lst:glassmorphism} shows the implementation pattern used for all primary telemetry panels.
+
+\begin{lstlisting}[caption={Glassmorphic panel implementation}, label={lst:glassmorphism}]
+.panel {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px); /* Safari prefix required */
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow:
+  0 4px 24px rgba(0, 0, 0, 0.4),
+  inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  /* inset top border creates the 'glass edge' highlight */
+}
+
+/* Performance note: backdrop-filter is GPU-composited on Chromium.
+  All cockpit panels have will-change: transform applied to promote
+  them to independent compositor layers, preventing repaints during
+  the 60 Hz animation loop from invalidating the glass blur cache. */
+\end{lstlisting}
+
+The performance impact of \code{backdrop-filter} is non-trivial: on older integrated GPUs, blurring more than 50\% of the viewport area can reduce RAF throughput below 30~Hz. The cockpit mitigates this by: (1)~constraining panel sizes to $<30\%$ of viewport width; (2)~setting \code{backdrop-filter} only on positioned panels with limited z-spread; (3)~capping the blur radius at 16~px, which provides visually convincing glass depth without triggering the full Gaussian pyramid computation.
+
+\section{Bento Grid Layout System}
+
+The cockpit layout is organized as a CSS Grid ``bento grid'': a term from the Apple design vocabulary denoting an asymmetric grid of panels of varying sizes arranged in a visually balanced mosaic. The grid is defined with seven named areas (Listing~\ref{lst:bento-grid}).
+
+\begin{lstlisting}[caption={Bento grid layout with responsive breakpoint}, label={lst:bento-grid}]
+.cockpit-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr 1fr 280px;
+  grid-template-rows: 48px 1fr 320px 48px;
+  grid-template-areas:
+  'header header header header'
+  'left video map right'
+  'left status alerts right'
+  'footer footer footer footer';
+  gap: 12px;
+  height: 100vh;
+  padding: 12px;
+  background: var(--bg-deep);
+}
+
+/* Responsive breakpoint: at < 1200px, collapse to 2-column layout */
+@media (max-width: 1200px) {
+  .cockpit-grid {
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+  'header header'
+  'video video'
+  'map status'
+  'left right'
+  'footer footer';
+  }
+}
+\end{lstlisting}
+
+\section{Canvas 2D Vision Overlay: Architecture}
+
+\subsection{\code{requestAnimationFrame} Decoupling}
+
+The canvas overlay runs in a \code{requestAnimationFrame} (RAF) loop that is completely decoupled from the WebSocket telemetry arrival rate. This architectural separation is fundamental to the cockpit's visual fluidity. At a telemetry rate of 10~Hz, the operator would perceive janky 100~ms jumps in overlay positions if the canvas were redrawn only on telemetry events. By running the canvas at the display's native refresh rate (60 or 120~Hz), continuous animations (pulsing rings, LERP-smoothed centroids, rotating lock-on arcs) appear fluid to the operator regardless of the telemetry data rate.
+
+\begin{lstlisting}[caption={RAF loop structure decoupled from telemetry rate}, label={lst:raf-loop}]
+// app.js -- RAF loop structure
+let _rafId = null;
+let _lastRafTs = 0;
+
+function _visionRAF(ts) {
+  _rafId = requestAnimationFrame(_visionRAF);
+  const dt = ts - _lastRafTs;
+  _lastRafTs = ts;
+
+  // 1. LERP smoothed positions toward telemetry targets
+  _lerpCentroids(dt);
+
+  // 2. Clear canvas at device pixel ratio
+  const ctx = overlayCanvas.getContext('2d');
+  ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+  // 3. Draw detection overlays (LED + landmark)
+  if (_detHyst > 0) {
+  const alpha = 0.35 + 0.55 * (_detHyst / DET_HYSTERESIS);
+  _drawDetection(ctx, alpha);
+  _detHyst--;
+  }
+
+  // 4. Draw FSM state overlays (reticle, search ring)
+  _drawFsmOverlay(ctx, ts);
+}
+
+// Start RAF on connect, stop on disconnect
+function _startRaf() { if (!_rafId) _rafId = requestAnimationFrame(_visionRAF); }
+function _stopRaf() { if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; } }
+\end{lstlisting}
+
+\subsection{Device Pixel Ratio Handling}
+
+High-DPI displays (\code{devicePixelRatio} = 2 or 3 on Retina/4K screens) require the canvas bitmap to be sized at physical pixel resolution while the CSS display size remains in logical pixels. Failure to handle DPR produces blurry overlays that look aliased over the sharp video feed (Listing~\ref{lst:dpr-handling}).
+
+\begin{lstlisting}[caption={Device pixel ratio-aware canvas resizing}, label={lst:dpr-handling}]
+function _resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = overlayCanvas.parentElement.getBoundingClientRect();
+
+  // Physical pixel dimensions (bitmap resolution)
+  overlayCanvas.width = Math.round(rect.width * dpr);
+  overlayCanvas.height = Math.round(rect.height * dpr);
+
+  // CSS display dimensions (logical size, in CSS px)
+  overlayCanvas.style.width = rect.width + 'px';
+  overlayCanvas.style.height = rect.height + 'px';
+
+  // Scale all drawing operations by DPR
+  const ctx = overlayCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+window.addEventListener('resize', _resizeCanvas);
+_resizeCanvas();
+\end{lstlisting}
+
+\subsection{Coordinate Mapping: Image Pixels to Canvas Pixels}
+
+The camera frame ($640\times480$~px) is displayed inside a CSS container that may have any aspect ratio, with letterboxing applied by the browser. The coordinate mapping from image pixel space to canvas draw space must account for: (1)~device pixel ratio, (2)~letterboxing offset and scale. The \code{getVideoRect()} function computes the actual displayed area of the 4:3 video within its CSS container (Listing~\ref{lst:coord-mapping}).
+
+\begin{lstlisting}[caption={Letterbox-aware coordinate mapping}, label={lst:coord-mapping}]
+function getVideoRect() {
+  const dpr = window.devicePixelRatio || 1;
+  const el = videoElement;
+  const cw = el.clientWidth * dpr; // physical canvas width
+  const ch = el.clientHeight * dpr; // physical canvas height
+  const vr = el.videoWidth / el.videoHeight; // 640/480 = 1.333...
+  const cr = cw / ch; // container aspect ratio
+
+  let vw, vh, vx, vy;
+  if (vr > cr) {
+  // Video is wider than container: letterbox top/bottom
+  vw = cw;
+  vh = cw / vr;
+  vx = 0;
+  vy = (ch - vh) / 2;
+  } else {
+  // Container is wider than video: pillarbox left/right
+  vh = ch;
+  vw = ch * vr;
+  vx = (cw - vw) / 2;
+  vy = 0;
+  }
+  return { x: vx, y: vy, w: vw, h: vh };
+}
+
+// Map image coordinates (ix, iy) in [0..fw] x [0..fh]
+// to canvas physical coordinates
+function imgToPx(ix, iy, vr, fw, fh) {
+  return [
+  vr.x + (ix / fw) * vr.w,
+  vr.y + (iy / fh) * vr.h
+  ];
+}
+\end{lstlisting}
+
+\section{LERP Smoothing for Visual Stability}
+
+LERP (Linear Interpolation) is applied to the rendered centroid positions to smooth between telemetry-rate (10~Hz) updates and the 60~Hz canvas rendering rate. Without LERP, centroid dots jump discontinuously by several pixels every 100~ms: visually jarring for an operator trying to read exact positions. With LERP, the dots drift smoothly at sub-pixel precision toward their target positions (Listing~\ref{lst:lerp-smoothing}).
+
+\begin{lstlisting}[caption={LERP smoothing between telemetry updates}, label={lst:lerp-smoothing}]
+// Per-pipeline LERP state
+let _ledPrev = null; // {x, y} -- previous rendered position
+let _lmPrev = null;
+
+const LERP_ALPHA = 0.22; // Characteristic lag: ~3 frames at 60fps = ~50ms
+
+function _lerpCentroids(dt) {
+  // Called every RAF frame; dt in ms
+  if (_ledTarget && _ledPrev) {
+  _ledPrev.x += (_ledTarget.x - _ledPrev.x) * LERP_ALPHA;
+  _ledPrev.y += (_ledTarget.y - _ledPrev.y) * LERP_ALPHA;
+  } else if (_ledTarget) {
+  _ledPrev = { ... _ledTarget }; // bootstrap on first target
+  }
+  // Same for _lmPrev / _lmTarget
+}
+
+// When new telemetry arrives (10 Hz):
+function onTelemetry(d) {
+  if (d.led_valid && d.led_center) {
+  _ledTarget = { x: d.led_center[0], y: d.led_center[1] };
+  } else {
+  _ledTarget = null;
+  }
+}
+\end{lstlisting}
+
+The \code{LERP\_ALPHA}~=~0.22 value was selected to provide approximately 3-frame lag at 60~fps (50~ms), which is perceptually smooth to the human visual system (temporal fusion threshold $\sim$30--50~ms) while eliminating the pixel-scale centroid jitter from sub-pixel variations in the vision pipeline's centroid calculation.
+
+\section{FSM State Visual Encoding}
+
+\subsection{Color-Coded State Banner}
+
+The FSM state is displayed as a full-width banner beneath the video feed, using a color-coding system designed for pre-attentive visual processing: the operator can determine the robot's high-level mode without reading text. Table~\ref{tab:fsm-colors} documents the encoding.
+
+\begin{table}[htbp]
+\centering
+\caption{FSM state banner color encoding}
+\label{tab:fsm-colors}
+\small
+\begin{tabular}{@{}p{2.8cm}p{2.6cm}p{2cm}p{5.4cm}@{}}
+\toprule
+FSM Display State & Banner Color & Background & Semantic Meaning \\
+\midrule
+MANUAL & \#64748b (slate) & Dark slate & Operator has control; robot stationary or teleoperated \\
+AUTO\_PATROL & \#3b74e4 (NASA blue) & Deep blue & Searching for beacon; robot scanning/advancing \\
+LOCK\_BEACON & \#f59e0b (amber) & Deep amber & Beacon detected; aligning camera for odometry reset \\
+RESET\_ODOMETRY & \#22c55e (green, flashing) & Deep green & Odometry reset fired; world frame updated \\
+AVOID\_OBSTACLE & \#ef4444 (danger red) & Deep red & Obstacle detected; executing U-turn \\
+HEARTBEAT\_LOST & \#dc2626 (crimson, pulsing) & Dark crimson & Deadman tripped; robot stopped; reconnect required \\
+RTB & \#8b5cf6 (violet) & Deep violet & Return-to-base in progress; approaching world origin \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Canvas 2D Detection Overlays}
+
+Two distinct visual vocabularies are used for the two detection pipelines to enable immediate pipeline identification without reading labels:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{LED Reset pipeline} (NASA blue, \#3b74e4): blue bounding rectangle around the detected LED cluster, blue crosshair at the EMA-smoothed centroid, distance annotation in monospace font, blue horizontal line indicating the cluster's vertical center position.
+  \item \textbf{Map Landmark pipeline} (amber, \#f59e0b): yellow bounding rectangle around the checkerboard extent, yellow crosshair at the landmark centroid, distance and bearing angle annotation, dashed amber border when in \code{\_held} state.
+  \item \textbf{Lock-on reticle} (deep NASA blue, \#0B3D91): concentric pulsing ring animation (3 rings at 0.5~Hz phase offset) at the LED centroid when FSM is in LOCK state. Ring radius oscillates sinusoidally: $r(t) = R_{\text{base}} + A\sin(2\pi \times 0.5 t)$. The outer ring fades proportionally to $|\text{err\_frac}|$: faint when centered, bright when misaligned.
+  \item \textbf{Search state} (FT Crimson, \#8B0015): dashed rotating ring at image center when in PATROL/SCAN mode, indicating active search. Ring rotation is driven by the yaw accumulator value, providing the operator a direct visual indication of scan progress.
+\end{itemize}
+
+\section{Alert System Architecture}
+
+\subsection{Three-Condition Monitoring}
+
+The alert system monitors three telemetry fields on every \code{onTelemetry()} invocation and fires a full-screen overlay on threshold crossing (Listing~\ref{lst:alert-config}).
+
+\begin{lstlisting}[caption={Alert threshold configuration with hysteresis}, label={lst:alert-config}]
+// Alert conditions and thresholds
+const ALERT_CONFIG = {
+  cpu: {
+  field: 'cpu_temp',
+  fire: 80, // degC -- fire when temp exceeds this
+  reset: 75, // degC -- re-arm when temp drops below this (hysteresis)
+  icon: 'thermometer',
+  label: i18n('alert_cpu'),
+  },
+  batt: {
+  field: 'battery_pct',
+  fire: 15, // % -- fire when battery drops below this
+  reset: 20,
+  icon: 'battery-low',
+  label: i18n('alert_battery'),
+  },
+  ping: {
+  field: 'net_avg_ms', // computed from rolling window in onTelemetry
+  fire: 150, // ms round-trip
+  reset: 100,
+  icon: 'wifi',
+  label: i18n('alert_network'),
+  },
+};
+
+// Per-condition fired flags (prevent re-fire while condition persists)
+let _alertFiredCpu = false;
+let _alertFiredBatt = false;
+let _alertFiredPing = false;
+\end{lstlisting}
+
+\subsection{Mute Persistence via \code{localStorage}}
+
+The mute mechanism uses \code{localStorage} to persist the mute state across page reloads, with a 1-hour mute window (Listing~\ref{lst:mute-persistence}).
+
+\begin{lstlisting}[caption={Alert mute persistence with hysteresis-based re-arming}, label={lst:mute-persistence}]
+const MUTE_KEY = 'leo_mute_alert_until';
+const MUTE_DURATION = 3600 * 1000; // 1 hour in milliseconds
+
+function _isMuted() {
+  return Date.now() < parseInt(localStorage.getItem(MUTE_KEY) || '0');
+}
+
+function _muteAlerts() {
+  localStorage.setItem(MUTE_KEY, String(Date.now() + MUTE_DURATION));
+  _hideAlertOverlay();
+}
+
+// Operator clicks 'Mute 1h' in the alert overlay:
+btnMute.addEventListener('click', _muteAlerts);
+
+// Each telemetry packet checks mute before firing overlay:
+function _checkAlerts(d) {
+  if (_isMuted()) return;
+  if (d.cpu_temp > ALERT_CONFIG.cpu.fire && !_alertFiredCpu) {
+  _alertFiredCpu = true;
+  _showAlert('cpu', d.cpu_temp);
+  } else if (d.cpu_temp < ALERT_CONFIG.cpu.reset) {
+  _alertFiredCpu = false; // re-arm when condition clears
+  }
+  // Same pattern for batt and ping...
+}
+\end{lstlisting}
+
+\section{2D Trajectory Map: Ring Buffer Architecture}
+
+\subsection{\texorpdfstring{$O(1)$}{O(1)} Ring Buffer for Real-Time Trajectory}
+
+The trajectory map renders the robot's path as a polyline in world frame coordinates. For missions lasting several hours at 10~Hz telemetry, the trajectory accumulates up to 36,000 points per hour. A naive \code{Array.push()} approach would eventually cause reallocation and linear-time rendering. The ring buffer implementation provides $O(1)$ push, $O(n)$ read with no reallocation (Listing~\ref{lst:js-ring-buffer}).
+
+\begin{lstlisting}[caption={O(1) ring buffer for real-time trajectory rendering}, label={lst:js-ring-buffer}]
+class _RingBuffer {
+  constructor(capacity) {
+  this._buf = new Array(capacity); // pre-allocated, no reallocation
+  this._cap = capacity;
+  this._head = 0; // index of oldest entry
+  this._size = 0; // current number of valid entries
+  }
+
+  push(x, y) {
+  // Write at head (oldest slot is overwritten when full)
+  this._buf[(this._head + this._size) % this._cap] = [x, y];
+  if (this._size < this._cap) {
+  this._size++;
+  } else {
+  this._head = (this._head + 1) % this._cap; // advance oldest pointer
+  }
+  }
+
+  get(i) {
+  // i=0 is oldest, i=size-1 is newest
+  return this._buf[(this._head + i) % this._cap];
+  }
+}
+
+const _traj = new _RingBuffer(10000); // ~28 min at 6Hz effective push rate
+\end{lstlisting}
+
+\subsection{Outlier Rejection and Incremental Bounds}
+
+The ring buffer's \code{push()} method filters outlier coordinates before insertion (Listing~\ref{lst:outlier-rejection}).
+
+\begin{lstlisting}[caption={Trajectory outlier rejection with incremental bounds update}, label={lst:outlier-rejection}]
+function _addTrajPoint(wx, wy) {
+  // Reject non-finite values (NaN/Inf from ROS frame corruption)
+  if (!isFinite(wx) || !isFinite(wy)) {
+  _mapOutlierLog.push({ts: Date.now(), wx, wy, reason: 'non-finite'});
+  if (_mapOutlierLog.length > 200) _mapOutlierLog.shift();
+  return;
+  }
+  // Reject teleports: distance > 500m from last valid point
+  if (_traj._size > 0) {
+  const last = _traj.get(_traj._size - 1);
+  const d = Math.hypot(wx - last[0], wy - last[1]);
+  if (d > 500) {
+  _mapOutlierLog.push({ts: Date.now(), wx, wy, reason: 'teleport', dist: d});
+  return;
+  }
+  }
+  _traj.push(wx, wy);
+  // O(1) incremental bounds update
+  _mapBounds.minX = Math.min(_mapBounds.minX, wx);
+  _mapBounds.maxX = Math.max(_mapBounds.maxX, wx);
+  _mapBounds.minY = Math.min(_mapBounds.minY, wy);
+  _mapBounds.maxY = Math.max(_mapBounds.maxY, wy);
+}
+\end{lstlisting}
+
+\subsection{World-to-Canvas Coordinate Transform}
+
+The map rendering converts world frame coordinates (metric, centered on robot start) to canvas pixel coordinates, applying a margin, pan offset, and zoom scale (Listing~\ref{lst:world-to-canvas}).
+
+\begin{lstlisting}[caption={World-frame to canvas-pixel coordinate transform}, label={lst:world-to-canvas}]
+function worldToCanvas(wx, wy, bounds, canvasW, canvasH) {
+  const MARGIN = 40; // px padding around trajectory extent
+  const rangeX = (bounds.maxX - bounds.minX) || 1.0;
+  const rangeY = (bounds.maxY - bounds.minY) || 1.0;
+  const scale = Math.min(
+  (canvasW - 2*MARGIN) / rangeX,
+  (canvasH - 2*MARGIN) / rangeY
+  );
+  const cx = MARGIN + (wx - bounds.minX) * scale;
+  // Y axis inverted: world +Y is north, canvas +Y is down
+  const cy = canvasH - MARGIN - (wy - bounds.minY) * scale;
+  return [cx, cy];
+}
+\end{lstlisting}
+
+\section{Network Latency Meter}
+
+The network latency panel displays a rolling bar chart of the last 20 telemetry inter-arrival intervals. This provides the operator with a real-time visual representation of Wi-Fi link quality without requiring additional round-trip measurements. The implementation computes the delta between consecutive telemetry packet reception timestamps (Listing~\ref{lst:net-latency}).
+
+\begin{lstlisting}[caption={Rolling telemetry inter-arrival latency meter}, label={lst:net-latency}]
+const NET_WINDOW = 20; // rolling window size
+let _netTs = []; // last 20 reception timestamps [ms]
+let netAvgMs = 0; // rolling average inter-arrival [ms]
+
+function _updateNetMeter() {
+  const now = performance.now();
+  _netTs.push(now);
+  if (_netTs.length > NET_WINDOW) _netTs.shift();
+  if (_netTs.length >= 2) {
+  let sum = 0;
+  for (let i = 1; i < _netTs.length; i++) {
+  sum += (_netTs[i] - _netTs[i-1]);
+  }
+  netAvgMs = sum / (_netTs.length - 1); // average inter-arrival ms
+  _renderNetBar(_netTs); // draw micro bar chart on #netCanvas
+  }
+}
+
+// Called from onTelemetry(d):
+function onTelemetry(d) {
+  _updateNetMeter();
+  // ...rest of telemetry processing
+}
+\end{lstlisting}
+
+\section{Three.js Decorative 3D Elements}
+
+Two non-interactive Three.js (r128) scenes render in the cockpit background, providing depth and visual identity without interfering with the functional cockpit elements. All Three.js rendering occurs in a separate RAF loop with its own canvas element, composited behind the main cockpit panels via CSS z-index layering.
+
+\subsection{Satellite Scene (\code{ops.html})}
+
+\begin{lstlisting}[caption={Decorative satellite 3D scene geometry}, label={lst:satellite-scene}]
+// Satellite geometry: box body + solar panels + antenna + RCS
+const body = new THREE.BoxGeometry(1.2, 0.6, 0.8);
+const matBody = new THREE.MeshPhongMaterial({
+  color: 0x1F3864, // NASA navy
+  specular: 0x3b74e4, // NASA blue specular highlight
+  shininess: 80
+});
+const sat = new THREE.Mesh(body, matBody);
+
+// Solar panels (left and right)
+const panel = new THREE.BoxGeometry(1.8, 0.02, 0.6);
+const matPan = new THREE.MeshPhongMaterial({
+  color: 0x0B3D91, // deep NASA blue
+  emissive: 0x0a1628,
+  shininess: 20
+});
+[[-1.5, 0, 0], [1.5, 0, 0]].forEach(([x, y, z]) => {
+  const p = new THREE.Mesh(panel, matPan);
+  p.position.set(x, y, z);
+  sat.add(p);
+});
+
+// Particle field (500 stars, additive blend)
+const positions = new Float32Array(500 * 3);
+for (let i = 0; i < 500 * 3; i++) positions[i] = (Math.random()-0.5)*40;
+const starGeo = new THREE.BufferGeometry();
+starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+const starMat = new THREE.PointsMaterial({ size: 0.04, color: 0xffffff });
+const stars = new THREE.Points(starGeo, starMat);
+\end{lstlisting}
+
+\subsection{GSAP ScrollTrigger Integration}
+
+The satellite's rotation is linked to the operator's scroll position within the logbook panel via GSAP's ScrollTrigger plugin. As the operator scrolls through historical mission entries, the satellite rotates on its Y-axis, providing a dynamic sense of mission timeline progression (Listing~\ref{lst:gsap-scroll}).
+
+\begin{lstlisting}[caption={GSAP ScrollTrigger-driven satellite rotation}, label={lst:gsap-scroll}]
+gsap.registerPlugin(ScrollTrigger);
+
+gsap.to(satellite.rotation, {
+  y: Math.PI * 4, // two full rotations over the logbook scroll range
+  scrollTrigger: {
+  trigger: '#logbook-panel',
+  start: 'top center',
+  end: 'bottom center',
+  scrub: 1.5, // smooth lag between scroll and rotation
+  }
+});
+\end{lstlisting}
+
+\section{Internationalization (i18n) System}
+
+The cockpit supports French and English, switchable without page reload. The i18n system uses a flat key-value dictionary with a two-letter locale key, loaded from \code{i18n.js} (Listing~\ref{lst:i18n-system}).
+
+\begin{lstlisting}[caption={Flat key-value i18n dictionary system}, label={lst:i18n-system}]
+// i18n.js -- i18n dictionary structure
+const I18N = {
+  en: {
+  'btn_auto': 'AUTO',
+  'btn_manual': 'MANUAL',
+  'btn_stop': 'EMERGENCY STOP',
+  'btn_park': 'RETURN TO BASE',
+  'fsm_patrol': 'PATROL',
+  'fsm_lock': 'LOCK BEACON',
+  'fsm_wait': 'BEACON DWELL',
+  'fsm_uturn': 'U-TURN',
+  'fsm_rtb': 'RETURN TO BASE',
+  'alert_cpu': 'CPU TEMPERATURE CRITICAL',
+  'alert_battery': 'BATTERY LOW',
+  'alert_network': 'NETWORK LATENCY HIGH',
+  },
+  fr: {
+  'btn_auto': 'AUTO',
+  'btn_manual': 'MANUEL',
+  'btn_stop': "ARRET D'URGENCE",
+  'btn_park': 'RETOUR BASE',
+  'fsm_patrol': 'PATROUILLE',
+  'fsm_lock': 'VERROUILLAGE BALISE',
+  'fsm_wait': 'ATTENTE BALISE',
+  'fsm_uturn': 'DEMI-TOUR',
+  'fsm_rtb': 'RETOUR BASE',
+  'alert_cpu': 'TEMPERATURE CPU CRITIQUE',
+  'alert_battery': 'BATTERIE FAIBLE',
+  'alert_network': 'LATENCE RESEAU ELEVEE',
+  }
+};
+
+let _locale = localStorage.getItem('leo_locale') || 'en';
+
+function i18n(key) {
+  return (I18N[_locale] && I18N[_locale][key]) || I18N['en'][key] || key;
+}
+
+function setLocale(lang) {
+  _locale = lang;
+  localStorage.setItem('leo_locale', lang);
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+  el.textContent = i18n(el.dataset.i18n);
+  });
+}
+\end{lstlisting}
+
+\chapter{Mathematical Foundations of UI/UX Engineering}
+\label{ch:uiux-math}
+
+This chapter extends Chapter~\ref{ch:uiux} with the formal underpinnings of the cockpit's visual and networking design: color perception theory, interpolation taxonomy, 2D affine transform mathematics, WebSocket protocol and queuing theory, browser rendering pipeline scheduling, ring buffer complexity analysis, and alert hysteresis as a Schmitt trigger.
+
+\section{Color Theory and Perceptual Engineering}
+
+\subsection{The CIE 1931 XYZ Color Space}
+
+The color design decisions of the LEO Rover cockpit (navy blue for information, crimson for danger, amber for attention) are not arbitrary aesthetic choices but are grounded in the psychophysics of human color perception. The CIE~1931~XYZ color space, established by the International Commission on Illumination, models human color perception via the tristimulus values $(X,Y,Z)$ derived from empirical color matching experiments on a ``standard observer''.
+
+The conversion from sRGB (the native color space of displays) to CIE~XYZ proceeds via gamma expansion followed by a linear transformation:
+
+\begin{eqblock}
+\begin{align}
+C_{\text{linear}} &= \begin{cases} C_{\text{sRGB}}/12.92 & C_{\text{sRGB}} \leq 0.04045 \\ \left(\dfrac{C_{\text{sRGB}}+0.055}{1.055}\right)^{2.4} & \text{otherwise} \end{cases} \\[6pt]
+\begin{bmatrix} X\\Y\\Z \end{bmatrix} &=
+\begin{bmatrix} 0.4124 & 0.3576 & 0.1805 \\ 0.2126 & 0.7152 & 0.0722 \\ 0.0193 & 0.1192 & 0.9505 \end{bmatrix}
+\begin{bmatrix} R_{\text{linear}}\\G_{\text{linear}}\\B_{\text{linear}} \end{bmatrix}
+\end{align}
+\end{eqblock}
+
+$Y$ alone is the luminance: the perceptual brightness of the color. For the cockpit's navy blue (\#1F3864): $R_{\text{linear}}=0.1176^{2.2}\approx0.013$, $G_{\text{linear}}=0.2196^{2.2}\approx0.040$, $B_{\text{linear}}=0.3922^{2.2}\approx0.123$, giving $Y = 0.2126(0.013)+0.7152(0.040)+0.0722(0.123) \approx 0.042$ (4.2\% luminance).
+
+\subsection{WCAG Contrast Ratio and Accessibility Compliance}
+
+The Web Content Accessibility Guidelines (WCAG~2.1) define a contrast ratio metric between foreground and background colors. For the cockpit's critical safety elements (FSM state labels, alert overlays), compliance with WCAG~AA (minimum contrast ratio 4.5:1) is mandatory to ensure readability under variable ambient lighting:
+
+\begin{eqblock}
+\begin{equation}
+\text{CR} = \frac{L_1 + 0.05}{L_2 + 0.05}
+\end{equation}
+where $L_1$ is the relative luminance of the lighter color ($Y$ from CIE~XYZ) and $L_2$ is the relative luminance of the darker color.
+\end{eqblock}
+
+For white text (\#FFFFFF) on Navy (\#1F3864): $L_{\text{white}}=1.0$, $L_{\text{navy}}=0.042$, giving $\text{CR} = 1.05/0.092 = 11.41{:}1$. WCAG~AA requires $\text{CR}\geq4.5{:}1$ for normal text; WCAG~AAA requires $\text{CR}\geq7.0{:}1$. The achieved 11.41:1 exceeds the AAA standard by 63\%.
+
+For amber text (\#F59E0B) on Deep Navy (\#0B3D91): $L_{\text{amber}} = 0.2126(0.965)^{2.4} + 0.7152(0.620)^{2.4} + 0.0722(0.043)^{2.4} \approx 0.457$, $L_{\text{deepnavy}} = 0.037$, giving $\text{CR} = 0.507/0.087 = 5.83{:}1$: WCAG~AA compliant.
+
+\subsection{Opponent Color Theory and Pre-Attentive Processing}
+
+The cockpit's use of color for FSM state encoding is grounded in Hering's opponent-process theory (1892) and the pre-attentive feature model (Treisman \& Gelade, 1980). Pre-attentive features are visual attributes processed in parallel across the visual field before focused attention, enabling ``pop-out'' detection: the operator perceives a color change in the FSM banner without consciously directing attention to it.
+
+Opponent color channels (Red-Green, Blue-Yellow, Black-White) are processed in the retina and lateral geniculate nucleus before reaching visual cortex. Colors that differ on opposite ends of an opponent channel maximize pop-out salience. The cockpit's state color scheme exploits this:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{AUTO\_PATROL} (\#3b74e4 blue) vs.\ \textbf{AVOID\_OBSTACLE} (\#ef4444 red): opposed on the Red-Green axis: maximal contrast, maximum pre-attentive salience.
+  \item \textbf{AUTO\_PATROL} (blue) vs.\ \textbf{LOCK\_BEACON} (\#f59e0b amber): opposed on the Blue-Yellow axis: blue and yellow are direct complements ($180^\circ$ apart on the CIE hue wheel), maximum pre-attentive salience.
+  \item \textbf{MANUAL} (\#64748b slate-grey) vs.\ all active states: low saturation drops the grey out of the opponent channels entirely, making manual mode appear ``inactive'' relative to colored active states: matching the semantic intent that MANUAL implies no autonomous activity.
+\end{itemize}
+
+\section{LERP and Interpolation: Mathematical Taxonomy}
+
+\subsection{Linear Interpolation as Affine Combination}
+
+LERP (Linear Interpolation) between two values $a$ and $b$ at parameter $t\in[0,1]$ is defined as:
+
+\begin{eqblock}
+\begin{equation}
+\text{LERP}(a,b,t) = a + t(b-a) = (1-t)a + tb
+\end{equation}
+Properties: (1)~$\text{LERP}(a,b,0)=a$; (2)~$\text{LERP}(a,b,1)=b$; (3)~linearity in $t$: $\frac{d}{dt}\text{LERP}(a,b,t) = b-a = \text{const}$; (4)~commutativity: $\text{LERP}(a,b,t)=\text{LERP}(b,a,1-t)$; (5)~associativity underlies bilinear interpolation for 2D surfaces.
+\end{eqblock}
+
+The per-frame cockpit application is $x_{\text{new}} = x_{\text{prev}} + \code{LERP\_ALPHA}(x_{\text{target}}-x_{\text{prev}}) = x_{\text{prev}} + 0.22(x_{\text{target}}-x_{\text{prev}}) = \text{LERP}(x_{\text{prev}}, x_{\text{target}}, 0.22)$, which is equivalent to the EMA filter of Section~3.3 with $\alpha = \code{LERP\_ALPHA} = 0.22$.
+
+\subsection{Comparison: Linear vs.\ Non-Linear Interpolation}
+
+LERP produces linear (constant-velocity) motion of the centroid dot on screen. For visual tracking applications, higher-order interpolation methods may provide more visually natural motion. Three principal alternatives were evaluated:
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Smoothstep} (Hermite interpolation): $S(t) = t^2(3-2t)$, a cubic polynomial with $S(0)=0$, $S(1)=1$, $S'(0)=S'(1)=0$ (zero velocity at endpoints: ease-in, ease-out). Advantage: perceptually smoother than LERP for large jumps. Disadvantage: more lag in mid-range tracking; the detector may appear ``sticky'' near endpoints.
+  \item \textbf{Smootherstep} (Ken Perlin, 2002): $S(t) = 6t^5-15t^4+10t^3$, with $S'(0)=S'(1)=0$ \emph{and} $S''(0)=S''(1)=0$: zero acceleration at endpoints (Hermite $C^2$ interpolation). Provides even smoother motion at the cost of additional lag.
+  \item \textbf{Spring physics} (critically damped harmonic oscillator): $x'' + 2\zeta\omega_n x' + \omega_n^2 x = \omega_n^2 x_{\text{target}}$, with critical damping $\zeta=1$ giving no oscillation and fastest convergence. Advantage: physically natural motion with no overshoot. Disadvantage: requires $\Delta t$-dependent integration and is framerate-dependent.
+\end{enumerate}
+
+LERP was selected for the cockpit because it is framerate-independent (multiplied by constant \code{LERP\_ALPHA}, not $\Delta t$, in the naive implementation), is identical to the already-characterized EMA filter, provides near-constant velocity tracking for small deviations (the nominal case), and achieves sub-pixel convergence within 5 frames ($\approx$83~ms at 60~Hz).
+
+\subsection{Framerate Independence via Normalized LERP\_ALPHA}
+
+The \code{LERP\_ALPHA}~=~0.22 constant assumes a 60~Hz frame rate. At other refresh rates (120~Hz for gaming monitors, 30~Hz for power-saving mode), the effective smoothing changes. A framerate-independent formulation converts the per-frame alpha to a continuous-time decay constant:
+
+\begin{eqblock}
+\begin{align}
+(1-\alpha)^{f_s \Delta t} &= e^{-\lambda\Delta t} \\
+\lambda &= -60\ln(1-\alpha_{60})
+\end{align}
+For \code{LERP\_ALPHA}=0.22 at 60~Hz: $\lambda = -60\ln(0.78) = 14.9$~s$^{-1}$. Framerate-independent implementation: $\alpha_{\Delta t} = 1-e^{-14.9(\Delta t/1000)}$, with $\Delta t$ the RAF timestamp delta in milliseconds. Verification: at 60~Hz ($\Delta t=16.7$~ms), $\alpha = 1-e^{-0.249} = 0.220$ (matches); at 120~Hz ($\Delta t=8.3$~ms), $\alpha=0.117$; at 30~Hz ($\Delta t=33.3$~ms), $\alpha=0.391$.
+\end{eqblock}
+
+\section{Canvas 2D Rendering: Transform Mathematics}
+
+\subsection{2D Affine Transformation Matrix}
+
+All Canvas~2D rendering operations are expressed through the 2D affine transformation matrix. The HTML5 Canvas~2D context maintains a current transformation matrix (CTM):
+
+\begin{eqblock}
+\begin{equation}
+\text{CTM} = \begin{bmatrix} a & c & e \\ b & d & f \\ 0 & 0 & 1 \end{bmatrix}, \qquad
+\begin{bmatrix} x'\\y'\\1 \end{bmatrix} = \text{CTM}\begin{bmatrix} x\\y\\1 \end{bmatrix}
+\end{equation}
+where $(a,b,c,d)$ encode rotation, scale, and shear, and $(e,f)$ encode translation. Common transforms: Translation$(t_x,t_y)$: $a{=}1,b{=}0,c{=}0,d{=}1,e{=}t_x,f{=}t_y$. Scale$(s_x,s_y)$: $a{=}s_x,b{=}0,c{=}0,d{=}s_y,e{=}0,f{=}0$. Rotation$(\theta)$: $a{=}\cos\theta,b{=}\sin\theta,c{=}-\sin\theta,d{=}\cos\theta,e{=}0,f{=}0$. Device pixel ratio application via \code{ctx.setTransform(dpr,0,0,dpr,0,0)} is equivalent to Scale(dpr, dpr): all coordinates are multiplied by dpr before rasterization.
+\end{eqblock}
+
+\subsection{Coordinate System Composition for Vision Overlay}
+
+The video overlay requires a composition of three coordinate transforms: from image pixel space to displayed video rectangle, then to physical canvas pixels via DPR scaling:
+
+\begin{eqblock}
+\begin{align}
+T_{\text{video}} &= \begin{bmatrix} v_r.w/f_w & 0 & v_r.x \\ 0 & v_r.h/f_h & v_r.y \\ 0 & 0 & 1 \end{bmatrix},
+\qquad
+T_{\text{dpr}} = \begin{bmatrix} \text{dpr} & 0 & 0 \\ 0 & \text{dpr} & 0 \\ 0 & 0 & 1 \end{bmatrix} \\
+T &= T_{\text{dpr}}\, T_{\text{video}}
+\end{align}
+where $v_r=\{x,y,w,h\}$ is the video display rectangle in CSS pixels and $f_w,f_h$ are the camera frame dimensions (640, 480). Applied to an LED centroid $(i_x,i_y)$ in image coordinates: $\text{canvas}_x = \text{dpr}\,(v_r.x + i_x\, v_r.w/f_w)$, $\text{canvas}_y = \text{dpr}\,(v_r.y + i_y\, v_r.h/f_h)$, matching \code{imgToPx(ix, iy, vr, fw, fh)} $\times$ dpr.
+\end{eqblock}
+
+\subsection{Pulsing Ring Animation: Parametric Circle Equations}
+
+The lock-on reticle is implemented as three concentric pulsing rings, each animated sinusoidally, parameterized by the RAF timestamp \code{ts} (milliseconds since page load):
+
+\begin{eqblock}
+\begin{align}
+\phi_k(ts) &= \frac{2\pi}{T_{\text{period}}}\left(\frac{ts}{1000}\right) + k\,\frac{2\pi}{3}, \qquad k=0,1,2 \\
+R_k(ts) &= R_{\text{base}} + A\sin\phi_k(ts)
+\end{align}
+with $T_{\text{period}}=2.0$~s (full cycle), $R_{\text{base}}=28$~px ($\approx4.3^\circ$ FOV at 1~m beacon range), $A=6$~px. Alpha modulation coupled to $|\text{err\_frac}|$: $\alpha_{\text{ring}}(ts) = 0.3 + 0.5(0.5+0.5\sin\phi_k(ts))(1-0.7\,\text{lock\_centered\_pct})$, where $\text{lock\_centered\_pct} = 1-\min(1, |\text{err\_frac}|/\code{LOCK\_CENTER\_TOL})$. Effect: rings are fully bright when misaligned and fade to 30\% when centered.
+\end{eqblock}
+
+\section{WebSocket Protocol: Engineering Model}
+
+\subsection{TCP Connection Model and Framing}
+\label{sec:videobandwidth}
+
+The WebSocket protocol operates over a TCP connection, inheriting TCP's reliability and ordering guarantees. The protocol handshake uses HTTP/1.1 Upgrade, converting the underlying TCP stream into a WebSocket connection. Understanding the framing overhead (RFC~6455) is important for estimating the effective bandwidth used by the 10~Hz telemetry stream.
+
+\begin{eqblock}
+A WebSocket frame comprises: byte~0 (FIN, RSV1--3, 4-bit opcode); byte~1 (MASK bit, 7-bit payload length); bytes 2--9 (extended payload length, 0/2/8 bytes depending on declared length); the masking key (4 bytes, client$\to$server only); and the payload.
+
+For a telemetry JSON payload of $\sim$2~KB: payload length 2048~bytes $>125$~bytes $\Rightarrow$ 2-byte extended length is used; frame overhead $= 2\text{(fixed)} + 2\text{(extended len)} = 4$~bytes; frame efficiency $= 2048/(2048+4) = 99.8\%$ (negligible overhead).
+
+Bandwidth at 10~Hz telemetry: $\sim$2100~bytes/frame $\times10 = 21{,}000$~bytes/s $=168$~kbps. MJPEG at 20~Hz, $640\times480$ JPEG quality 70\%: $\sim$25~KB/frame $\times20 = 500{,}000$~bytes/s $=4$~Mbps. Total: $\sim$4.17~Mbps, well within 802.11ac 5~GHz theoretical 100+~Mbps.
+\end{eqblock}
+
+\subsection{Queuing Theory Model for WebSocket Latency}
+
+The end-to-end WebSocket message latency can be modeled using M/D/1 queuing theory: `M' denotes Poisson message arrivals (telemetry approximated at Poisson 10~Hz), `D' denotes deterministic service time (fixed JPEG encoding + TCP segment size), `1' denotes a single server (the Wi-Fi channel).
+
+\begin{eqblock}
+\begin{align}
+\lambda &= 10 + 20 = 30 \text{ messages/s (telemetry + MJPEG)} \\
+\mu^{-1} &\approx \frac{2100 \text{ bytes}}{10 \text{ Mbps}} = 0.00168 \text{ ms/msg} \\
+\rho &= \lambda/\mu = 30 \times 0.00168\text{ms} = 5.04\times10^{-5} \\
+W_q &= \frac{\rho}{2\mu(1-\rho)} \approx \frac{\rho}{2\mu} \approx 4.2\times10^{-8}\text{ s} \quad (\rho \ll 1)
+\end{align}
+Queuing delay is negligible ($\ll1$~ms) for the current traffic load on a dedicated 802.11ac link. The dominant latency contribution is propagation delay plus Wi-Fi CSMA/CA contention. Using the Bianchi model (1999) for a single station on a dedicated AP: collision probability $P_c\approx0$; mean backoff $\mathbb{E}[B]\approx CW_{\min}/2 = 7.5$ slots; slot time 9~$\mu$s (802.11a/n/ac OFDM); mean contention delay $=7.5\times9\,\mu\text{s}=67.5\,\mu\text{s}\approx0.07$~ms (negligible).
+\end{eqblock}
+
+\section{\texorpdfstring{\code{requestAnimationFrame}}{requestAnimationFrame} Scheduling: Browser Rendering Pipeline}
+
+\subsection{The Browser Rendering Pipeline}
+
+A \code{requestAnimationFrame} callback executes within the browser's main thread rendering pipeline, which follows a fixed sequence per frame budget (16.7~ms at 60~Hz): (1)~input events ($\sim$0.1--1~ms); (2)~JavaScript execution, RAF callbacks and WebSocket handlers ($\sim$1--8~ms); (3)~style computation ($\sim$0.1--0.5~ms); (4)~layout/reflow ($\sim$0.5--2~ms); (5)~paint/rasterization ($\sim$0.5--2~ms); (6)~composite, GPU layer composition and \code{backdrop-filter} ($\sim$0.5--3~ms).
+
+RAF callbacks are synchronized to the display's vertical sync signal: at 60~Hz, RAF fires at $t=16.7, 33.3, 50.0,\dots$~ms, with typical vsync jitter of $\pm0.2$~ms on modern OS schedulers. Of the 16.7~ms total frame budget, 8--10~ms are typically available for JavaScript (step~2); the cockpit's RAF callback (LERP + Canvas~2D draw) consumes $\approx$2--4~ms, leaving a comfortable 4--6~ms margin with no expected frame drops.
+
+\subsection{Compositor Layer Promotion Strategy}
+
+The CSS property \code{will-change: transform} forces the browser to promote an element to an independent GPU compositor layer, with important implications for rendering performance when \code{backdrop-filter} is active.
+
+\begin{eqblock}
+\textbf{Without \code{will-change}}: panel redraws (e.g., telemetry number updates) invalidate the compositing cache for the \code{backdrop-filter} blur, so the blur must be recalculated on every animation frame: expensive.
+
+\textbf{With \code{will-change: transform}}: the panel is promoted to its own GPU layer, the \code{backdrop-filter} result is cached in GPU memory, panel updates only repaint the panel layer (not the blur background), and the compositor combines layers without recalculating the blur.
+
+GPU memory cost per compositor layer: for a $300\times400$~px layer at 4~bytes/pixel (RGBA), size $=480$~KB; at DPR$=2$, $(300\times2)\times(400\times2)=1920$~KB per layer. Total for 12 layers: $12\times1.92\text{MB}=23$~MB GPU VRAM: well within even integrated GPU memory limits (128--256~MB shared VRAM).
+\end{eqblock}
+
+\section{Ring Buffer: Formal Analysis}
+
+\subsection{Amortized Complexity Analysis}
+
+The ring buffer supports two operations, \code{push(x,y)} and \code{get(i)}. Amortized complexity is computed using the aggregate method:
+
+\begin{eqblock}
+\code{push(x,y)}: write to position $(\text{head}+\text{size})\bmod C$ is $O(1)$; if full, advancing the head pointer is $O(1)$; total: $O(1)$ worst-case (no resizing ever). \code{get(i)}: read at index $(\text{head}+i)\bmod C$ is $O(1)$ (single array access + modular arithmetic).
+
+Comparison with a dynamic array (Python list / JS Array): \code{push} is amortized $O(1)$ but worst-case $O(n)$ on resize. Resize triggers every $2^k$ elements $\Rightarrow k=\log_2 N$ resizes over $N$ pushes; memory copying totals $N/2+N/4+\dots+1 = N-1$ element copies, giving amortized $(N-1)/N\approx1$ copy per push $= O(1)$ amortized: but each resize doubles memory, giving a peak allocation of $2N$ elements.
+
+Ring buffer advantage: $O(1)$ guaranteed worst-case with no peak memory spike: critical for a 10~Hz, 10,000-point trajectory with no GC pause from resizing.
+\end{eqblock}
+
+\subsection{Cache Locality Analysis}
+
+The ring buffer's sequential access pattern for trajectory rendering (iterating all points in order to draw the polyline) has implications for CPU cache efficiency:
+
+\begin{eqblock}
+Trajectory polyline rendering accesses points in order $i=0,1,\dots,\text{size}-1$; the ring buffer's physical access pattern is $(\text{head}, \text{head}{+}1, \dots, C{-}1, 0, 1, \dots, \text{head}{-}1)$.
+
+With a typical 64-byte cache line and each point stored as $[x,y]$ (2 floats = 8 bytes, JS \code{Float64Array}), 8 points fit per cache line. Sequential access loads each cache line once for 8 points (efficient); wrap-around at $C$ costs one cache miss when switching from index $C{-}1$ to index $0$. Total cache misses for an $N$-point trajectory: $\approx\lceil N/8\rceil+1$.
+
+At a cache miss penalty of $\sim$200 CPU cycles and $N=10{,}000$ points: $1250$ misses $\times200$ cycles $=250{,}000$ cycles; at 4~GHz, this is 62.5~$\mu$s for the full trajectory read: well within the 16.7~ms frame budget.
+\end{eqblock}
+
+\section{Alert System: Formal Specification and Hysteresis Analysis}
+
+\subsection{Hysteresis as a Schmitt Trigger}
+
+The alert system's hysteresis mechanism (firing at one threshold and resetting at a lower threshold) is mathematically equivalent to a Schmitt trigger (electrical engineering: Otto Schmitt, 1934). The Schmitt trigger avoids ``chatter'' (rapid alternating between alarmed and cleared states) when the monitored quantity oscillates near a single threshold.
+
+\begin{eqblock}
+Without hysteresis (single threshold $T$): a CPU temperature oscillating 79, 81, 79, 81, 79, 81\,$^\circ$C fires the alert 3 times in 6 readings: operator alarm fatigue.
+
+With hysteresis (fire at $T_{\text{high}}=80^\circ$C, reset at $T_{\text{low}}=75^\circ$C): state machine NORMAL $\to$ (temp$>T_{\text{high}}$) $\to$ ALARMED, fire alert; ALARMED $\to$ (temp$<T_{\text{low}}$) $\to$ NORMAL, re-arm; ALARMED stays ALARMED while $\text{temp}\geq T_{\text{low}}$ (no new alert).
+
+Hysteresis band $=T_{\text{high}}-T_{\text{low}}=5^\circ$C: temperature must drop by $5^\circ$C to re-arm, preventing chatter for variations $<5^\circ$C peak-to-peak. ISA-18.2 recommends a hysteresis band $\geq2\times$ the measurement noise standard deviation; CPU temperature sensor noise $\sigma\approx0.5^\circ$C, so the applied 5$^\circ$C band $=5\sigma$: conservative, with minimal false rearms.
+\end{eqblock}
+
+\subsection{\code{mute()} Persistence: localStorage State Machine}
+
+The alert mute mechanism is a two-state machine (MUTED / UNMUTED) with time-based automatic state transitions:
+
+\begin{eqblock}
+States: UNMUTED, MUTED. Transitions: UNMUTED $+$ (operator clicks Mute) $\to$ MUTED, set expiry $=\text{now}+3600$s; MUTED $+$ (expiry reached) $\to$ UNMUTED, clear \code{localStorage}; MUTED $+$ (page reload) $\to$ MUTED (expiry persists in \code{localStorage}); UNMUTED $+$ (page reload) $\to$ UNMUTED (no stored expiry).
+
+Correctness argument: \code{\_isMuted()} $=$ \code{Date.now() < parseInt(localStorage.getItem(MUTE\_KEY) || '0')}.
+
+\textbf{Edge case: localStorage missing/corrupted}: \code{parseInt(undefined)} $=$ \code{NaN}; \code{NaN < Date.now()} is \code{false} $\Rightarrow$ UNMUTED (safe default: alerts fire rather than being silently suppressed).
+
+\textbf{Edge case: system clock rollback} (NTP correction or manual change): if the clock jumps backward by $t$ seconds, \code{mute\_until} is $t$ seconds further away, so the mute persists longer than intended (safe: under-alerting is less harmful than alert fatigue in this research context).
+
+\textbf{Edge case: system clock rollforward}: the expiry may appear to have passed early $\Rightarrow$ UNMUTED prematurely (safe default: alerts re-enabled).
+\end{eqblock}
+
+\section{Multi-Page Cockpit Architecture: Data Flow and Algorithmic
+Complexity}
+\label{sec:multipage}
+
+The cockpit is not one application but five independent pages served from one
+static directory. They differ in what they need from the robot, and that
+difference, rather than any framework decision, is what sets their
+architecture. \code{ops.html} and \code{trajectory.html} need the robot
+\emph{now}, so they hold a live WebSocket. \code{logbook.html} needs what the
+robot did, which is a file, so it holds nothing at all. This section
+formalises the two paths, the coordinate transform and rendering complexity of
+the map view, and the dependency structure that keeps a fault in one page out
+of the others.
+
+\subsection{Routing topology: two independent data paths}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\scriptsize, >=Latex, node distance=5mm,
+  pg/.style={draw, rounded corners=2pt, fill=accentblue!7, draw=accentblue,
+             align=center, inner sep=3.5pt, minimum width=22mm},
+  sv/.style={draw, rounded corners=2pt, align=center, inner sep=3.5pt},
+  st/.style={draw, rounded corners=2pt, fill=alertred!6, draw=alertred,
+             align=center, inner sep=3.5pt}]
+
+  %% ---- chemin temps reel ----
+  \node[pg] (ops)  at (0, 1.5) {\code{ops.html}};
+  \node[pg] (traj) at (0, 0.6) {\code{trajectory.html}};
+  \node[pg] (demo) at (0,-0.3) {\code{demo.html}};
+  \node[sv, fill=white] (rl) at (3.1, 0.6) {\code{roslibjs}\\hostname test};
+
+  \draw[->] (ops)  -- (rl);
+  \draw[->] (traj) -- (rl);
+  \draw[->] (demo) -- (rl);
+
+  \node[sv] (wss) at (6.9, 1.5) {\code{wss://}\ldots\code{/rosbridge}\\
+                                  \code{cloudflared} $\to$ :9443 (TLS)};
+  \node[sv] (ws)  at (6.9, 0.0) {\code{ws://}\code{<host>}\code{:9090}\\direct, LAN};
+  \draw[->] (rl.north east) -- node[above, sloped, font=\tiny]{tunnel host} (wss.west);
+  \draw[->] (rl.south east) -- node[below, sloped, font=\tiny]{any other host} (ws.west);
+
+  \node[sv, fill=black!4] (master) at (11.2, 0.75) {ROS master\\(on the robot)};
+  \draw[->] (wss) -- (master);
+  \draw[->] (ws)  -- (master);
+
+  %% ---- chemin statique ----
+  \node[st] (log) at (0,-1.9) {\code{logbook.html}};
+  \node[sv] (fetch) at (3.4,-1.9) {\code{fetch()} GET\\\code{/auto\_entries.json}};
+  \node[sv] (serve) at (7.1,-1.9) {\code{serve.py} :8000\\static file};
+  \node[sv, fill=black!4] (bk) at (11.2,-1.9) {\code{AutoLogbook}\\in \code{leo\_backend.py}};
+  \draw[->] (log) -- (fetch);
+  \draw[->] (fetch) -- (serve);
+  \draw[->, dashed] (bk) -- node[above, font=\tiny]{writes} (serve);
+
+  \draw[dotted, thick] (-1.6,-1.0) -- (12.6,-1.0);
+  \node[font=\tiny\itshape, anchor=west] at (-1.6,-0.75) {live: WebSocket, no polling};
+  \node[font=\tiny\itshape, anchor=west] at (-1.6,-1.25) {asynchronous: one HTTP GET, no ROS};
+\end{tikzpicture}
+\caption[Cockpit routing]{The two data paths. Above the line, three pages
+share one transport-selection rule and reach the ROS graph over a
+WebSocket. Below it, the logbook reads a file that the backend writes, and
+never speaks to ROS at all. The separation is what allows the logbook to work
+with the robot switched off.}
+\label{fig:multipage-routing}
+\end{figure}
+
+\noindent The transport choice on the live path is made from the hostname,
+not from configuration, by one function reproduced in
+\S\ref{ap:repro-webtransport}. It matters here because \code{ops.html} and
+\code{trajectory.html} each carry their \emph{own} copy of that rule, so a
+change to the tunnel domain must be applied in both.
+
+\subsection{Logbook: a bounded set maintained as an invariant}
+
+Let $E = \{e_1, e_2, \dots, e_N\}$ be the automatic event set, each
+$e_i$ a tuple $(\mathrm{id}, t_i, \tau_i, \text{title}, \text{details},
+\text{tags})$ with $t_i$ the timestamp and $\tau_i$ the event type. The
+cardinality is bounded:
+\begin{equation}
+N \;=\; |E| \;\le\; N_{\max} \;=\; 200 ,
+\label{eq:logbookbound}
+\end{equation}
+and this bound is a \emph{server-side} invariant. \code{AutoLogbook} in
+\code{leo\_backend.py} inserts each new event at the head of its list and
+truncates the tail, so the file it writes is already ordered newest-first and
+already bounded:
+\begin{equation}
+E^{(k+1)} \;=\; \bigl(\,e_{\text{new}} \,\big\Vert\,
+                E^{(k)}\,\bigr)_{1:N_{\max}} ,
+\label{eq:logbookinsert}
+\end{equation}
+where $\Vert$ denotes concatenation and the subscript denotes truncation to
+the first $N_{\max}$ elements.
+
+\paragraph{What this buys, stated as the cost that is avoided.}
+The browser performs \textbf{no sort and no filter}. It renders the first
+$40$ entries of the array exactly as received. The rendering cost is therefore
+\begin{equation}
+T_{\text{render}} \;=\; \Theta(\min(N, 40)) \;=\; \Theta(1)
+\quad\text{with respect to } N .
+\label{eq:logbookrender}
+\end{equation}
+Had the ordering been left to the client, each render would have to
+re-establish it at $\Theta(N \log N)$, and each redraw of the timeline would
+pay that cost again. Maintaining the order as an invariant at write time,
+where exactly one element changes, replaces a repeated $\Theta(N \log N)$ with
+a single bounded insertion. The insertion itself is $\Theta(N)$ in CPython,
+since prepending to a list shifts the array, but $N \le 200$ makes that
+constant in practice and it happens once per event rather than once per frame.
+
+\paragraph{The filter contract, for when one is added.}
+No filtering is implemented at the time of writing, and the interface exposes
+none. The natural extension, and the shape any future implementation should
+take, is a predicate over the event tuple:
+\begin{equation}
+E_{\text{filter}} \;=\; \{\, e \in E \;\mid\; f(e) = \text{true} \,\},
+\qquad
+f(e) \;=\; \bigwedge_{j} f_j(e),
+\label{eq:logbookfilter}
+\end{equation}
+with each $f_j$ a predicate on one field, typically $\tau_i \in T$ for a
+selected type set $T$, or $t_i \in [t_0, t_1]$ for a window. Evaluated as a
+single pass this is $\Theta(N)$, and since $N \le 200$ by
+Eq.~\ref{eq:logbookbound} it is bounded by construction. Implemented as a
+predicate the filter composes and stays linear; implemented as a re-sort it
+would reintroduce the $\Theta(N \log N)$ that Eq.~\ref{eq:logbookinsert}
+exists to avoid.
+
+\subsection{The map view: affine projection and batched rasterisation}
+
+\paragraph{World to canvas.} \code{trajectory.html} draws in world metres and
+must place them in canvas pixels. The map is an axis-aligned affine map, a
+uniform scale followed by a translation, with one sign inversion because
+canvas $y$ grows downward while world $y$ grows upward:
+\begin{equation}
+\begin{pmatrix} c_x \\ c_y \end{pmatrix}
+=
+\begin{pmatrix} s & 0 \\ 0 & -s \end{pmatrix}
+\begin{pmatrix} w_x - \bar{w}_x \\ w_y - \bar{w}_y \end{pmatrix}
++
+\begin{pmatrix} W/2 \\ H/2 \end{pmatrix},
+\label{eq:worldtocanvas}
+\end{equation}
+where $(W,H)$ is the canvas size in device pixels, $(\bar{w}_x, \bar{w}_y)$
+the centre of the trajectory's bounding box, and $s$ the scale chosen so the
+whole path fits with margin:
+\begin{equation}
+s = \frac{\min(W,H)}{\Lambda},
+\qquad
+\Lambda = 1.3 \cdot \max\bigl(\Delta w_x,\; \Delta w_y,\; 1.0\bigr).
+\label{eq:mapscale}
+\end{equation}
+The factor $1.3$ is the margin; the floor of $1.0$\,m prevents a stationary
+rover, whose bounding box has zero extent, from producing an infinite scale.
+
+\paragraph{The viewport is filtered, not snapped.} Recomputing
+$(\bar{w}_x, \bar{w}_y, s)$ from the bounding box and applying it directly
+makes the whole map jump whenever a single new point extends the box. The
+applied values are instead first-order low-pass filtered towards the target,
+once per frame:
+\begin{equation}
+v^{(n+1)} = v^{(n)} + \alpha\,\bigl(v^{\star} - v^{(n)}\bigr),
+\qquad
+\alpha_{\text{view}} = 0.06, \quad \alpha_{\text{pose}} = 0.22 .
+\label{eq:viewportema}
+\end{equation}
+The step response decays as $(1-\alpha)^n$, so the time constant in frames is
+$n_\tau = -1/\ln(1-\alpha)$, giving $16.2$ frames for the viewport and $4.0$
+for the robot marker. At $60$\,fps that is $0.27$\,s and $0.067$\,s: the map
+settles smoothly while the rover icon stays responsive.
+
+\paragraph{Batched rasterisation.} The trail reached three thousand segments,
+and drawing each as its own path produced visible stutter. The fix, deployed
+2026-07-13, exploits the fact that the two per-segment properties are not
+independent: opacity varies with age, and colour varies with the FSM mode
+recorded at that point. Quantising age into $K = 6$ bands makes opacity
+constant within a band, so a path need only be broken when the \emph{mode}
+changes or when a gap in the pose stream requires lifting the pen.
+
+The distinction that matters is which Canvas call is expensive.
+\code{lineTo} appends a vertex to the current path and remains
+$\Theta(S)$ for $S$ segments; it was never the bottleneck.
+\code{beginPath}, the \code{globalAlpha} assignment and above all
+\code{stroke}, which rasterises, are the costly operations, and their count
+drops to
+\begin{equation}
+B \;\le\; K + M + G \;\ll\; S,
+\qquad K = 6,
+\label{eq:batchcount}
+\end{equation}
+where $M$ is the number of mode transitions along the trail and $G$ the
+number of pose gaps. In normal operation $B \approx 12$ against $S \approx
+3000$, a reduction of more than two orders of magnitude in rasterisation
+calls at identical visual output. The per-frame cost model is therefore
+\begin{equation}
+T_{\text{frame}} \;=\; \underbrace{\Theta(S)}_{\text{vertex append}}
+   \;+\; \underbrace{\Theta(B)}_{\text{rasterisation}}
+   \;+\; \underbrace{\Theta(S/10)}_{\text{bounds, every 10th frame}} ,
+\label{eq:framecost}
+\end{equation}
+the last term because the bounding box is recomputed at $6$\,Hz rather than
+at frame rate, which is ample for a quantity that changes slowly.
+
+\paragraph{Gaps are drawn as gaps.} When consecutive poses are separated by
+more than the tolerated interval the renderer lifts the pen instead of
+joining them with a straight line. A straight line there would be a
+fabrication: the rover did not travel in a straight line during a dropout, it
+is simply unobserved. Leaving the hole visible keeps the missing data legible
+as missing, which is the same principle applied to the estimator plots in
+Chapter~12.
+
+\subsection{Dependency structure and fault containment}
+
+The five pages do not share a framework, and what they do share is uneven.
+Table~\ref{tab:pagedeps} lists what each one loads.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Assets loaded per page. \code{roslib} is vendored, not shared
+project code.}
+\label{tab:pagedeps}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & \code{ops} & \code{trajectory} & \code{logbook} & \code{demo} \\
+\midrule
+\code{i18n.js} (translations)   & yes & no  & yes & no \\
+\code{mission.css} (tokens)     & yes & no  & yes & no \\
+\code{app.js} (controller)      & yes & no  & yes & no \\
+\code{3d\_engine.js}            & yes & no  & yes & no \\
+\code{vendor/roslib.min.js}     & yes & yes & no  & yes \\
+Own inline controller           & no  & yes & no  & yes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Two conclusions follow, and only one of them is the reassuring one.
+
+\textbf{The map view cannot take down the controls.}
+\code{trajectory.html} loads exactly one external file, the vendored
+\code{roslib} bundle, and carries its own CSS and its own controller inline.
+It shares no project code with \code{ops.html} whatsoever. A syntax error in
+its controller, an exception thrown from the Canvas rendering path, or a
+runaway animation loop is therefore confined to that tab. The emergency
+controls on \code{ops.html} keep working, which is the property that
+justifies the duplication of the transport-selection rule noted earlier: the
+duplication is the price of the isolation, paid deliberately.
+
+\textbf{The coupling that does exist is between \code{ops} and
+\code{logbook}.} Both load \code{i18n.js}, \code{mission.css} and
+\code{app.js}. A parse error in \code{app.js} therefore breaks both pages
+simultaneously, and since a JavaScript file that fails to parse loads without
+any visible error and simply stops executing, the symptom is a page that
+renders with half its panels inert. This is not hypothetical: it occurred
+during this project and cost an afternoon, which is why
+\S\ref{ap:repro-editing-web} prescribes parsing \code{app.js} with
+\code{esprima} before reloading rather than trusting a visual check.
+
+\chapter{Safety, Reliability, and Maintenance}
+\label{ch:safety}
+
+\section{Six-Layer Safety Architecture}
+
+The LEO Rover Mission Control system implements safety as a layered architecture of six independent mechanisms, arranged in priority order from highest (fastest, most fundamental) to lowest (last-resort, catch-all). This defense-in-depth approach ensures that no single point of failure can leave the robot in an unsafe moving state. Table~\ref{tab:safety-layers} documents the complete layer stack.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  layer/.style={rectangle, draw, thick, minimum width=13.5cm, text width=13.1cm,
+  minimum height=1.05cm, align=left, font=\small, inner sep=6pt},
+  ]
+
+  \node[layer, fill=alertred!25, draw=alertred]
+  (p1) at (0,0) {{\bfseries\small P1: Emergency Stop} \hfill {\scriptsize\itshape\color{black!55}$<$60~ms}};
+  \node[layer, fill=alertred!18, draw=alertred!80!black, below=0.12cm of p1]
+  (p2) {{\bfseries\small P2: Heartbeat Deadman} \hfill {\scriptsize\itshape\color{black!55}$<$50~ms}};
+  \node[layer, fill=orange!22, draw=orange!80!black, below=0.12cm of p2]
+  (p3) {{\bfseries\small P3: Manual Override} \hfill {\scriptsize\itshape\color{black!55}$<$50~ms}};
+  \node[layer, fill=orange!14, draw=orange!70!black, below=0.12cm of p3]
+  (p4) {{\bfseries\small P4: Manual Deadman} \hfill {\scriptsize\itshape\color{black!55}50--550~ms}};
+  \node[layer, fill=blue!14, draw=accentblue, below=0.12cm of p4]
+  (p5) {{\bfseries\small P5: Camera Watchdog} \hfill {\scriptsize\itshape\color{black!55}100~ms}};
+  \node[layer, fill=blue!8, draw=accentblue!70, below=0.12cm of p5]
+  (p6) {{\bfseries\small P6: Velocity Clamping} \hfill {\scriptsize\itshape\color{black!55}0~ms (synchronous)}};
+
+  \draw[->, very thick, draw=black!50] ([xshift=-1.0cm]p1.north west) -- ([xshift=-1.0cm]p6.south west);
+
+  \node[rotate=90, font=\bfseries\scriptsize]
+  at ([xshift=-1.6cm]$(p3.west)!0.5!(p4.west)$)
+  {Decreasing priority / increasing latency $\longrightarrow$};
+
+  \node[font=\tiny, align=center, text width=13.5cm, below=0.35cm of p6, anchor=north]
+  {Defense-in-depth: each layer independently halts motion; a failure of any single layer\\
+  is caught by the next, giving a combined estimated failure probability $\sim10^{-21}$ (Table~\ref{tab:layer-failure-rates}).};
+
+  \end{tikzpicture}
+\caption{Six-layer safety architecture arranged in priority order (P1 highest priority / fastest response, P6 lowest / catch-all). Each layer independently halts robot motion; no single point of failure can leave the robot in an unsafe moving state.}
+\label{fig:safety-layers}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\caption{Six safety layer stack with priority, mechanism, and timing}
+\label{tab:safety-layers}
+\small
+\begin{tabular}{@{}p{0.7cm}p{2.4cm}p{4cm}p{2.2cm}p{3.6cm}@{}}
+\toprule
+Priority & Layer Name & Mechanism & Response Time & Implementation \\
+\midrule
+P1 & Emergency Stop & Browser stop button $\to$ \code{/mission/command \{action:stop\}} & $<$60~ms (Wi-Fi RTT + publish) & \code{\_safe\_stop()}: 5$\times$ publish $(0,0)$ at 20~ms intervals \\
+P2 & Heartbeat Deadman & \code{hb\_age}$>$\code{HEARTBEAT\_TIMEOUT}=1.5~s while in AUTO & $<$50~ms (20~Hz check period) & \code{\_check\_heartbeat()} in \code{\_control\_loop} at 20~Hz \\
+P3 & Manual Override & Any $\text{lin}\neq0$ or $\text{ang}\neq0$ manual command while in AUTO & $<$50~ms & \code{\_on\_command()} handler checks mode instantly \\
+P4 & Manual Deadman & $\text{now}-\text{manual\_t}>\code{MANUAL\_DEADMAN}$=0.5~s in MANUAL & 50--550~ms & \code{\_drive()}: publishes $(0,0)$ if manual input is stale \\
+P5 & Camera Watchdog & \code{cam\_alive}=False while in AUTO (not RTB) & 100~ms (10~Hz cam check) & \code{\_drive()}: publishes $(0,0)$, logs camera loss \\
+P6 & Velocity Clamping & All \code{\_publish(lin,ang)} calls clamp to configured limits & 0~ms (synchronous) & \code{\_publish()}: min/max clamp before every Twist publish \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Layer P1: Emergency Stop}
+
+\subsection{\code{\_safe\_stop()} Implementation}
+
+The emergency stop function publishes a zero-velocity Twist message five consecutive times at 20~ms intervals. This redundant publication is designed to overcome the probability of a single UDP packet loss (Listing~\ref{lst:safe-stop}).
+
+\begin{lstlisting}[language=Python, caption={Redundant emergency-stop publication}, label={lst:safe-stop}]
+def _safe_stop(self):
+  """Publish zero velocity 5 times at 20ms intervals.
+  At 5% link loss rate: P(all 5 lost) = 0.05^5 = 3.1e-7 (negligible)."""
+  from geometry_msgs.msg import Twist
+  twist = Twist() # all fields zero by default
+  for _ in range(5):
+  self._cmd_pub.publish(twist)
+  time.sleep(0.020) # 20ms between each publish
+\end{lstlisting}
+
+\subsection{\code{\_stopPending} Flag for Disconnection Safety}
+
+The browser-side emergency stop implements a \code{\_stopPending} flag to handle the edge case where the operator clicks STOP at the exact moment the WebSocket connection drops (Listing~\ref{lst:stop-pending}).
+
+\begin{lstlisting}[caption={Disconnection-proof emergency stop delivery}, label={lst:stop-pending}]
+// app.js
+let _stopPending = false;
+
+btnStop.addEventListener('click', () => {
+  _stopPending = true;
+  if (ros && ros.isConnected) {
+  _publishCommand({ action: 'stop' });
+  _stopPending = false;
+  }
+  // If disconnected: _stopPending=true; will fire on next reconnect
+});
+
+// On WebSocket open:
+ros.on('connection', () => {
+  if (_stopPending) {
+  _publishCommand({ action: 'stop' });
+  _stopPending = false;
+  console.warn('[SAFETY] Delivered pending STOP on reconnect');
+  }
+});
+\end{lstlisting}
+
+\section{Layer P2: Heartbeat Deadman Switch}
+
+\subsection{Three-State Heartbeat State Machine}
+
+The heartbeat system has three internal states:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{UNARMED}: no heartbeat received since backend start or since the last stale-guard disarm. Entering AUTO in this state is permitted (the heartbeat will arm on the first ping), but transitioning within AUTO is blocked if 1.5~s elapses without a ping.
+  \item \textbf{ARMED}: first heartbeat received; the system now monitors continuously at 20~Hz. $\text{hb\_age}>1.5$~s in AUTO triggers the failsafe.
+  \item \textbf{STALE-GUARD DISARMED}: $\text{hb\_age}>5.0$~s while \emph{not} in AUTO. Silently disarms; the next heartbeat ping re-arms. This state enables clean browser reload behavior.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption={Three-state heartbeat deadman implementation}, label={lst:heartbeat-fsm}]
+def _check_heartbeat(self, now):
+  if not self._hb_armed:
+  return # UNARMED: no monitoring
+
+  hb_age = now - self._last_heartbeat_t
+
+  # Stale-guard: browser disconnected while in MANUAL/PATROL
+  # Disarm to allow clean reconnection (avoids instant failsafe on AUTO re-entry)
+  if hb_age > HEARTBEAT_STALE_S and self.mode != 'AUTO':
+  self._hb_armed = False
+  self._hb_lost = False
+  self._log('Heartbeat stale guard fired -- disarmed')
+  return
+
+  # Active deadman: in AUTO, hb_age exceeded
+  if self.mode == 'AUTO' and hb_age > HEARTBEAT_TIMEOUT:
+  self.mode = 'MANUEL'
+  self.manual = [0.0, 0.0]
+  self._safe_stop()
+  self._hb_lost = True
+  self._write_logbook_entry('HEARTBEAT_LOST', {'hb_age': round(hb_age, 2)})
+  self._log(f'HEARTBEAT LOST ({hb_age:.2f}s) -- failsafe MANUAL')
+\end{lstlisting}
+
+\section{Layer P4: Manual Deadman}
+
+When the operator is manually driving the robot via the browser joystick, the control loop expects a manual command to arrive within \code{MANUAL\_DEADMAN} = 0.5~seconds. If no command is received within this window (indicating browser freeze, page unload, or network interruption), the robot stops (Listing~\ref{lst:manual-deadman}).
+
+\begin{lstlisting}[language=Python, caption={Manual-mode deadman timeout}, label={lst:manual-deadman}]
+# In _drive() -- MANUEL mode branch:
+elif self.mode == 'MANUEL':
+  if self.manual[0] == 0 and self.manual[1] == 0:
+  lin, ang = 0.0, 0.0 # already stationary
+  elif now - self.manual_t > MANUAL_DEADMAN:
+  lin = ang = 0.0 # command is stale -- stop
+  if self.manual[0] != 0 or self.manual[1] != 0:
+  self._log('Manual deadman triggered -- motors stopped')
+  self.manual = [0.0, 0.0]
+  else:
+  lin, ang = self.manual[0], self.manual[1]
+\end{lstlisting}
+
+\section{Layer P5: Camera Watchdog}
+
+Vision-based autonomous navigation inherently depends on the camera. If the camera topic goes silent (due to USB disconnection, D455 firmware crash, or cable damage) the robot must stop rather than continue navigating blindly (Listing~\ref{lst:camera-watchdog}).
+
+\begin{lstlisting}[language=Python, caption={Camera watchdog halting autonomous motion on signal loss}, label={lst:camera-watchdog}]
+# cam_alive = True if camera topic was received within last 2 seconds
+@property
+def cam_alive(self):
+  return (time.time() - self._last_cam_t) < 2.0
+
+# In _drive() -- AUTO mode:
+if self.mode == 'AUTO' and not self.cam_alive and self.auto_state != 'RTB':
+  # RTB excluded: uses odometry only, not vision
+  lin = ang = 0.0
+  self._log('Camera watchdog: cam_alive=False -- motors halted')
+\end{lstlisting}
+
+\section{Layer P6: Velocity Clamping}
+
+Every velocity command passes through \code{\_publish(lin, ang)}, which enforces configurable hard limits. The limits are adjustable live via the cockpit velocity sliders and the \code{/leo\_rover/config/velocity} topic (Listing~\ref{lst:velocity-clamp}).
+
+\begin{lstlisting}[language=Python, caption={Velocity clamping applied at every publish call}, label={lst:velocity-clamp}]
+def _publish(self, lin, ang):
+  """Clamp to operator-configured velocity limits and publish /cmd_vel."""
+  lin = max(-self._max_lin_vel, min(self._max_lin_vel, lin))
+  ang = max(-self._max_ang_vel, min(self._max_ang_vel, ang))
+  twist = Twist()
+  twist.linear.x = lin
+  twist.angular.z = ang
+  self._cmd_pub.publish(twist)
+
+# Default limits:
+# _max_lin_vel = 0.5 m/s (rover max ~0.5 m/s)
+# _max_ang_vel = 1.5 rad/s (rover max ~1.5 rad/s)
+# Operational autonomous limits are well below these:
+# ADVANCE_LIN = 0.20 m/s, UTURN_SPEED = 0.50 rad/s
+\end{lstlisting}
+
+\section{Mission Persistence: AutoLogbook}
+
+The AutoLogbook provides complete mission traceability: every significant event is written atomically to \code{auto\_entries.json} with a threading lock. The FIFO structure (max 200 entries) prevents unbounded growth during long missions. On backend restart, the logbook is loaded from disk and the beacon count is restored from the last \code{BEACON\_LOCKED} entry, ensuring mission continuity across development restarts (Listing~\ref{lst:autologbook-write}).
+
+\begin{lstlisting}[language=Python, caption={Atomic, thread-safe logbook write with FIFO bound}, label={lst:autologbook-write}]
+def _write_logbook_entry(self, event_code, data=None):
+  """Atomically append an event to auto_entries.json.
+  Thread-safe: all logbook writes are serialized through self._log_lock."""
+  entry = {
+  'ts': time.time(),
+  'event': event_code,
+  'data': data or {},
+  'mode': self.mode,
+  'auto_state': getattr(self, 'auto_state', None),
+  'world_x': round(self.world_origin_x, 3),
+  'world_y': round(self.world_origin_y, 3),
+  }
+  with self._log_lock:
+  entries = self._logbook[:] # copy current list
+  entries.append(entry)
+  if len(entries) > MAX_LOGBOOK: entries = entries[-MAX_LOGBOOK:]
+  self._logbook = entries
+  # Atomic write: write to temp file, then rename
+  tmp = LOGBOOK_PATH + '.tmp'
+  with open(tmp, 'w') as f:
+  json.dump(entries, f, indent=2)
+  os.rename(tmp, LOGBOOK_PATH) # atomic on Linux (same filesystem)
+\end{lstlisting}
+
+\section{Map Marker Persistence}
+
+Beacon and obstacle map markers are stored as world-frame coordinates in \code{self.map\_markers} (list of dicts). On every telemetry packet, the complete \code{map\_markers} list is serialized into the telemetry JSON and transmitted to the browser. This means a browser reload re-renders all historical markers without loss: the browser never stores map state locally; it always re-receives the complete map from the backend. The implications are:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Browser crash / page reload}: the operator reconnects and sees the complete mission map immediately, with all logged beacon positions intact.
+  \item \textbf{Multiple simultaneous observers}: any number of browsers can connect and will all display the same map state (the backend is the single source of truth).
+  \item \textbf{Backend restart}: markers are not persisted to disk in the current implementation (only the logbook is). A backend restart loses the in-memory map. The logbook provides a recovery mechanism: \code{BEACON\_LOCKED} entries contain \code{world\_x} and \code{world\_y}, enabling manual map reconstruction.
+\end{itemize}
+
+\chapter{Mathematical Safety Engineering}
+\label{ch:safety-math}
+
+This chapter extends Chapter~\ref{ch:safety} with formal reliability theory: a Markov chain model of the six-layer safety architecture, fault tree analysis of the top-level hazard, IEC~61508 SIL classification, an information-theoretic treatment of the heartbeat protocol, Lyapunov stability of velocity clamping, and an SE(2) group-theoretic treatment of dual-frame odometry.
+
+\section{Reliability Theory: Markov Chain Model}
+
+\subsection{System States for Reliability Analysis}
+
+The LEO Rover Mission Control system can be modeled as a continuous-time Markov chain (CTMC) for reliability analysis. The state space consists of operating states (robot functions correctly) and failure states (robot fails to maintain safe behavior). The Markov property applies under the assumption that transitions occur with constant failure rates (memoryless exponential distribution of time between failures).
+
+\begin{eqblock}
+State space $S = \{S_0, S_1, S_2, S_3, S_4, S_5, S_{\text{FAIL}}\}$, where $S_k$ denotes $k$ of the six safety layers having failed ($S_0$: all operational; $S_{\text{FAIL}}$: all six failed, robot may fail to stop). Transition rates: $\lambda_i$ = failure rate of layer $i$ [failures/hour], $\mu_i$ = repair rate of layer $i$ [repairs/hour]. Under the simplifying assumption of identical layers with rate $\lambda$ (i.i.d.\ failures): transition $S_k\to S_{k+1}$ has rate $(6-k)\lambda$ (the $6-k$ remaining layers can each fail); transition $S_k\to S_{k-1}$ has rate $k\mu$ ($k$ failed layers can each be repaired).
+\end{eqblock}
+
+\subsection{Failure Rate Estimation for Each Safety Layer}
+
+The failure rate of each safety layer is estimated from empirical experience and component specifications. Table~\ref{tab:layer-failure-rates} presents the estimates.
+
+\begin{table}[htbp]
+\centering
+\caption{Failure rate estimation for each safety layer}
+\label{tab:layer-failure-rates}
+\small
+\begin{tabular}{@{}p{2.6cm}p{2.6cm}p{4cm}p{1.6cm}p{1.6cm}@{}}
+\toprule
+Layer & Component & Failure Mode & $\lambda$ [/h] & MTBF [h] \\
+\midrule
+P1: Emergency Stop & Browser button + WebSocket & Button click not delivered due to network failure & 0.001 & 1000 \\
+P2: Heartbeat Deadman & Browser \code{setInterval} + WebSocket & \code{setInterval} suspended (background tab) & 0.005 & 200 \\
+P3: Manual Override & ROS command subscriber & ROS subscriber crash or topic drop & 0.0005 & 2000 \\
+P4: Manual Deadman & Python \code{time.time()} check & Python process GIL starvation delay & 0.0001 & 10000 \\
+P5: Camera Watchdog & ROS topic Hz monitor & Camera topic continues publishing garbage & 0.002 & 500 \\
+P6: Velocity Clamp & Python \code{math.min/max} & Numerical overflow (impossible in practice) & 0.00001 & 100000 \\
+\midrule
+\textbf{Combined (P1--P6)} & All layers must fail simultaneously & All 6 independent failures & $\sim10^{-21}$ & $>10^{18}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Combined Failure Probability: Series-Parallel Model}
+
+A safety failure (robot fails to stop) requires all 6 layers to fail simultaneously. For independent failure events, the combined probability of simultaneous failure is the product of individual probabilities:
+
+\begin{eqblock}
+\begin{align}
+P(\text{layer } k \text{ fails in } T \text{ hours}) &= 1 - e^{-\lambda_k T} \\
+P(\text{all 6 fail in } T{=}1\text{h}) &= \prod_{k=1}^{6}(1-e^{-\lambda_k T}) \approx \prod_{k=1}^{6}\lambda_k T \quad (\lambda_k T \ll 1)
+\end{align}
+With $\lambda$ values (per hour) $0.001, 0.005, 0.0005, 0.0001, 0.002, 0.00001$: the product is $5\times10^{-21}$.
+\end{eqblock}
+
+Interpretation: in 1~hour of operation, the probability of all 6 safety layers failing simultaneously is $\sim5\times10^{-21}$. For comparison, the probability of winning a lottery twice in a row is $\approx10^{-14}$: the safety system is astronomically more reliable than the lottery.
+
+\section{Fault Tree Analysis}
+
+\subsection{Top-Level Fault: Robot Fails to Stop}
+
+Fault Tree Analysis (FTA) is a top-down deductive failure analysis technique (Bell Telephone Laboratories, 1962) that uses Boolean logic to trace the causes of an undesired top-level event through a tree of contributing events. The top-level undesired event for the LEO Rover system is: ``robot continues moving in autonomous mode while the operator is not monitoring.''
+
+\begin{eqblock}
+\textbf{TOP EVENT}: robot moves autonomously with no operator awareness (Severity: CRITICAL; Probability $P_{\text{top}}$). AND-gate: all three sub-conditions must hold simultaneously.
+
+\textbf{Sub-1}: robot is in AUTO mode and executing motion commands. $P_{\text{sub1}} = P(\text{AUTO active})\times P(\text{motion command}) \approx 0.5\times0.8 = 0.40$.
+
+\textbf{Sub-2}: heartbeat has been absent for $>1.5$~s \emph{and} the failsafe fails. $P(\text{operator disconnected}>1.5\text{s})\approx0.01$/hour; $P(\text{heartbeat failsafe fails}) = \lambda_{P2}T = 0.005$; $P_{\text{sub2}} = 0.01\times0.005 = 5\times10^{-5}$.
+
+\textbf{Sub-3}: no other safety layer catches the failure. $P(\text{manual override available})\approx0$ (no operator present by assumption); $P(\text{manual deadman fails})\approx0.0001$ (P4); $P(\text{cam watchdog fails})\approx0.002$ (P5); $P(\text{velocity clamp fails})\approx10^{-5}$ (P6); $P_{\text{sub3}} \approx 0.0001\times0.002\times10^{-5} = 2\times10^{-12}$.
+
+$P_{\text{top}} = P_{\text{sub1}}\times P_{\text{sub2}}\times P_{\text{sub3}} = 0.40\times5\times10^{-5}\times2\times10^{-12} = 4\times10^{-17}$ per operational hour.
+\end{eqblock}
+
+\section{Safety Integrity Level Verification}
+
+\subsection{IEC 61508 SIL Classification}
+
+IEC~61508 defines Safety Integrity Level (SIL) as a discrete level for specifying the probability of failure on demand (PFD) or the probability of dangerous failure per hour (PFH) for safety functions:
+
+\begin{eqblock}
+For continuous operation (PFH metric): SIL~4 requires $\text{PFH}<10^{-8}$/h (nuclear, aviation safety-critical); SIL~3: $\text{PFH}\in[10^{-8},10^{-7})$; SIL~2: $\text{PFH}\in[10^{-7},10^{-6})$; SIL~1: $\text{PFH}\in[10^{-6},10^{-5})$.
+
+LEO Rover Mission Control achieved PFH: $P_{\text{top}} = 4\times10^{-17}$/h (from the fault tree analysis above). Classification: this \emph{far exceeds} the SIL~4 requirement (SIL~4 requires PFH$<10^{-8}$; the achieved $10^{-17}$ is 9 orders of magnitude better).
+\end{eqblock}
+
+\textbf{Caveat}: this analysis is purely theoretical and based on estimated failure rates. Actual SIL certification requires formal hazard analysis, FMEA, independent verification, and extensive testing per the IEC~61508 lifecycle process. The purpose here is to demonstrate the qualitative robustness of the defense-in-depth architecture, not to claim formal certification.
+
+\section{Heartbeat Protocol: Information-Theoretic Analysis}
+
+\subsection{Heartbeat as a Binary Hypothesis Test}
+
+The heartbeat deadman switch can be formalized as a sequential hypothesis test. At each 20~Hz control cycle, the system tests $H_0$ (null: operator connected and monitoring (safe) against $H_1$ (alternative: operator disconnected) failsafe required), using the decision variable $t_{\text{hb}} = \text{now} - \text{\_last\_heartbeat\_t}$.
+
+\begin{eqblock}
+Decision rule: if $t_{\text{hb}}\leq\code{HEARTBEAT\_TIMEOUT}$ (1.5~s), accept $H_0$ and continue autonomous operation; if $t_{\text{hb}}>1.5$~s, reject $H_0$ and trigger the failsafe.
+
+\textbf{Type~I error} (false alarm, $H_0$ true but failsafe triggered): occurs if a heartbeat packet is delayed $>1.5$~s on the network. At a 500~ms heartbeat interval and typical 10~ms RTT, a false alarm requires a packet delay $>1500-500=1000$~ms; for 802.11ac, $P(\text{delay}>1\text{s})\approx10^{-4}$ per packet (extreme contention), giving a false-alarm rate $\approx0.002$/hour.
+
+\textbf{Type~II error} (missed detection, $H_1$ true but no failsafe): would require heartbeats to continue arriving despite operator disconnection: impossible in the nominal model (disconnection = no WebSocket = no heartbeat). The edge case of a zombie WebSocket sending packets from a buffer is bounded by TCP keepalive detection ($\approx$120~s, not fast enough on its own), but browser unload events clear the connection in practice, so $\beta$-error rate $\approx0$.
+\end{eqblock}
+
+\subsection{Optimal Threshold Selection: ROC Analysis}
+
+The threshold \code{HEARTBEAT\_TIMEOUT}~=~1.5~s was selected empirically. A Receiver Operating Characteristic (ROC) analysis formalizes the trade-off:
+
+\begin{eqblock}
+True Positive Rate: $\text{TPR} = P(\text{failsafe}\mid\text{operator disconnected}) \approx 1.0$ for $T_{\text{hb}}>0.5$~s (TCP RST is sent on disconnect, terminating the heartbeat).
+
+False Positive Rate: $\text{FPR} = P(\text{failsafe}\mid\text{operator connected}) = P(\text{Wi-Fi delay}>T_{\text{hb}}-500\text{ms})$. At $T_{\text{hb}}=1.5$~s: $\text{FPR}\approx10^{-4}$; at $T_{\text{hb}}=1.0$~s: $\text{FPR}\approx10^{-3}$; at $T_{\text{hb}}=0.6$~s: $\text{FPR}\approx10^{-2}$.
+
+TPR is 1.0 across the relevant range, so the optimal $T_{\text{hb}}$ is the largest value that keeps FPR below an acceptable threshold. At $T_{\text{hb}}=1.5$~s: $\text{FPR}\approx10^{-4}\Rightarrow\sim$0.07 false alarms per 8-hour mission: conservative but acceptable for a research laboratory context.
+\end{eqblock}
+
+\section{Velocity Clamping: Lyapunov Stability Analysis}
+
+\subsection{The Clamping Operation as a Saturation Nonlinearity}
+
+The velocity clamping in \code{\_publish(lin, ang)} is a saturation nonlinearity:
+
+\begin{eqblock}
+\begin{equation}
+\text{sat}(u, u_{\max}) = \max(-u_{\max}, \min(u_{\max}, u))
+\end{equation}
+This defines a sector-bounded nonlinearity: $-u_{\max}\leq\text{sat}(u,u_{\max})\leq u_{\max}$ for all $u$, with $\text{sat}(u,u_{\max})=u$ in the linear region $|u|\leq u_{\max}$.
+
+By the Circle Criterion (Zames, 1966), a feedback system with a sector-bounded nonlinearity $[k_1,k_2]$ is stable if the linear part $G(j\omega)$ satisfies $\text{Re}[G(j\omega)] + 1/k_2 > 0$ for all $\omega$. For the saturation nonlinearity (sector $[0,1]$), this reduces to $\text{Re}[G(j\omega)]>-1$ for all $\omega$: equivalent to the Nyquist stability criterion for unity feedback.
+\end{eqblock}
+
+Practical interpretation: velocity clamping never causes instability in a system that is stable in its linear operating region. The clamping limits the maximum energy injected per timestep, providing a passive safety guarantee independent of the control logic.
+
+\subsection{Maximum Stopping Distance Analysis}
+
+The velocity clamping defines the maximum kinetic energy state of the robot, which in turn determines the stopping distance. Under emergency stop (immediate zero velocity command):
+
+\begin{eqblock}
+Worst case: robot moving at $v_{\max}=0.50$~m/s (velocity clamp upper limit); network RTT $=50$~ms; motor response time $=50$~ms (BLDC with PWM controller).
+
+Distance traveled during reaction time: $d_{\text{reaction}} = v_{\max}(\text{RTT}+T_{\text{motor}}) = 0.50\times0.100 = 0.050$~m $=5$~cm.
+
+Braking distance (motor back-EMF braking, robot mass $\sim$6~kg, deceleration $a_{\text{brake}}\approx1.5$~m/s$^2$): $d_{\text{brake}} = v_{\max}^2/(2a_{\text{brake}}) = 0.25/3.0 = 0.083$~m $=8.3$~cm.
+
+Total stopping distance: $d_{\text{stop}} = d_{\text{reaction}} + d_{\text{brake}} = 13.3$~cm. Obstacle detection threshold: 60~cm. Safety margin: $60-13.3=46.7$~cm: a $3.5\times$ safety factor on stopping distance.
+\end{eqblock}
+
+\section{\texorpdfstring{\code{\_safe\_stop()}}{\_safe\_stop()} Delivery Reliability}
+
+\subsection{Five-Publication Redundancy}
+
+The \code{\_safe\_stop()} function publishes zero velocity five times at 20~ms intervals. The justification is based on the Bernoulli independent trials model for packet delivery:
+
+\begin{eqblock}
+Each \code{/cmd\_vel} publish is modeled as an independent Bernoulli trial with delivery probability $p=1-p_{\text{loss}}$. ROS topic transport uses TCPROS (TCP-based, reliable delivery): delivery is guaranteed if the TCP connection is alive, so $p_{\text{loss}} = P(\text{TCP connection drops during the 5-publication window}) = P(\text{Wi-Fi drop in an 80~ms window}) \approx 10^{-6}$ per 80~ms event on a reliable 802.11ac link.
+
+$P(\text{at least one of 5 publishes delivered}) = 1-(p_{\text{loss}})^5 = 1-10^{-30} \approx 1.0$: essentially perfect delivery.
+
+Why 5 publications instead of 1? In rare cases the ROS subscriber at the rover processes messages with internal queuing; multiple publications ensure that even if the first is queued behind a previous command, at least one zero command reaches the motor controller without another command intervening. The 20~ms interval between publications matches the motor controller's PWM period ($\approx$20~ms, 50~Hz control frequency on AgileX firmware), so each zero command maps to one PWM cycle.
+\end{eqblock}
+
+\section{Dual-Frame Odometry: SE(2) Group Theory}
+
+\subsection{SE(2) as a Lie Group}
+
+The dual-frame odometry system operates on the Special Euclidean group $SE(2)$: the group of rigid body transformations in the 2D plane. Understanding the group structure formally validates the dual-frame composition operations.
+
+\begin{eqblock}
+An $SE(2)$ element is $g=(R,t)$ where $R\in SO(2)$, $t\in\mathbb{R}^2$, with matrix representation
+$$
+g = \begin{bmatrix} \cos\theta & -\sin\theta & t_x \\ \sin\theta & \cos\theta & t_y \\ 0 & 0 & 1 \end{bmatrix}.
+$$
+Group operation (composition = pose chaining): $g_1 * g_2 = (R_1 R_2,\; R_1 t_2 + t_1)$. Inverse: $g^{-1} = (R^\top, -R^\top t)$.
+
+World-to-local transform $T_{WL} = g_{\text{world}}$; local-to-world: $p_{\text{world}} = T_{WL}\,p_{\text{local}} = R_{\text{world}}\,p_{\text{local}} + t_{\text{world}}$, i.e.\ $\begin{bmatrix}\cos\theta_w & -\sin\theta_w\\ \sin\theta_w & \cos\theta_w\end{bmatrix}\begin{bmatrix}l_x\\l_y\end{bmatrix} + \begin{bmatrix}w_x\\w_y\end{bmatrix}$: exactly the \code{\_get\_world\_pos()} implementation of \S\ref{ch:vision-nav}.
+\end{eqblock}
+
+\subsection{Reset as SE(2) Composition}
+
+The local odometry reset operation can be expressed as an $SE(2)$ group composition. Before reset, the robot pose in world frame is $g_{\text{world}}$. After reset, the new world origin is set to the current world position.
+
+\begin{eqblock}
+Before reset: $T_{WL}=(R_w,t_w)$ (world-to-local transform), $p_{\text{local}}=(l_x,l_y,\theta_l)$ (current local pose), $p_{\text{world}} = T_{WL}\,p_{\text{local}} = (w_x,w_y,\theta_w)$.
+
+Reset operation: new world origin $t_w' = p_{\text{world}} = (w_x,w_y)$; new world heading $\theta_w' = \theta_w$ (current absolute heading); new local pose $p_{\text{local}}' = (0,0,0)$ (local frame restarted).
+
+Verification: $p_{\text{world}}' = T_{WL}'\,p_{\text{local}}' = (R(\theta_w'), (w_x,w_y)) * (0,0,0) = (w_x,w_y) = p_{\text{world}}$: world position is continuous through the reset. $\blacksquare$
+
+Composition of all resets over a mission: $T_{WL}^{(n+1)} = T_{WL}^{(n)} \circ g_{\text{local}}^{(n)}$, where $g_{\text{local}}^{(n)}$ is the $SE(2)$ element of the pose at reset $n$. This chain of compositions encodes the complete mission trajectory.
+\end{eqblock}

@@ -1,0 +1,33 @@
+TebLocalPlannerROS:
+  odom_topic: /robot_pose_fused
+
+  # ── Cinématique LEO (skid-steer ≈ diff-drive) ──────────────────────────────
+  max_vel_x: 0.35
+  max_vel_x_backwards: 0.15
+  max_vel_theta: 1.0
+  acc_lim_x: 0.4
+  acc_lim_theta: 1.2
+  min_turning_radius: 0.0          # rotation sur place possible
+  wheelbase: 0.358
+  cmd_angle_instead_rotvel: false
+
+  footprint_model:
+    type: "polygon"
+    vertices: [[-0.23, -0.23], [-0.23, 0.23], [0.23, 0.23], [0.23, -0.23]]
+
+  # ── Tolérances d'arrivée ────────────────────────────────────────────────────
+  xy_goal_tolerance: 0.10
+  yaw_goal_tolerance: 0.15
+  free_goal_vel: false
+
+  # ── Obstacles ───────────────────────────────────────────────────────────────
+  min_obstacle_dist: 0.10          # en plus du footprint polygonal
+  inflation_dist: 0.25
+  include_costmap_obstacles: true
+  costmap_obstacles_behind_robot_dist: 1.0
+
+  # ── Optimisation ────────────────────────────────────────────────────────────
+  no_inner_iterations: 5
+  no_outer_iterations: 4
+  weight_obstacle: 60
+  weight_kinematics_forward_drive: 800   # préférer marche avant (caméra devant)

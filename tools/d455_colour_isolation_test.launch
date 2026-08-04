@@ -1,0 +1,74 @@
+<launch>
+  <!-- Test de charge isole (2026-08-03, revise 2026-08-04) : IMU + roues +
+       camera COULEUR + PROFONDEUR, IR (infra1/infra2) seul desactive.
+
+       BUT : mesurer le cout CPU/USB de la chaine capteurs du Pi 4B SANS le
+       stereo IR, le poids habituel de MINS/openVINS (cf. tools/d455_minimal.
+       launch, raisonnement inverse : ce fichier-la desactive profondeur+
+       couleur pour garder l'IR minimal ; celui-ci coupe l'IR pour garder
+       couleur+profondeur). La profondeur reste active : une tentative
+       couleur-seule (IR ET profondeur coupees) a echoue sur le terrain, le
+       pilote D455 ne livrant aucune frame : voir le commentaire pres de
+       enable_depth plus bas pour le detail. Cette mesure inclut donc le
+       cout de la profondeur, ce n'est plus le cout de la couleur isolee.
+
+       CE QUE CE TEST NE MESURE PAS : la qualite d'estimation MINS/openVINS.
+       Les deux estimateurs sont cables sur /pc/camera/infra1 et infra2
+       (config_camera.yaml de MINS, estimator_config.yaml d'openVINS) et
+       aucun des deux fichiers ne contient d'intrinseques couleur : les
+       seules valeurs couleur connues dans ce projet sont fausses (calibrees
+       en 1280x720, appliquees a un flux 640x480, cf. §12.14.3 du rapport).
+       Ni MINS ni openVINS ne sont demarres par ce fichier : c'est
+       deliberement un test de charge capteurs pur, pas un test d'estimation.
+
+       DELIBEREMENT ABSENT DE TOUT LANCEMENT ACTIF, meme discipline que
+       carolus_tf_bridge.py cette session : on le construit, on ne le cable
+       nulle part, un operateur le lance a la main quand il veut l'utiliser.
+
+       PREREQUIS AVANT DE LANCER : verifier la temperature du Pi
+       (ssh pi@$ROBOT_HOST vcgencmd measure_temp). Au-dela de ~86°C ce test
+       ajoute une charge (redemarrage du pilote camera) sur un Pi deja en
+       zone de bridage : attendre un retour sous ~80°C avec marge. -->
+
+  <arg name="laser_power"    default="-1"/>
+  <arg name="emitter_enabled" default="-1"/>
+  <group ns="camera">
+    <param name="stereo_module/laser_power"     value="$(arg laser_power)"    if="$(eval arg('laser_power') >= 0)"/>
+    <param name="stereo_module/emitter_enabled" value="$(arg emitter_enabled)" if="$(eval arg('emitter_enabled') >= 0)"/>
+  </group>
+
+  <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+    <!-- REVISION 2 (2026-08-04, terrain) : couleur+profondeur+IR toutes
+         trois desactivees ensemble a l'essai precedent -> le pilote se
+         declarait "RealSense Node Is Up!" mais livrait 0 frame en 12 s sur
+         /camera/color/image_raw, silencieusement (aucune erreur). Meme
+         famille de panne que le piege deja documente le 2026-07-06 dans
+         d455_minimal.launch : le module stereo n'accepte pas n'importe
+         quelle combinaison de flux actifs/desactives, et le log affichait
+         "SELECTED BASE:Depth, 0" meme profondeur coupee : signe que le
+         pilote garde une reference interne au flux depth pour la
+         negociation, meme quand on ne le publie pas.
+         Fix empirique : laisser la profondeur ACTIVE (elle ancre la
+         negociation du module stereo), ne couper QUE l'IR. Consequence
+         assumee : cette mesure inclut le cout de la profondeur, ce n'est
+         plus "couleur seule" : a lire comme "couleur+depth, sans IR",
+         pas comme le cout de la couleur isolee. -->
+    <arg name="enable_depth"   value="true"/>
+    <arg name="depth_width"    value="640"/>
+    <arg name="depth_height"   value="480"/>
+    <arg name="depth_fps"      value="15"/>
+    <arg name="enable_infra1"  value="false"/>
+    <arg name="enable_infra2"  value="false"/>
+
+    <arg name="enable_color"   value="true"/>
+    <arg name="color_width"    value="640"/>
+    <arg name="color_height"   value="480"/>
+    <arg name="color_fps"      value="15"/>
+    <arg name="enable_sync"    value="false"/>
+  </include>
+
+  <!-- IMU et roues : deja publies par le firmware (serial_node,
+       firmware_message_converter) des que leo.service tourne, rien a
+       relancer pour eux, ce launch ne concerne que la camera. Le maitre
+       ROS est deja actif sur le Pi (leo.service). -->
+</launch>

@@ -1,0 +1,94 @@
+<launch>
+  <!-- LEO Rover — autonomie complète : SLAM RTAB-Map + exploration frontière
+       + move_base/TEB + AprilTag + machine à états smach + twist_mux.
+
+       PRÉREQUIS (une fois) :
+         sudo apt install ros-noetic-rtabmap-ros ros-noetic-move-base \
+              ros-noetic-teb-local-planner ros-noetic-explore-lite \
+              ros-noetic-apriltag-ros ros-noetic-twist-mux \
+              ros-noetic-depthimage-to-laserscan
+       + leo_backend.py : CMD_TOPIC = "/cmd_vel_manual" (le mux sort /cmd_vel)
+       + navigation_master.launch (MINS/pose_selector) déjà lancé. -->
+
+  <!-- depth 640x480@15 (chaîne compressée existante) -> pseudo-scan pour les
+       costmaps et le réflexe obstacle de la FSM -->
+  <node pkg="depthimage_to_laserscan" type="depthimage_to_laserscan"
+        name="depth_to_scan" respawn="true" respawn_delay="5">
+    <remap from="image"       to="/pc/camera/depth/image_rect_raw"/>
+    <remap from="camera_info" to="/camera/depth/camera_info"/>
+    <remap from="scan"        to="/depth_scan"/>
+    <param name="range_min"     value="0.25"/>
+    <param name="range_max"     value="4.5"/>
+    <param name="scan_height"   value="40"/>
+    <param name="output_frame_id" value="camera_depth_frame"/>
+  </node>
+
+  <!-- AprilTag sur l'infra1 locale (tags à déclarer dans config/tags.yaml) -->
+  <node pkg="apriltag_ros" type="apriltag_ros_continuous_node"
+        name="apriltag" respawn="true" respawn_delay="5">
+    <remap from="image_rect"  to="/pc/camera/infra1/image_rect_raw"/>
+    <remap from="camera_info" to="/camera/infra1/camera_info"/>
+    <rosparam command="load" file="$(find leo_autonomy)/config/apriltag.yaml"/>
+    <rosparam command="load" file="$(find leo_autonomy)/config/tags.yaml"/>
+  </node>
+
+  <!-- SLAM : RTAB-Map, odométrie externe = /robot_pose_fused (MINS/VINS).
+       Landmarks AprilTag intégrés au graphe -> la dérive est corrigée de
+       façon GLOBALEMENT cohérente (mieux qu'un reset ponctuel). -->
+  <node pkg="rtabmap_ros" type="rtabmap" name="rtabmap" output="screen"
+        args="--delete_db_on_start" respawn="true" respawn_delay="5">
+    <param name="frame_id"        value="base_link"/>
+    <param name="odom_frame_id"   value="odom"/>
+    <param name="subscribe_depth" value="true"/>
+    <param name="approx_sync"     value="true"/>
+    <remap from="rgb/image"       to="/pc/camera/infra1/image_rect_raw"/>
+    <remap from="depth/image"     to="/pc/camera/depth/image_rect_raw"/>
+    <remap from="rgb/camera_info" to="/camera/infra1/camera_info"/>
+    <remap from="odom"            to="/robot_pose_fused"/>
+    <remap from="tag_detections"  to="/tag_detections"/>
+    <!-- carte 2D fine pour l'exploration/costmap -->
+    <param name="Grid/CellSize"        value="0.03"/>
+    <param name="Grid/RangeMax"        value="4.0"/>
+    <param name="Grid/FromDepth"       value="true"/>
+    <param name="Grid/RayTracing"      value="true"/>
+    <param name="RGBD/OptimizeMaxError" value="2.0"/>
+    <param name="Marker/Dictionary"    value="20"/> <!-- apriltag 36h11 -->
+    <param name="RGBD/MarkerDetection" value="true"/>
+    <param name="Marker/VarianceLinear" value="0.0025"/>
+  </node>
+
+  <!-- Navigation -->
+  <node pkg="move_base" type="move_base" name="move_base" output="screen"
+        respawn="true" respawn_delay="5">
+    <rosparam command="load" file="$(find leo_autonomy)/config/move_base.yaml"/>
+    <rosparam command="load" file="$(find leo_autonomy)/config/costmap_common.yaml" ns="global_costmap"/>
+    <rosparam command="load" file="$(find leo_autonomy)/config/costmap_common.yaml" ns="local_costmap"/>
+    <rosparam command="load" file="$(find leo_autonomy)/config/global_costmap.yaml"/>
+    <rosparam command="load" file="$(find leo_autonomy)/config/local_costmap.yaml"/>
+    <rosparam command="load" file="$(find leo_autonomy)/config/teb_local_planner.yaml"/>
+    <remap from="cmd_vel" to="/cmd_vel_nav"/>
+    <remap from="map"     to="/rtabmap/grid_map"/>
+  </node>
+
+  <!-- Exploration frontière : pilote move_base tant que des frontières existent -->
+  <node pkg="explore_lite" type="explore" name="explore" respawn="true" respawn_delay="10">
+    <param name="robot_base_frame"     value="base_link"/>
+    <param name="costmap_topic"        value="/rtabmap/grid_map"/>
+    <param name="visualize"            value="true"/>
+    <param name="planner_frequency"    value="0.3"/>
+    <param name="progress_timeout"     value="30.0"/>
+    <param name="potential_scale"      value="3.0"/>
+    <param name="gain_scale"           value="1.0"/>
+    <param name="min_frontier_size"    value="0.4"/>
+  </node>
+
+  <!-- Arbitrage vitesse : opérateur > réflexe FSM > navigation -->
+  <node pkg="twist_mux" type="twist_mux" name="twist_mux" respawn="true" respawn_delay="5">
+    <rosparam command="load" file="$(find leo_autonomy)/config/twist_mux.yaml"/>
+    <remap from="cmd_vel_out" to="/cmd_vel"/>
+  </node>
+
+  <!-- Machine à états mission -->
+  <node pkg="leo_autonomy" type="mission_fsm.py" name="mission_fsm"
+        output="screen" respawn="true" respawn_delay="5"/>
+</launch>

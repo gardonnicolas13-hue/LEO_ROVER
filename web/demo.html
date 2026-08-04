@@ -1,0 +1,291 @@
+<!--
+  demo.html — vue DEMONSTRATION (Lot E, v4, 2026-07-30).
+
+  POURQUOI UNE PAGE SEPAREE : le cockpit `ops.html` est un poste de travail —
+  dense, complet, fait pour diagnostiquer. Une soutenance demande l'inverse :
+  peu d'elements, tres lisibles a trois metres. Ajouter un « mode plein
+  ecran » a ops.html aurait melange les deux intentions et fragilise une page
+  qui fonctionne. Cette page est donc autonome et EN LECTURE SEULE : elle
+  n'emet aucune commande, on ne peut rien casser depuis elle.
+
+  CE QU'ELLE MONTRE : les deux mesures de LA MEME grandeur — la pose du robot
+  — par deux chemins independants, dans le repere fixe de la balise :
+      /odom_in_beacon      (odometrie)
+      /carolus_in_beacon   (Carolus)
+  Leur ecart instantane est l'ERREUR ABSOLUE. C'est le seul chiffre de ce
+  projet qui ne depende d'aucun recalage : ni Kabsch, ni Umeyama.
+
+  DEPENDANCE : carolus_tf_bridge.py doit tourner (il n'est dans aucun launch,
+  voir son en-tete). Sans lui la page affiche « en attente » — elle ne ment
+  jamais en montrant des axes vides comme si c'etait une mesure.
+-->
+<title>LEO Rover · Démonstration</title>
+<script src="vendor/roslib.min.js?v=v1"></script>
+
+<style>
+  :root{
+    --bg:#07090c; --panel:#0d1117; --line:#1b2430;
+    --odo:#ff7043; --caro:#26c6da; --ok:#3fdc97; --warn:#ffb454; --bad:#ff6b6b;
+    --dim:#5a6673; --txt:#e8f0f5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+       height:100vh;overflow:hidden;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:14px;padding:10px 20px;
+         border-bottom:1px solid var(--line);flex:0 0 auto}
+  header h1{margin:0;font-size:15px;font-weight:700;letter-spacing:.14em;
+            text-transform:uppercase}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--dim)}
+  .dot.on{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+  main{flex:1;display:grid;grid-template-columns:1fr 340px;min-height:0}
+  #plotWrap{position:relative;min-width:0}
+  canvas{display:block;width:100%;height:100%}
+  aside{border-left:1px solid var(--line);padding:16px;display:flex;
+        flex-direction:column;gap:12px;overflow-y:auto}
+  .metric{background:var(--panel);border:1px solid var(--line);
+          border-radius:10px;padding:12px 14px}
+  .metric .k{font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+             color:var(--dim)}
+  .metric .v{font-size:38px;font-weight:800;line-height:1.05;
+             font-variant-numeric:tabular-nums;margin-top:2px}
+  .metric .u{font-size:11px;color:var(--dim);margin-top:2px}
+  .metric.hero .v{font-size:56px}
+  .legend{display:flex;gap:16px;font-size:12px;padding:8px 20px;
+          border-top:1px solid var(--line);flex:0 0 auto;align-items:center}
+  .sw{display:inline-block;width:22px;height:3px;vertical-align:middle;
+      margin-right:6px;border-radius:2px}
+  .waiting{position:absolute;inset:0;display:flex;align-items:center;
+           justify-content:center;text-align:center;padding:30px}
+  .waiting div{max-width:520px}
+  .waiting h2{font-size:20px;margin:0 0 10px;color:var(--warn)}
+  .waiting p{font-size:13px;line-height:1.6;color:var(--dim);margin:6px 0}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace;
+       background:#0a1520;padding:2px 6px;border-radius:4px;color:var(--caro)}
+</style>
+
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>LEO Rover · Trajectoire en repère balise</h1>
+  <span style="margin-left:auto;font-size:11px;color:var(--dim)"
+        id="hdrInfo">—</span>
+</header>
+
+<main>
+  <div id="plotWrap">
+    <canvas id="cv"></canvas>
+    <div class="waiting" id="waiting">
+      <div>
+        <h2>En attente du pont TF</h2>
+        <p>Cette vue affiche la pose du robot mesurée par deux chemins
+           indépendants dans le repère fixe de la balise.</p>
+        <p>Elle nécessite <code>carolus_tf_bridge.py</code>, qui n'est dans
+           aucun fichier de lancement — démarrage manuel&nbsp;:</p>
+        <p><code>rosrun leo_navigation carolus_tf_bridge.py</code></p>
+        <p>Prérequis&nbsp;: caméra couleur active et détecteur Carolus lancé.</p>
+      </div>
+    </div>
+  </div>
+
+  <aside>
+    <div class="metric hero">
+      <div class="k">Erreur absolue · RMS</div>
+      <div class="v" id="mErr" style="color:var(--ok)">—</div>
+      <div class="u">écart odométrie ↔ Carolus · aucun recalage</div>
+    </div>
+    <div class="metric">
+      <div class="k">Erreur courante</div>
+      <div class="v" id="mErrNow" style="font-size:30px">—</div>
+      <div class="u">mètres</div>
+    </div>
+    <div class="metric">
+      <div class="k">Distance à la balise</div>
+      <div class="v" id="mDist" style="font-size:30px;color:var(--caro)">—</div>
+      <div class="u">mètres</div>
+    </div>
+    <div class="metric">
+      <div class="k">Chemin parcouru</div>
+      <div class="v" id="mPath" style="font-size:30px">—</div>
+      <div class="u">mètres · odométrie</div>
+    </div>
+    <div class="metric">
+      <div class="k">Échantillons</div>
+      <div class="v" id="mN" style="font-size:30px;color:var(--dim)">0</div>
+      <div class="u">odométrie / Carolus</div>
+    </div>
+  </aside>
+</main>
+
+<div class="legend">
+  <span><span class="sw" style="background:var(--odo)"></span>Odométrie</span>
+  <span><span class="sw" style="background:var(--caro)"></span>Carolus</span>
+  <span><span class="sw" style="background:var(--dim)"></span>Cap (flèches)</span>
+  <span style="margin-left:auto;color:var(--dim)" id="scaleTxt">—</span>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* Deux traces, memoire bornee : une demonstration dure quelques minutes,
+     garder tout l'historique ferait ramer le canvas sans rien apporter. */
+  var MAXPTS = 4000;
+  var odo = [], caro = [], errs = [];
+  var lastOdo = null, lastCaro = null, pathLen = 0;
+
+  /* ── Connexion ROS ──────────────────────────────────────────────────── */
+  var proto = location.protocol === "https:" ? "wss" : "ws";
+  var url = (location.protocol === "https:")
+    ? proto + "://" + location.host + "/rosbridge"
+    : proto + "://" + location.hostname + ":9090";
+  var ros = new ROSLIB.Ros({ url: url });
+
+  ros.on("connection", function () { $("dot").classList.add("on"); });
+  ros.on("close",      function () { $("dot").classList.remove("on"); });
+  ros.on("error",      function () { $("dot").classList.remove("on"); });
+
+  function yawOf(q) {
+    return Math.atan2(2 * (q.w * q.z + q.x * q.y),
+                      1 - 2 * (q.y * q.y + q.z * q.z));
+  }
+  function sub(topic, arr, isOdo) {
+    new ROSLIB.Topic({ ros: ros, name: topic,
+                       messageType: "geometry_msgs/PoseStamped",
+                       throttle_rate: 50 })
+      .subscribe(function (m) {
+        var p = m.pose.position;
+        var pt = { x: p.x, y: p.y, yaw: yawOf(m.pose.orientation) };
+        arr.push(pt);
+        if (arr.length > MAXPTS) arr.shift();
+        if (isOdo) {
+          if (lastOdo) {
+            pathLen += Math.hypot(pt.x - lastOdo.x, pt.y - lastOdo.y);
+          }
+          lastOdo = pt;
+        } else {
+          lastCaro = pt;
+        }
+        /* L'erreur n'a de sens que si les DEUX chemins ont produit un point :
+           comparer une mesure a rien donnerait un chiffre flatteur et faux. */
+        if (lastOdo && lastCaro) {
+          errs.push(Math.hypot(lastOdo.x - lastCaro.x, lastOdo.y - lastCaro.y));
+          if (errs.length > MAXPTS) errs.shift();
+        }
+        $("waiting").style.display = "none";
+      });
+  }
+  sub("/odom_in_beacon", odo, true);
+  sub("/carolus_in_beacon", caro, false);
+
+  /* ── Rendu ──────────────────────────────────────────────────────────── */
+  var cv = $("cv"), ctx = cv.getContext("2d");
+  function resize() {
+    var r = cv.parentNode.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+    cv.width = Math.floor(r.width * d); cv.height = Math.floor(r.height * d);
+    ctx.setTransform(d, 0, 0, d, 0, 0);
+  }
+  window.addEventListener("resize", resize); resize();
+
+  function bounds() {
+    var all = odo.concat(caro);
+    var b = { x0: -1, x1: 1, y0: -1, y1: 1 };
+    if (!all.length) return b;
+    b.x0 = b.y0 = Infinity; b.x1 = b.y1 = -Infinity;
+    all.forEach(function (p) {
+      if (p.x < b.x0) b.x0 = p.x; if (p.x > b.x1) b.x1 = p.x;
+      if (p.y < b.y0) b.y0 = p.y; if (p.y > b.y1) b.y1 = p.y;
+    });
+    b.x0 = Math.min(b.x0, 0); b.x1 = Math.max(b.x1, 0);   /* balise toujours visible */
+    b.y0 = Math.min(b.y0, 0); b.y1 = Math.max(b.y1, 0);
+    var mx = Math.max(0.5, (b.x1 - b.x0) * 0.12), my = Math.max(0.5, (b.y1 - b.y0) * 0.12);
+    b.x0 -= mx; b.x1 += mx; b.y0 -= my; b.y1 += my;
+    return b;
+  }
+
+  function draw() {
+    var W = cv.clientWidth, H = cv.clientHeight;
+    ctx.clearRect(0, 0, W, H);
+    var b = bounds();
+    /* axis equal : une trajectoire deformee induirait en erreur sur la forme */
+    var s = Math.min(W / (b.x1 - b.x0), H / (b.y1 - b.y0)) * 0.9;
+    var cx = W / 2 - ((b.x0 + b.x1) / 2) * s;
+    var cy = H / 2 + ((b.y0 + b.y1) / 2) * s;
+    var X = function (x) { return cx + x * s; };
+    var Y = function (y) { return cy - y * s; };
+
+    /* grille metrique */
+    ctx.strokeStyle = "#141c26"; ctx.lineWidth = 1;
+    var step = s > 160 ? 0.25 : s > 70 ? 0.5 : s > 30 ? 1 : 2;
+    ctx.beginPath();
+    for (var gx = Math.ceil(b.x0 / step) * step; gx <= b.x1; gx += step) {
+      ctx.moveTo(X(gx), 0); ctx.lineTo(X(gx), H);
+    }
+    for (var gy = Math.ceil(b.y0 / step) * step; gy <= b.y1; gy += step) {
+      ctx.moveTo(0, Y(gy)); ctx.lineTo(W, Y(gy));
+    }
+    ctx.stroke();
+    $("scaleTxt").textContent = "grille " + step.toFixed(2) + " m";
+
+    function trace(arr, col) {
+      if (arr.length < 2) return;
+      ctx.strokeStyle = col; ctx.lineWidth = 2.5;
+      ctx.lineJoin = "round"; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(X(arr[0].x), Y(arr[0].y));
+      for (var i = 1; i < arr.length; i++) ctx.lineTo(X(arr[i].x), Y(arr[i].y));
+      ctx.stroke();
+    }
+    /* Fleches de cap — l'equivalent du `quiver` MATLAB. Une position seule ne
+       dit pas si le robot recule ou avance de travers ; le cap le montre. */
+    function quiver(arr, col) {
+      if (arr.length < 2) return;
+      var every = Math.max(1, Math.floor(arr.length / 26));
+      ctx.strokeStyle = col; ctx.lineWidth = 1.6;
+      for (var i = 0; i < arr.length; i += every) {
+        var p = arr[i], L = Math.max(14, Math.min(30, s * 0.18));
+        var ax = X(p.x), ay = Y(p.y);
+        var bx = ax + Math.cos(p.yaw) * L, by = ay - Math.sin(p.yaw) * L;
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
+        var a1 = p.yaw + 2.6, a2 = p.yaw - 2.6;
+        ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(a1) * 7, by - Math.sin(a1) * 7);
+        ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(a2) * 7, by - Math.sin(a2) * 7);
+        ctx.stroke();
+      }
+    }
+    trace(odo, "#ff7043");  quiver(odo, "rgba(255,112,67,.55)");
+    trace(caro, "#26c6da"); quiver(caro, "rgba(38,198,218,.55)");
+
+    /* La balise est l'origine du repere, par construction de l'ancrage. */
+    ctx.fillStyle = "#ffd54f";
+    ctx.beginPath(); ctx.arc(X(0), Y(0), 8, 0, 6.2832); ctx.fill();
+    ctx.font = "600 12px ui-sans-serif,system-ui";
+    ctx.fillText("BALISE (0,0)", X(0) + 13, Y(0) + 4);
+
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  /* ── Metriques ──────────────────────────────────────────────────────── */
+  function fmt(v, n) { return (v === null || v === undefined || isNaN(v))
+                              ? "—" : v.toFixed(n === undefined ? 3 : n); }
+  setInterval(function () {
+    var rms = null;
+    if (errs.length) {
+      var sum = 0; for (var i = 0; i < errs.length; i++) sum += errs[i] * errs[i];
+      rms = Math.sqrt(sum / errs.length);
+    }
+    $("mErr").textContent = fmt(rms);
+    /* Code couleur : au-dela de 20 cm sur un tour de labo, l'ecart cesse
+       d'etre un bruit de mesure. */
+    $("mErr").style.color = rms === null ? "var(--dim)"
+      : rms < 0.10 ? "var(--ok)" : rms < 0.20 ? "var(--warn)" : "var(--bad)";
+    $("mErrNow").textContent = errs.length ? fmt(errs[errs.length - 1]) : "—";
+    $("mDist").textContent = lastOdo ? fmt(Math.hypot(lastOdo.x, lastOdo.y), 2) : "—";
+    $("mPath").textContent = fmt(pathLen, 2);
+    $("mN").textContent = odo.length + " / " + caro.length;
+    $("hdrInfo").textContent = odo.length
+      ? "odométrie " + odo.length + " pts · Carolus " + caro.length + " pts"
+      : "aucune donnée";
+  }, 250);
+})();
+</script>

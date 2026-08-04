@@ -1,0 +1,83 @@
+\chapter{State of the Art}
+\label{ch:lit-review}
+
+\section{Autonomous Mobile Ground Robotics: Historical Perspective}
+
+The intellectual lineage of autonomous ground robots can be traced to Shakey the Robot (SRI International, 1966--1972): the first general-purpose mobile robot capable of reasoning about its environment, planning multi-step actions, and executing them autonomously. Shakey operated on a wheeled platform in a structured block-world environment, using a combination of visible-light cameras and touch sensors. Its planning subsystem (the STRIPS (Stanford Research Institute Problem Solver) planner) established foundational concepts in AI planning that persist in modified form in contemporary robotic task planners.
+
+The 1980s and 1990s saw the emergence of behavior-based robotics (Brooks, 1986) as a reaction against deliberative planning approaches. Brooks's subsumption architecture proposed that intelligent behavior could emerge from a layered collection of simple reactive behaviors without explicit world models, influencing the design of the reactive fallback mechanisms in modern robot controllers. The DARPA Urban Challenge (2007) demonstrated the first successful autonomous navigation of a full-scale vehicle in a realistic urban environment, validating sensor fusion architectures combining LiDAR, stereo cameras, and GPS. By 2015, academic platforms such as the TurtleBot (Open Robotics) had made autonomous indoor navigation accessible to university research groups, directly enabling the kind of multi-robot comparative studies (such as the Carolus framework at FIT) that contextualize the present work.
+
+\section{The ROS Ecosystem: Architecture and Rationale}
+
+\subsection{ROS as Research Middleware Standard}
+
+The Robot Operating System (ROS), developed at Stanford and formalized by Willow Garage beginning in 2007, is not an operating system in the traditional sense but rather a communication middleware, a build system, a package management framework, and a collection of driver and algorithm packages. Its publish-subscribe (pub/sub) communication model (where nodes exchange typed messages on named topics via a master registry (\code{rosmaster})) enables highly modular robotic architectures: each processing stage (sensing, perception, planning, actuation) can be implemented as an independent node, replaced or upgraded independently.
+
+\subsection{ROS Noetic: Last LTS of ROS 1}
+
+ROS Noetic Ninjemys (released May 2020, EOL May 2025) is the final Long-Term Support release of ROS~1. Built on Ubuntu 20.04 (Focal Fossa) with Python 3.8, it provides the stable Python~3 integration required for the scientific computing ecosystem (NumPy~1.17+, OpenCV~4.2+). The LEO Rover laboratory infrastructure standardizes on Noetic because: (1)~the AgileX firmware ROS package (\code{leo\_msgs}) has mature Noetic support; (2)~\code{rosbridge\_websocket} v3.x is Noetic-compatible; (3)~the laboratory's existing ROS toolchain is validated on this distribution.
+
+Table~\ref{tab:lit-ros-comparison} contextualizes Noetic relative to ROS~2 Humble (the current LTS), which the laboratory is evaluating for future platform migration.
+
+\begin{table}[htbp]
+\centering
+\caption{ROS Noetic vs.\ ROS 2 Humble feature comparison}
+\label{tab:lit-ros-comparison}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Feature & ROS Noetic & ROS 2 Humble \\
+\midrule
+Communication & TCPROS / UDPROS & DDS (default: FastDDS) \\
+Real-time support & Limited (Linux scheduler) & RCLCPP real-time executors \\
+Python version & Python 3.8 & Python 3.10+ \\
+Security & None by default & SROS2 (DDS-Security) \\
+Multi-robot support & Manual namespace prefix & Domain ID + \code{ROS\_DOMAIN\_ID} \\
+Lifecycle nodes & Not supported & Supported (managed nodes) \\
+EOL date & May 2025 & May 2027 \\
+Lab status (2026) & Deployed (migration planned) & Evaluation phase \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Computer Vision for Fiducial Detection: Related Work}
+
+\subsection{Classical Thresholding in Robotics}
+
+Global intensity thresholding (Otsu, 1979) is the most widely deployed binarization strategy in industrial machine vision. Otsu's method selects the threshold $T^*$ minimizing intra-class intensity variance, equivalent to maximizing inter-class variance. It is optimal for bimodal intensity distributions under uniform illumination. However, it fails when the ROI contains both very bright (LED-saturated) and ambient (room) pixels because the global histogram becomes trimodal, biasing the threshold upward. The present system bypasses Otsu entirely in favor of a fixed high-value threshold (\code{LED\_BRIGHT\_THRESH = 220/255}) that exploits the absolute brightness of LED emitters: a design choice validated empirically across all laboratory lighting configurations tested.
+
+Adaptive thresholding (Wellner, 1993; Sauvola \& Pietikäinen, 2000) computes a spatially varying threshold $T(x,y) = \mu(x,y) - k\sigma(x,y)$ based on local statistics in a sliding window. This is precisely the mechanism used internally by OpenCV's \code{findChessboardCornersSB} for its checkerboard binarization. The advantage over global thresholding is robustness to illumination gradients across the image: the critical property that makes SB detection work for the laboratory's physically non-uniform checkerboard board.
+
+\subsection{Fiducial Marker Systems}
+
+ArUco markers (Garrido-Jurado et al., 2014) encode binary IDs in a 2D grid of alternating black and white modules, with a distinctive black border for detection. The OpenCV \code{aruco} module provides sub-pixel corner refinement and pose estimation in a unified API. AprilTag (Olson, 2011; Wang \& Olson, 2016) improves on ArUco's detection robustness under partial occlusion and at greater distances by using graph-cut-based segmentation and lexicographic coding. STag (Benligiray et al., 2019) further improves stability under motion blur.
+
+The checkerboard-based landmark used in the present project is inferior to ArUco or AprilTag in ID multiplexing (it cannot encode an identifier) and in detection robustness at extreme angles. Its advantage is universal availability: any standard printed checkerboard suffices, while ArUco/AprilTag markers require specific printing procedures. For the Carolus laboratory context (where a fixed single landmark is used per test run) this limitation is immaterial.
+
+\subsection{LED Beacon Detection in Prior Work}
+
+Optical beacon detection using LED clusters is employed in a range of robotic docking and homing applications. Notable implementations include: the Pioneer AT's LED-based homing beacon (Adept MobileRobots, circa 2005), which used three LEDs in a vertical triangular arrangement detected via color blob tracking; the Mars Science Laboratory EDL beacon system, which used retro-reflective markers and an active illuminator; and the HydraGlider AUV homing system (Hobson et al., 2012), which used pulsed LED clusters detected by a forward-facing camera. The present system's 4-LED horizontal cluster design was constrained by the existing physical beacon deployed in the FIT laboratory, which was not modifiable within the internship scope.
+
+\section{Web-Based HMI for Robotic Systems}
+
+\subsection{The Robot Web Tools Ecosystem}
+
+\label{sec:webrendering}
+The rosbridge suite (Crick et al., 2017) is the canonical WebSocket-based bridge for ROS, implementing the rosbridge protocol v2.0 specification. It comprises: \code{rosbridge\_server} (WebSocket server exposing ROS pub/sub over JSON), \code{roslibjs} (browser-side JavaScript library for rosbridge communication), \code{ros2djs} (2D canvas visualization), and \code{ros3djs} (Three.js-based 3D visualization). The present project uses \code{roslibjs} for topic subscription/advertisement and direct Canvas 2D API for custom visualization: bypassing \code{ros2djs} whose fixed-style rendering was incompatible with the glassmorphic design language.
+
+Alternative browser-based ROS interfaces include: Robot Ignition Fuel's web renderer; Webviz (Cruise Automation, 2019), a browser-based ROS bag visualization tool; and ROSboard (a real-time web dashboard for ROS~1/2). None of these alternatives provided the full-stack integration (video overlay, trajectory map, 3D decoratives, i18n, alert system, and cockpit telemetry) required by the present project's operator situational awareness objectives.
+
+\subsection{Glassmorphism in Industrial HMI}
+
+Glassmorphism (popularized by Apple's iOS~7, 2013; formalized as a design system by Michal Malewicz, 2020) is a visual design language characterized by translucent panel backgrounds with Gaussian blur, thin light-colored borders, and subtle drop shadows, creating a perception of floating glass layers. While initially a consumer product aesthetic, glassmorphism has been adopted in several modern industrial monitoring dashboards (Grafana's 2023 dark theme, Siemens' MindSphere operator views) where its high-contrast, depth-layered presentation improves operator attention allocation at night or in low-ambient-light control rooms.
+
+In the present project, glassmorphism was selected for two engineering-motivated reasons: (1)~its translucency allows the MJPEG video feed to remain partially visible beneath telemetry panels, preserving Level~1 SA (direct sensory access) without sacrificing Level~2 SA (numerical data); (2)~its dark-background, high-contrast color scheme is well-suited to the NASA/FIT color palette (navy blue \#1F3864, FT Crimson \#8B0015) and reduces eye fatigue during extended monitoring sessions.
+
+\section{Safety Architecture in Autonomous Systems: Standards Overview}
+
+IEC~61508 (Functional Safety of E/E/PE Safety-related Systems) defines four Safety Integrity Levels (SIL~1--4) based on probability of dangerous failure per hour. For a research robotic platform operating in a controlled laboratory at low speed ($<$0.5~m/s), typical risk classification places the system at SIL~1, requiring a probability of dangerous hardware failure $<10^{-5}$/hour. The software architecture implications of SIL~1 include: documented requirements, basic fault detection, and explicit specification of all normal and failure modes.
+
+NASA-STD-8719.13C (Software Safety Standard) introduces the concept of software hazard criticality, categorizing hazardous software functions by severity (catastrophic / critical / marginal / negligible) and probability. The heartbeat deadman switch in the present system addresses the safety-critical function ``motor continues running with no operator present'', classified as Critical severity (potential equipment damage) / Probable probability (Wi-Fi connections are routinely interrupted): the highest risk category addressed in the system. The dual-guard implementation (\code{HEARTBEAT\_TIMEOUT} = 1.5~s + \code{HEARTBEAT\_STALE\_S} = 5.0~s stale guard) was designed to address this risk category.
+
+\section{Synthesis: Positioning of the Present Work}
+
+The LEO Rover Mission Control system occupies a distinctive position in the robotic systems landscape: it is neither a pure research prototype (it achieves production-quality reliability through systematic engineering) nor a commercial product (it is purpose-built for a specific research platform and laboratory environment). It draws from: (1)~the computer vision literature on LED detection and checkerboard localization; (2)~the ROS community's rosbridge ecosystem for WebSocket bridging; (3)~the human factors literature on situational awareness design; (4)~the safety-critical systems engineering literature on deadman switches and fail-safe architectures. Its primary contribution is the full-stack integration of these elements into a cohesive, deployment-validated system, with the architectural innovations of the multiprocess vision pipeline and the density-based LED clustering algorithm representing original engineering solutions to novel failure modes not documented in prior literature.

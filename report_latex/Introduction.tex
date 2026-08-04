@@ -1,0 +1,179 @@
+\chapter{Introduction}
+\label{ch:introduction}
+
+\section{Preamble: The Rise of Autonomous Ground Robotics}
+
+The field of autonomous ground robotics has undergone a profound transformation over the past two decades, driven by the convergence of three critical technological shifts: the democratization of low-cost, high-performance embedded computing platforms; the maturation of the Robot Operating System (ROS) as a middleware standard; and the emergence of deep learning-based and classical computer vision architectures capable of operating reliably in real-world unstructured environments. What was once the exclusive domain of well-funded government defense programs and large-scale industrial automation projects has gradually become accessible to academic research laboratories, start-up ecosystems, and individual developers with relatively modest resources. This accessibility revolution has not, however, eliminated the fundamental engineering challenges inherent to autonomous robotic systems: it has merely shifted the threshold at which those challenges begin to manifest, and in doing so, exposed them to a broader and less specialized engineering community.
+
+Autonomous ground vehicles (AGVs) and unmanned ground vehicles (UGVs) occupy a particularly complex design space within the broader robotics landscape. Unlike aerial systems, which benefit from an operating volume largely free of contact hazards, ground robots must navigate a densely cluttered physical world governed by contact mechanics, friction dynamics, surface irregularities, and highly variable environmental conditions. Unlike stationary robotic manipulators, which operate within precisely defined and repeatable workspaces, mobile ground platforms must continuously localize themselves within an environment that is, by definition, partially or wholly unknown at deployment time. The classical formulation of this localization challenge (Simultaneous Localization and Mapping (SLAM)) remains one of the most actively researched problems in robotics, with hundreds of publications appearing annually across premier venues such as ICRA, IROS, IJRR, and the IEEE Transactions on Robotics.
+
+Beyond the perception and navigation challenges, the development of autonomous ground systems demands mastery of a second, equally complex engineering domain: the design of the software infrastructure that connects the physical robot to the human operator. This infrastructure (encompassing real-time middleware, network communication protocols, human-machine interface design, and safety-critical control logic) is frequently treated as a secondary concern. This dismissive attitude is, in practice, a significant source of system failures, mission aborts, and research delays. A vision pipeline producing centimeter-accurate detections is valueless if the data arrives 400 milliseconds late. System engineering, in the truest sense of the term, demands simultaneous mastery of the full vertical stack: from the firmware registers of the motor controller to the pixel compositing operations of the browser rendering engine.
+
+It is precisely this full-stack perspective that characterizes the present internship report. The work documented herein describes the design, implementation, and validation of the LEO Rover Mission Control system: a comprehensive autonomous mission control platform for the LEO Rover ground robot, developed during a research internship at the Florida Institute of Technology (FIT), Melbourne, Florida, under the supervision of the robotics laboratory led by Dr.\ Gutierrez.
+
+\section{Research Context: Florida Institute of Technology}
+
+The Florida Institute of Technology (FIT), founded in 1958 in Melbourne, Brevard County, on Florida's Space Coast, is one of Florida's leading research universities, with academic strengths historically shaped by proximity to Kennedy Space Center, Patrick Space Force Base, and the dense constellation of aerospace and defense contractors that populate Brevard County. The university's research culture carries the imprint of this industrial environment: an emphasis on systems reliability, embedded computing, human-machine interface design, and applied engineering methodology.
+
+The robotics laboratory in which this internship was conducted operates under the umbrella of the Carolus research framework, a vision-based indoor localization system designed to provide accurate pose estimation for mobile robotic platforms operating in environments where GPS signals are unavailable. Carolus serves as the unifying localization backbone for a broader comparative multi-robot study involving three distinct platforms: the LIMO Rover (AgileX Robotics), the LEO Rover (Husarion), and the DJI RoboMaster S1. Each platform brings a distinct kinematic configuration, sensor suite, and computational profile to bear on a common autonomous navigation task, enabling a rigorous comparative analysis of localization performance, control responsiveness, and mission reliability.
+
+The LEO Rover is a four-wheeled differential-drive mobile robot developed by Husarion, designed for research and educational applications. In the laboratory configuration, the LEO Rover has been augmented with an Intel RealSense D455 depth camera providing both color imagery (1280$\times$720 at up to 30~Hz) and depth data (848$\times$480) suitable for visual localization and obstacle avoidance. Primary computation is offloaded to a dedicated workstation PC running Ubuntu 20.04 and ROS Noetic, connected to the robot over a dedicated Wi-Fi link.
+
+\section{Problem Statement and Scope of the Work}
+
+\subsection{Initial System Deficiencies}
+
+The technical baseline inherited at the beginning of this internship was characterized by five interrelated architectural deficiencies that collectively prevented reliable autonomous operation:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Vision pipeline throughput degradation}: \code{findChessboardCorners} blocked the ROS callback thread for 200--330~ms, reducing effective camera rate from 10~Hz to 3~Hz.
+  \item \textbf{Systematic false positives in LED beacon detection}: area-based anchor heuristic consistently selected ceiling reflections (up to 4000~px$^2$) over actual LED blobs (50--200~px$^2$). Detection rate: 0\%.
+  \item \textbf{Systematic checkerboard landmark detection failures}: \code{findChessboardCornersSB} relegated to a 1-second timed fallback; effective detection rate near 0\%.
+  \item \textbf{Heartbeat failsafe instant-trigger}: \code{\_hb\_armed} persisted across sessions; stale timestamp caused immediate failsafe on AUTO re-entry.
+  \item \textbf{Non-deterministic ROS\_IP selection}: \code{hostname -I} returned the wrong network interface, causing all browser commands to be silently discarded.
+\end{itemize}
+
+\subsection{Full Scope of Engineering Work}
+
+The resolution of these deficiencies required systematic re-engineering across seven dimensions:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item Multiprocess vision architecture using spawn-context subprocess with bounded IPC queues, eliminating GIL contention.
+  \item Density-based LED clustering replacing the area-based anchor heuristic.
+  \item Two-stage checkerboard detection using \code{findChessboardCornersSB} as the primary algorithm in all code paths.
+  \item Heartbeat stale guard enabling clean session reconnection.
+  \item Deterministic network configuration with hardcoded \code{ROS\_IP}.
+  \item Complete FSM redesign: six autonomous states with dual-frame odometry and map persistence.
+  \item Browser-based operator cockpit: glassmorphic design, \code{requestAnimationFrame} overlay, Canvas 2D map, Three.js 3D elements, six-condition alert system.
+\end{itemize}
+
+\section{GPS-Free Indoor Navigation: Theoretical Background}
+
+\subsection{Fundamental GPS Limitations Indoors}
+
+The Global Positioning System and its international counterparts (GLONASS, Galileo, BeiDou) provide civilian positioning accuracy of 2 to 5~meters under open-sky conditions, and centimeter-level accuracy with Real-Time Kinematic differential correction. However, L-band microwave signals (1.176--1.575~GHz) are attenuated by 20 to 40~dB by typical building materials, reducing received power below the code-phase tracking threshold of approximately 25--30~dB-Hz required for reliable operation. The multipath effect introduces ranging errors reaching tens of meters in indoor environments, rendering satellite navigation unusable for precision indoor robotics.
+
+\subsection{Alternative Indoor Localization Paradigms}
+
+The academic literature presents a rich taxonomy of indoor navigation approaches. Table~\ref{tab:intro-localization} summarizes the principal alternatives evaluated during the design phase of this project.
+
+\begin{table}[htbp]
+\centering
+\caption{Comparative survey of indoor localization paradigms}
+\label{tab:intro-localization}
+\small
+\begin{tabular}{@{}L{3.2cm}L{2.5cm}L{2.7cm}L{2.8cm}L{3.0cm}@{}}
+\toprule
+Method & Accuracy & Comp.\ Cost & Infrastructure & Used In This System \\
+\midrule
+Wheel Odometry & 10--30~cm (drift) & Negligible & None & Yes: primary dead-reckoning \\
+2D LiDAR SLAM & 5--20~cm & High (2--4 cores) & None required & No: no LiDAR on LEO \\
+Visual SLAM (ORB-SLAM3) & 5--10~cm & Very high & None required & No: CPU budget exceeded \\
+ArUco / AprilTag & $<$5~mm at 2~m & Low & Printed markers & Conceptually related \\
+Checkerboard PnP & $<$5~mm at 2~m & Medium (SB: 14~ms) & Printed board & Yes: LANDMARK mode \\
+LED Beacon (optical) & 3--5~cm (range) & Low (5--10~ms) & LED assembly & Yes: LED mode \\
+UWB Ranging & 10--30~cm & Low (hardware) & UWB anchors required & No: not deployed \\
+BLE RSSI & 0.5--1~m & Very low & BLE beacons & No: insufficient accuracy \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Marker-Based Localization: Mathematical Foundations}
+
+The mathematical core of marker-based localization is the Perspective-n-Point (PnP) problem. Given $n$ 3D reference points $P_i$ in the marker frame and their 2D image projections $p_i$, the rotation matrix $R$ and translation vector $t$ mapping marker frame to camera frame satisfy:
+
+\begin{eqblock}
+\begin{equation}
+p_i = K \, [R \mid t] \, P_i,
+\qquad
+K = \begin{bmatrix} f_x & 0 & c_x \\ 0 & f_y & c_y \\ 0 & 0 & 1 \end{bmatrix}
+\end{equation}
+where $K$ is the camera intrinsic matrix. For the D455 at $640\times480$: $f_x = f_y = 384.65$~px, $c_x = 320.5$, $c_y = 240.5$.
+\end{eqblock}
+
+For the planar checkerboard case, the PnP problem degenerates to estimating a homography $H$ (a $3\times3$ projective transform) decomposed via SVD. In the present implementation, two scalar quantities sufficient for FSM navigation are extracted instead of full pose:
+
+\begin{eqblock}
+\begin{align}
+d_{\text{est}} &= \frac{f_x \cdot W_{\text{beacon}}}{s_{\text{px}}} = \frac{384.65 \times 0.165}{s_{\text{px}}} = \frac{63.47}{s_{\text{px}}} \quad [\text{meters}] \\[4pt]
+\theta &= \arctan\!\left(\frac{c_{x,\text{cluster}} - c_{x,\text{image}}}{f_x}\right) = \arctan\!\left(\frac{c_{x,\text{cluster}} - 320.5}{384.65}\right) \quad [\text{radians}]
+\end{align}
+where $d_{\text{est}}$ is the estimated distance to the beacon and $\theta$ is the bearing angle.
+\end{eqblock}
+
+\section{Engineering Challenges in Embedded Control Interfaces}
+
+\subsection{Real-Time Latency Budget}
+
+The end-to-end operator latency (from a physical event at the robot to its representation on the cockpit display) is the sum of several additive delay components. Table~\ref{tab:intro-latency} presents the measured breakdown under nominal laboratory conditions.
+
+\begin{table}[htbp]
+\centering
+\caption{End-to-end operator latency budget}
+\label{tab:intro-latency}
+\begin{tabular}{@{}llc@{}}
+\toprule
+Pipeline Stage & Primary Cause & Nominal Latency \\
+\midrule
+D455 capture $\rightarrow$ ROS publication & JPEG encoding + USB 3.0 transfer & 30--50~ms \\
+Vision subprocess: LED mode & Threshold + morphology + clustering & 5--10~ms \\
+Vision subprocess: CB mode & \code{findChessboardCornersSB} @ 45\% scale & 14--20~ms \\
+ROS $\rightarrow$ rosbridge $\rightarrow$ JSON & 60-field JSON serialization & 1--3~ms \\
+Wi-Fi (lab, dedicated AP) & 802.11ac, low contention & 2--10~ms \\
+WebSocket $\rightarrow$ JS event loop & Microtask queue & $<$1~ms \\
+JS $\rightarrow$ \code{requestAnimationFrame} & Max one 60~Hz frame delay & 0--16.7~ms \\
+\midrule
+\textbf{Total nominal latency} & All stages summed & \textbf{55--100~ms} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Safety-Critical Software Design Principles}
+
+Drawing from IEC~61508 (Functional Safety), ISO~26262 (Automotive Safety), and NASA-STD-8719.13C, four foundational principles guided the LEO Rover safety architecture:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Defense in depth}: six independent safety layers, each capable of halting the robot in the absence of all higher-priority layers.
+  \item \textbf{Fail-safe defaults}: every state transition directed toward robot-stationary, \code{mode=MANUAL} in the absence of affirmative commands.
+  \item \textbf{Explicit state machine formalism}: enumerable states, formally guarded transitions, computable reachability.
+  \item \textbf{Atomic state transitions}: the Python GIL guarantees atomicity of \code{STORE\_NAME} bytecode; no intermediate undefined states.
+\end{itemize}
+
+\subsection{Operator Situation Awareness (Endsley, 1988)}
+
+The cockpit design was explicitly structured around Mica Endsley's three-level Situation Awareness (SA) model, providing simultaneous support for all three levels without overloading operator attention:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{Level 1 SA (Perception)}: raw numerical telemetry panels, MJPEG video feed, sensor health indicators.
+  \item \textbf{Level 2 SA (Comprehension)}: color-coded FSM state banner, Canvas 2D annotations over video (bounding boxes, centroids, reticles, bearing arcs).
+  \item \textbf{Level 3 SA (Projection)}: 2D trajectory map with logged beacon positions, enabling anticipation of the future patrol route.
+\end{itemize}
+
+\subsection{WebSocket and the Browser as Universal Robot Controller}
+
+The WebSocket protocol (RFC~6455, IETF 2011) provides full-duplex TCP communication initiated via HTTP/1.1 upgrade. Unlike HTTP's request-response model, WebSocket enables asynchronous data push from both endpoints: essential for 10~Hz telemetry streams and on-demand control commands. The \code{rosbridge\_websocket} server implements the open rosbridge protocol v2.0, translating ROS pub/sub to WebSocket JSON without any server-side robotics code modification. Key mitigations for browser interface limitations include \code{requestAnimationFrame} decoupling, cache-busting query strings (\code{?v=rXXX}), a generation counter (\code{currentGen}) for stale callback invalidation, and a \code{\_stopPending} flag for disconnection-proof emergency stop delivery.
+
+\subsection{The Python GIL and the Case for Multiprocessing}
+\label{sec:visionarch}
+
+Python's Global Interpreter Lock (GIL) permits only one thread to execute CPython bytecode at any instant, even on multicore processors. For CPU-bound OpenCV operations, this creates genuine serialization despite available hardware parallelism. The definitive solution, spawning a dedicated subprocess via \code{multiprocessing.get\_context('spawn')}, creates an independent CPython interpreter with its own GIL, enabling true parallel execution. The spawn context (versus fork) is architecturally mandatory in ROS: \code{fork(2)} inherits all open file descriptors including ROS sockets, leading to immediate deadlock in the child process.
+
+\section{Internship Objectives}
+
+Five formally stated objectives governed the internship:
+
+\begin{itemize}[leftmargin=1.4em]
+  \item \textbf{O1: Vision pipeline reliability}: $>$95\% detection rate when the target is in the camera FOV, processing latency $\leq$50~ms.
+  \item \textbf{O2: Autonomous FSM}: six-state machine operating safely under all failure modes.
+  \item \textbf{O3: Professional cockpit}: 30+~Hz visual update, connection/reconnection without service interruption, unambiguous FSM state display.
+  \item \textbf{O4: System integration}: single-command launch, comprehensive documentation.
+  \item \textbf{O5: Comparative research contribution}: quantitative performance data for the Carolus multi-robot study.
+\end{itemize}
+
+\section{Methodology: RCA, TDD, and DMAIC}
+
+The technical work followed an iterative methodology combining Root Cause Analysis (RCA) discipline (tracing failures from symptom through contributing cause to root cause) with Test-Driven Development (TDD) cycles (Build $\rightarrow$ Test $\rightarrow$ Analyze $\rightarrow$ Refactor) and the DMAIC (Define-Measure-Analyze-Improve-Control) structured problem-solving framework adapted for hardware-in-the-loop robotic development. Each major defect is documented as a structured case study in Chapter~\ref{ch:results}: symptom, root cause, fix, validation.
+
+\section{Report Structure}
+
+Chapter~\ref{ch:lit-review} surveys the state of the art in autonomous ground robotics, indoor localization, and web-based HMI. Chapter~\ref{ch:methodology} presents the full-stack system architecture, the computer vision pipeline and autonomous FSM, the UI/UX engineering of the operator cockpit, and the safety and reliability architecture. Chapter~\ref{ch:results} presents performance results and debugging case studies. Chapter~\ref{ch:fusion} documents work that extended beyond the five objectives above once the LED/checkerboard beacon system was operational: the July 2026 tightly-coupled multisensor estimation campaign (MSCKF-based fusion replacing the original beacon-only localization for continuous pose tracking), the operator platform's public API and infrastructure hardening, and the network engineering required to validate the system outside the laboratory. Chapter~\ref{ch:conclusion} concludes with perspectives and future work.

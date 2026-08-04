@@ -1,0 +1,65 @@
+<launch>
+  <!-- Minimal D455 stream config: infra1/infra2 only (the stereo pair MINS
+       and leo_backend actually use). enable_depth and enable_color default
+       to true in rs_camera.launch — running depth+color+infra1+infra2
+       simultaneously is a much heavier USB payload than the single-stream
+       isolation test that succeeded 30/30. Disabling the two streams
+       nothing here consumes is the direct, minimal fix to try before
+       assuming anything else is wrong. -->
+
+  <!-- Power profile (field-toggleable, e.g. `roslaunch ... laser_power:=0
+       emitter_enabled:=0`). Sentinel -1 = leave the firmware/current sensor
+       value alone (unchanged behavior). The realsense2_camera wrapper
+       already applies these through .supports()/is_option_read_only()
+       and range checks per-sensor (base_realsense_node.cpp), so an
+       unsupported value on a different firmware is dropped with a
+       ROS_WARN instead of crashing. laser_power in mW (D455 range ~0-360),
+       emitter_enabled: 0=Off, 1=On, 2=Auto.
+       Must live at /camera/stereo_module/...: confirmed against the LIVE
+       running node with `rosservice list | grep stereo_module` ->
+       /camera/stereo_module/set_parameters (2026-07-22) — the earlier
+       assumption of an extra /realsense2_camera/ segment was wrong (that
+       path pattern only applies to the unrelated exposure/gain rosparam
+       YAML the launch file loads separately, not to this node's own
+       dynamic-reconfigure param resolution). -->
+  <arg name="laser_power"    default="-1"/>
+  <arg name="emitter_enabled" default="-1"/>
+  <group ns="camera">
+    <param name="stereo_module/laser_power"     value="$(arg laser_power)"    if="$(eval arg('laser_power') >= 0)"/>
+    <param name="stereo_module/emitter_enabled" value="$(arg emitter_enabled)" if="$(eval arg('emitter_enabled') >= 0)"/>
+  </group>
+
+  <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+    <!-- CONTRAINTE MATÉRIELLE (apprise le 2026-07-06) : depth et infra
+         sortent du MÊME module stéréo — résolution et fps DOIVENT être
+         identiques, sinon librealsense ne résout pas les profils et AUCUN
+         flux ne démarre (topics annoncés, 0 frame, sans erreur claire).
+         Donc : tout le module en 640x480@15 (Kalibr reste valide, 15 Hz
+         suffit à MINS et aux obstacles, et le Pi respire). Le hop WiFi de la
+         depth passe en compressedDepth (PNG) via le republish PC. -->
+    <arg name="enable_depth"   value="true"/>
+    <arg name="depth_width"    value="640"/>
+    <arg name="depth_height"   value="480"/>
+    <arg name="depth_fps"      value="15"/>
+    <!-- Couleur RÉACTIVÉE (2026-07-27, demande opérateur) pour la détection
+         Carolus (teinte des LEDs bleues). Capteur RGB SÉPARÉ du module stéréo,
+         donc pas soumis à la contrainte de résolution depth/infra : on la cale
+         à 640x480@15 pour limiter la charge USB/WiFi. NB : ajoute une charge
+         USB sur le Pi — surveiller la stabilité des flux infra/depth (c'était
+         la raison de la désactivation initiale). -->
+    <arg name="enable_color"   value="true"/>
+    <arg name="color_width"    value="640"/>
+    <arg name="color_height"   value="480"/>
+    <arg name="color_fps"      value="15"/>
+    <arg name="enable_infra1"  value="true"/>
+    <arg name="enable_infra2"  value="true"/>
+    <arg name="enable_sync"    value="false"/>
+    <!-- 640x480, NOT the rs_camera.launch default 848x480: the Kalibr
+         intrinsics in MINS's config_camera.yaml (resolution: [640, 480])
+         were calibrated on 640x480 frames — a width mismatch silently
+         corrupts feature projection. -->
+    <arg name="infra_width"    value="640"/>
+    <arg name="infra_height"   value="480"/>
+    <arg name="infra_fps"      value="15"/>
+  </include>
+</launch>

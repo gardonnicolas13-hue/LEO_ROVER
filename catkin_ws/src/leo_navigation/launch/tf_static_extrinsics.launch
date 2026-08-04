@@ -1,0 +1,46 @@
+<launch>
+  <!-- LEO Rover — static TF gaps that MINS needs and nothing currently publishes.
+
+       WHAT ALREADY EXISTS (do NOT redefine these here, they'd conflict):
+         - base_link, odom, imu_frame, and the wheel joints are published by
+           robot_state_publisher from leo.urdf.xacro (started in
+           leo_bringup.launch on the robot). imu_frame is the STOCK onboard
+           IMU on the LEO Rover mainboard, wired to firmware_message_converter
+           (imu_frame_id: imu_frame, leo_bringup/config/firmware_message_converter.yaml).
+         - camera_link, camera_infra1_optical_frame, camera_infra2_optical_frame,
+           camera_gyro/accel_optical_frame etc. are self-published by the D455's
+           own realsense2_camera node the moment it starts (its internal tree is
+           complete and correct on its own — it just isn't attached to base_link).
+
+       WHAT'S MISSING (this file adds it):
+         - base_link -> camera_link : the D455 was bolted on aftermarket
+           (upgrade from the stock RaspiCam), so the stock xacro has no idea
+           it exists. Nothing currently ties the D455's self-published tree
+           into the chassis tree.
+         - base_link -> laser : same story for the RPLidar (see
+           VINS_to_MINS_Test_Plan.md Tier 3.2 — this was already flagged as
+           unmeasured there).
+
+       VALUES BELOW ARE PLACEHOLDERS — replace with real numbers before
+       trusting MINS output:
+         1) Tape-measure now (fastest unblock): x/y/z in meters from base_link
+            origin, roll/pitch/yaw in radians.
+         2) Better, once kalibr_calibrate_imu_camera finishes (this session's
+            other in-progress task) and produces T_cam_imu: compose it with
+            the URDF's own base_link->imu_frame static transform instead of
+            re-measuring by hand —
+              T_base_camera = T_base_imu (from the URDF, already exact)
+                              * inverse(T_cam_imu)  (from Kalibr, once available)
+            which is more accurate than a tape measure for the same effort.
+  -->
+
+  <!-- base_link -> camera_link (PLACEHOLDER: measure or derive, see above) -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_camera"
+        args="0.15 0.0 0.10  0 0 0  base_link camera_link"/>
+  <!-- args: x y z  yaw pitch roll  parent  child -->
+
+  <!-- base_to_laser SUPPRIMÉ (audit 2026-07-08) : l'URDF publie déjà la
+       chaîne base_link->rplidar_link->laser_frame — deux chaînes TF pour le
+       même capteur étaient redondantes. Au bring-up RPLidar : mesurer et
+       renseigner la chaîne URDF existante, pas celle-ci. -->
+</launch>

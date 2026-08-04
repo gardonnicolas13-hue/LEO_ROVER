@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LEO·OPS — Exploration visuelle (brouillon, non lié au site)</title>
+<link rel="stylesheet" href="fonts/fonts.css?v=f1" />
+<style>
+  /* ============================================================
+     Ce fichier ne touche à rien du site réel. Il ne charge aucun
+     script (roslib, app.js, i18n.js) et n'écrit dans aucune page
+     existante — c'est une planche d'essai statique, à ouvrir
+     directement : http://localhost:8000/preview-design.html
+     Polices : réutilise les fichiers déjà auto-hébergés du projet
+     (fonts/fonts.css — Inter, JetBrains Mono, Rajdhani) plutôt que
+     d'ajouter une dépendance CDN, pour la même raison que le reste
+     du site (bande passante WiFi robot).
+     ============================================================ */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #0d0f12;
+    color: #d8dbe0;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .kbd-focus:focus-visible { outline: 2px solid #7dd3e8; outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+
+  /* ── Meta banner (hors-propositions) ─────────────────────────── */
+  .meta {
+    max-width: 920px; margin: 0 auto; padding: 56px 24px 28px;
+  }
+  .meta .eyebrow {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .14em;
+    text-transform: uppercase; color: #6b7280;
+  }
+  .meta h1 {
+    font-size: 26px; line-height: 1.25; margin: 10px 0 12px; color: #f2f3f5;
+    text-wrap: balance; font-weight: 700;
+  }
+  .meta p { font-size: 14.5px; line-height: 1.65; color: #9aa0aa; max-width: 65ch; margin: 0 0 10px; }
+
+  .direction-label {
+    max-width: 1200px; margin: 0 auto; padding: 46px 24px 0;
+  }
+  .direction-label .tag {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase; color: #6b7280;
+  }
+  .direction-label h2 { font-size: 21px; margin: 6px 0 8px; color: #f2f3f5; font-weight: 700; }
+  .direction-label p { font-size: 13.5px; line-height: 1.6; color: #9aa0aa; max-width: 72ch; margin: 0 0 22px; }
+
+  /* ================================================================
+     DIRECTION A — "Flight Log" : archive Apollo/console imprimée
+     ================================================================ */
+  .dir-a {
+    --paper:   #eae4d3;
+    --paper-2: #e0d9c4;
+    --ink:     #23201a;
+    --ink-2:   #5b5647;
+    --line:    #b7ad93;
+    --phos:    #3f6b4a;
+    --rust:    #a8562b;
+    --brick:   #96352a;
+    background: var(--paper);
+    color: var(--ink);
+    max-width: 1200px; margin: 0 auto 8px; padding: 28px 28px 34px;
+    border: 1px solid var(--line);
+  }
+  .dir-a * { box-sizing: border-box; }
+  .dir-a .a-head {
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    padding-bottom: 16px; border-bottom: 2px solid var(--ink);
+    margin-bottom: 16px;
+  }
+  .dir-a .a-marks { display: flex; align-items: center; gap: 10px; }
+  .dir-a .a-marks img { height: 30px; width: 30px; object-fit: contain; filter: grayscale(1) contrast(1.15); opacity: .85; }
+  .dir-a .a-div { width: 1px; height: 26px; background: var(--line); }
+  .dir-a .a-word {
+    font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 19px;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--ink);
+  }
+  .dir-a .a-word span { color: var(--phos); }
+  .dir-a .a-sub {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-2);
+  }
+  .dir-a .a-status {
+    margin-left: auto; display: flex; align-items: center; gap: 8px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--phos); border: 1px solid var(--phos);
+    padding: 4px 10px;
+  }
+  .dir-a .a-status i { width: 6px; height: 6px; background: var(--phos); display: inline-block; }
+
+  .dir-a .a-rail {
+    display: flex; flex-wrap: wrap; gap: 0; border: 1px solid var(--line);
+    margin-bottom: 20px; font-family: 'JetBrains Mono', monospace;
+  }
+  .dir-a .a-rail div {
+    flex: 1 1 auto; padding: 8px 14px; border-right: 1px solid var(--line);
+    font-size: 11px; color: var(--ink-2); white-space: nowrap;
+  }
+  .dir-a .a-rail div:last-child { border-right: none; }
+  .dir-a .a-rail b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; margin-left: 4px; }
+
+  .dir-a .a-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 1px; background: var(--line); }
+  .dir-a .a-cell { background: var(--paper); padding: 16px; }
+  .dir-a .a-cell h3 {
+    font-family: 'Rajdhani', sans-serif; font-weight: 600; font-size: 13px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-2); margin: 0 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 8px;
+  }
+  .dir-a .a-video {
+    aspect-ratio: 4/3; background: repeating-linear-gradient(45deg, var(--paper-2), var(--paper-2) 6px, var(--paper) 6px, var(--paper) 12px);
+    border: 1px solid var(--ink); display: flex; align-items: flex-end; padding: 8px; position: relative;
+  }
+  .dir-a .a-video span {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    background: var(--ink); color: var(--paper); padding: 3px 7px;
+  }
+  .dir-a .a-video .rec { position: absolute; top: 8px; right: 8px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--brick); font-weight: 700; }
+  .dir-a .a-wheels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-family: 'JetBrains Mono', monospace; }
+  .dir-a .a-wheels div { border: 1px solid var(--line); padding: 8px; text-align: center; }
+  .dir-a .a-wheels .wl { font-size: 10px; letter-spacing: .08em; color: var(--ink-2); display: block; margin-bottom: 3px; }
+  .dir-a .a-wheels .wv { font-size: 15px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .dir-a .a-status-list { display: flex; flex-direction: column; gap: 9px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
+  .dir-a .a-status-list .row { display: flex; justify-content: space-between; border-bottom: 1px dotted var(--line); padding-bottom: 6px; }
+  .dir-a .a-status-list b { color: var(--phos); }
+  .dir-a .a-status-list b.rust { color: var(--rust); }
+
+  .dir-a-note {
+    max-width: 1200px; margin: 0 auto 8px; padding: 0 28px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #6b7280;
+  }
+
+  /* ================================================================
+     DIRECTION B — "Flight Deck" : logiciel de vol minimal, plat
+     ================================================================ */
+  .dir-b {
+    --void:  #0a0b0d;
+    --ice:   #e7ecf2;
+    --dim:   #7b8592;
+    --line:  #1c2128;
+    --signal:#4fd1e0;
+    --amber: #f2a340;
+    --red:   #ff5c5c;
+    background: var(--void);
+    color: var(--ice);
+    max-width: 1200px; margin: 0 auto 8px; padding: 40px 40px 46px;
+    border: 1px solid var(--line);
+  }
+  .dir-b * { box-sizing: border-box; }
+  .dir-b .b-head { display: flex; align-items: center; gap: 22px; margin-bottom: 34px; }
+  .dir-b .b-marks { display: flex; align-items: center; gap: 12px; }
+  .dir-b .b-marks img { height: 22px; width: 22px; object-fit: contain; opacity: .9; }
+  .dir-b .b-word { font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--ice); }
+  .dir-b .b-word span { color: var(--dim); font-weight: 500; }
+  .dir-b .b-status {
+    margin-left: auto; display: flex; align-items: center; gap: 7px;
+    font-size: 12px; color: var(--dim);
+  }
+  .dir-b .b-status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--signal); box-shadow: 0 0 0 3px rgba(79,209,224,.15); }
+
+  .dir-b .b-rail {
+    display: flex; flex-wrap: wrap; column-gap: 28px; row-gap: 6px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--dim);
+    padding-bottom: 20px; margin-bottom: 26px; border-bottom: 1px solid var(--line);
+  }
+  .dir-b .b-rail b { color: var(--ice); font-weight: 500; font-variant-numeric: tabular-nums; margin-left: 5px; }
+
+  .dir-b .b-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 18px; }
+  .dir-b .b-cell { border: 1px solid var(--line); padding: 18px; border-radius: 10px; }
+  .dir-b .b-cell h3 { font-size: 12px; font-weight: 600; color: var(--dim); margin: 0 0 14px; letter-spacing: .01em; }
+  .dir-b .b-video {
+    aspect-ratio: 4/3; background: #000; border-radius: 6px; position: relative;
+    display: flex; align-items: flex-end; padding: 10px;
+    background-image: linear-gradient(180deg, rgba(79,209,224,.05), transparent 40%);
+  }
+  .dir-b .b-video span { font-size: 11px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+  .dir-b .b-video .rec { position: absolute; top: 10px; right: 10px; display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--red); font-family: 'JetBrains Mono', monospace; }
+  .dir-b .b-video .rec i { width: 6px; height: 6px; border-radius: 50%; background: var(--red); display: inline-block; }
+  .dir-b .b-wheels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .dir-b .b-wheels .wl { font-size: 10.5px; color: var(--dim); display: block; margin-bottom: 4px; }
+  .dir-b .b-wheels .wv { font-family: 'JetBrains Mono', monospace; font-size: 16px; color: var(--ice); font-variant-numeric: tabular-nums; }
+  .dir-b .b-status-list { display: flex; flex-direction: column; gap: 12px; }
+  .dir-b .b-status-list .row { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; }
+  .dir-b .b-status-list .row .k { color: var(--dim); }
+  .dir-b .b-status-list .chip {
+    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: .04em;
+    padding: 2px 8px; border-radius: 4px; background: rgba(79,209,224,.12); color: var(--signal);
+  }
+  .dir-b .b-status-list .chip.warn { background: rgba(242,163,64,.12); color: var(--amber); }
+
+  .dir-b-note {
+    max-width: 1200px; margin: 0 auto 8px; padding: 0 40px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #6b7280;
+  }
+
+  /* ================================================================
+     DIRECTION C — "Mission Patch" : identité institutionnelle
+     ================================================================ */
+  .dir-c {
+    --navy:   #0b1f3a;
+    --navy-2: #102847;
+    --gold:   #c9a227;
+    --crimson:#9e1b32;
+    --alert:  #fc3d21;
+    --mist:   #c7d2e0;
+    --signal: #35c48a;
+    background: var(--navy); color: var(--mist);
+    max-width: 1200px; margin: 0 auto 8px; padding: 0 0 40px;
+    border: 1px solid rgba(201,162,39,.25);
+  }
+  .dir-c * { box-sizing: border-box; }
+  .dir-c .c-head {
+    display: flex; align-items: center; gap: 18px; padding: 22px 32px;
+    background: var(--navy-2); border-bottom: 2px solid var(--gold);
+  }
+  .dir-c .c-patch {
+    height: 46px; width: 46px; border-radius: 50%; border: 2px solid var(--gold);
+    background: #0e1e33; display: flex; align-items: center; justify-content: center; gap: 3px;
+    padding: 5px; flex-shrink: 0;
+  }
+  .dir-c .c-patch img { height: 100%; width: 100%; object-fit: contain; border-radius: 50%; }
+  .dir-c .c-word { font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: .03em; color: #fff; }
+  .dir-c .c-word span { color: var(--gold); }
+  .dir-c .c-sub { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--mist); opacity: .7; margin-top: 2px; }
+  .dir-c .c-status {
+    margin-left: auto; display: flex; align-items: center; gap: 8px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11.5px; letter-spacing: .06em;
+    color: var(--signal); border: 1px solid var(--signal); border-radius: 999px; padding: 5px 14px;
+  }
+  .dir-c .c-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--signal); display: inline-block; box-shadow: 0 0 8px var(--signal); }
+
+  .dir-c .c-rail {
+    display: flex; flex-wrap: wrap; gap: 22px; padding: 12px 32px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--mist); opacity: .85;
+    border-bottom: 1px solid rgba(201,162,39,.2);
+  }
+  .dir-c .c-rail b { color: #fff; font-variant-numeric: tabular-nums; margin-left: 4px; }
+
+  .dir-c .c-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 16px; padding: 22px 32px 0; }
+  .dir-c .c-cell { background: rgba(255,255,255,.03); border: 1px solid rgba(201,162,39,.18); border-radius: 8px; padding: 16px; }
+  .dir-c .c-cell h3 {
+    font-family: 'Rajdhani', sans-serif; font-weight: 600; font-size: 13px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--gold); margin: 0 0 12px;
+  }
+  .dir-c .c-video {
+    aspect-ratio: 4/3; border-radius: 6px; position: relative; display: flex; align-items: flex-end; padding: 10px;
+    background: linear-gradient(160deg, #0e223d, #071527 70%);
+    border: 1px solid rgba(201,162,39,.2);
+  }
+  .dir-c .c-video span { font-size: 11px; color: var(--mist); font-family: 'JetBrains Mono', monospace; }
+  .dir-c .c-video .rec { position: absolute; top: 10px; right: 10px; font-size: 10px; color: var(--alert); font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+  .dir-c .c-wheels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .dir-c .c-wheels div { border: 1px solid rgba(201,162,39,.18); border-radius: 6px; padding: 8px; text-align: center; }
+  .dir-c .c-wheels .wl { font-size: 10px; letter-spacing: .06em; color: var(--mist); opacity: .7; display: block; margin-bottom: 3px; }
+  .dir-c .c-wheels .wv { font-family: 'JetBrains Mono', monospace; font-size: 15px; color: #fff; font-variant-numeric: tabular-nums; }
+  .dir-c .c-status-list { display: flex; flex-direction: column; gap: 10px; font-size: 12px; }
+  .dir-c .c-status-list .row { display: flex; justify-content: space-between; }
+  .dir-c .c-status-list .k { opacity: .75; }
+  .dir-c .c-status-list .badge {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .04em;
+    padding: 2px 8px; border-radius: 999px; background: rgba(53,196,138,.15); color: var(--signal);
+  }
+  .dir-c .c-status-list .badge.gold { background: rgba(201,162,39,.18); color: var(--gold); }
+
+  .dir-c-note {
+    max-width: 1200px; margin: 0 auto 60px; padding: 0 32px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #6b7280;
+  }
+
+  /* ── Sélecteur de direction (bascule A/B/C/Tout) ─────────────── */
+  .switcher {
+    position: sticky; top: 0; z-index: 40;
+    display: flex; justify-content: center; gap: 6px; flex-wrap: wrap;
+    padding: 12px 24px; background: rgba(13,15,18,.9); backdrop-filter: blur(10px);
+    border-bottom: 1px solid #1c2128;
+  }
+  .switcher button {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: .03em;
+    color: #9aa0aa; background: transparent; border: 1px solid #23272e; border-radius: 999px;
+    padding: 7px 16px; cursor: pointer; transition: border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .switcher button:hover { color: #e7ecf2; border-color: #3a4048; }
+  .switcher button[aria-pressed="true"] {
+    color: #0d0f12; background: #e7ecf2; border-color: #e7ecf2; font-weight: 600;
+  }
+  body.filtering [data-dir] { display: none; }
+  body.filtering [data-dir="a"].show,
+  body.filtering [data-dir="b"].show,
+  body.filtering [data-dir="c"].show { display: block; }
+</style>
+</head>
+<body>
+
+  <div class="meta">
+    <div class="eyebrow">Brouillon de design · aucun fichier du site n'a été modifié</div>
+    <h1>Trois directions visuelles pour le cockpit LEO·OPS</h1>
+    <p>Chaque section ci-dessous est une planche autonome (CSS isolé, pas de dépendance à roslib/app.js/i18n.js) qui rejoue le même contenu réel — flux vidéo, télémétrie roues, statut mission — avec un système visuel différent. Rien n'est câblé en direct : les valeurs sont des exemples représentatifs, pas des données live. Comparez, puis dites-moi laquelle (ou quel mélange des trois) affiner.</p>
+  </div>
+
+  <nav class="switcher" aria-label="Basculer entre les directions">
+    <button type="button" data-show="all" aria-pressed="true">Tout voir</button>
+    <button type="button" data-show="a" aria-pressed="false">A · Flight Log</button>
+    <button type="button" data-show="b" aria-pressed="false">B · Flight Deck</button>
+    <button type="button" data-show="c" aria-pressed="false">C · Mission Patch</button>
+  </nav>
+
+  <!-- ============================== DIRECTION A ============================== -->
+  <div class="direction-label" id="dir-a" data-dir="a">
+    <div class="tag">Direction A</div>
+    <h2>Flight Log — archive Apollo, imprimé plutôt que lumineux</h2>
+    <p>Référence : les consoles du Mission Operations Control Room et les documents de vol Apollo — papier parchemin, encre quasi noire, un seul vert phosphore pour ce qui est réellement actif, zéro lueur ni dégradé. La densité vient des filets et des tableaux, pas des cartes ombrées. C'est la direction la plus radicalement différente du cockpit actuel.</p>
+  </div>
+  <section class="dir-a" data-dir="a">
+    <div class="a-head">
+      <div class="a-marks">
+        <img src="vendor/NASA_logo.svg" alt="NASA" />
+        <img src="vendor/fit_seal.svg" alt="Florida Tech" />
+      </div>
+      <div class="a-div"></div>
+      <div>
+        <div class="a-word">LEO <span>·</span> OPS</div>
+        <div class="a-sub">Florida Tech Robotics Lab — Flight Log</div>
+      </div>
+      <div class="a-status"><i></i> AUTO · PATROL</div>
+    </div>
+    <div class="a-rail">
+      <div>MODE<b>AUTO</b></div>
+      <div>V_LIN<b>0.34</b> m/s</div>
+      <div>ω_ANG<b>0.11</b> rad/s</div>
+      <div>BEACONS<b>3</b></div>
+      <div>CAM<b>15</b> Hz</div>
+      <div>CPU<b>41</b>%</div>
+      <div>NET<b>18</b> ms</div>
+    </div>
+    <div class="a-grid">
+      <div class="a-cell">
+        <h3>Video · live detection</h3>
+        <div class="a-video"><span class="rec">● REC</span><span>640×480 · infra1+infra2</span></div>
+      </div>
+      <div class="a-cell">
+        <h3>Wheel odometry</h3>
+        <div class="a-wheels">
+          <div><span class="wl">FL</span><span class="wv">0.41</span></div>
+          <div><span class="wl">FR</span><span class="wv">0.39</span></div>
+          <div><span class="wl">RL</span><span class="wv">0.40</span></div>
+          <div><span class="wl">RR</span><span class="wv">0.38</span></div>
+        </div>
+      </div>
+      <div class="a-cell">
+        <h3>Mission status</h3>
+        <div class="a-status-list">
+          <div class="row"><span>Pose source</span><b>MINS</b></div>
+          <div class="row"><span>FSM state</span><b>PATROL</b></div>
+          <div class="row"><span>Battery</span><b class="rust">11.4 V</b></div>
+          <div class="row"><span>Depth alive</span><b>TRUE</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <p class="dir-a-note" data-dir="a">Typo : Rajdhani 600 capitales espacées pour les intitulés, JetBrains Mono pour tout chiffre. Rayon ≈ 0 (bords francs), aucune ombre.</p>
+
+  <!-- ============================== DIRECTION B ============================== -->
+  <div class="direction-label" id="dir-b" data-dir="b">
+    <div class="tag">Direction B</div>
+    <h2>Flight Deck — logiciel de vol minimal (SpaceX / JPL)</h2>
+    <p>Référence : les écrans tactiles Dragon et les tableaux de bord DSN — noir profond, un seul cyan calme, aucune lueur ni glassmorphism, hiérarchie portée par le poids typographique plutôt que par des majuscules. La proposition la plus proche d'un vrai logiciel d'exploitation moderne, la moins « jeu vidéo ».</p>
+  </div>
+  <section class="dir-b" data-dir="b">
+    <div class="b-head">
+      <div class="b-marks">
+        <img src="vendor/NASA_logo.svg" alt="NASA" />
+        <img src="vendor/fit_seal.svg" alt="Florida Tech" />
+      </div>
+      <div class="b-word">LEO <span>Ops</span></div>
+      <div class="b-status"><span class="dot"></span> Connecté · 10.200.0.2</div>
+    </div>
+    <div class="b-rail">
+      <span>Mode<b>AUTO</b></span>
+      <span>V lin<b>0.34 m/s</b></span>
+      <span>ω ang<b>0.11 rad/s</b></span>
+      <span>Balises<b>3</b></span>
+      <span>Caméra<b>15 Hz</b></span>
+      <span>CPU<b>41%</b></span>
+      <span>Réseau<b>18 ms</b></span>
+    </div>
+    <div class="b-grid">
+      <div class="b-cell">
+        <h3>Flux vidéo · détection en direct</h3>
+        <div class="b-video"><span class="rec"><i></i>REC</span><span>640×480 · infra1+infra2</span></div>
+      </div>
+      <div class="b-cell">
+        <h3>Odométrie roues</h3>
+        <div class="b-wheels">
+          <div><span class="wl">Avant gauche</span><span class="wv">0.41</span></div>
+          <div><span class="wl">Avant droite</span><span class="wv">0.39</span></div>
+          <div><span class="wl">Arrière gauche</span><span class="wv">0.40</span></div>
+          <div><span class="wl">Arrière droite</span><span class="wv">0.38</span></div>
+        </div>
+      </div>
+      <div class="b-cell">
+        <h3>Statut mission</h3>
+        <div class="b-status-list">
+          <div class="row"><span class="k">Source de pose</span><span class="chip">MINS</span></div>
+          <div class="row"><span class="k">État FSM</span><span class="chip">PATROL</span></div>
+          <div class="row"><span class="k">Batterie</span><span class="chip warn">11.4 V</span></div>
+          <div class="row"><span class="k">Profondeur</span><span class="chip">active</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <p class="dir-b-note" data-dir="b">Typo : Inter 700 pour les titres (pas de police display séparée), JetBrains Mono pour les chiffres. Coins 6–10px, filets 1px, aucun flou.</p>
+
+  <!-- ============================== DIRECTION C ============================== -->
+  <div class="direction-label" id="dir-c" data-dir="c">
+    <div class="tag">Direction C</div>
+    <h2>Mission Patch — identité institutionnelle assumée</h2>
+    <p>Référence : les écussons de mission brodés et le bleu insigne de la NASA, associés au cramoisi Florida Tech. Un seul geste fort (l'écusson circulaire bordé d'or, les filets or) et le reste reste calme. La proposition la plus « institutionnelle », adaptée à une page qui représente officiellement les deux identités.</p>
+  </div>
+  <section class="dir-c" data-dir="c">
+    <div class="c-head">
+      <div class="c-patch">
+        <img src="vendor/NASA_logo.svg" alt="NASA" />
+      </div>
+      <div>
+        <div class="c-word">LEO <span>·</span> OPS</div>
+        <div class="c-sub">NASA · Florida Institute of Technology</div>
+      </div>
+      <div class="c-status"><i></i> EN LIGNE</div>
+    </div>
+    <div class="c-rail">
+      <span>MODE<b>AUTO</b></span>
+      <span>V_LIN<b>0.34</b> m/s</span>
+      <span>ω_ANG<b>0.11</b> rad/s</span>
+      <span>BALISES<b>3</b></span>
+      <span>CAM<b>15</b> Hz</span>
+      <span>CPU<b>41</b>%</span>
+      <span>RÉSEAU<b>18</b> ms</span>
+    </div>
+    <div class="c-grid">
+      <div class="c-cell">
+        <h3>Vidéo · détection</h3>
+        <div class="c-video"><span class="rec">● REC</span><span>640×480 · infra1+infra2</span></div>
+      </div>
+      <div class="c-cell">
+        <h3>Odométrie roues</h3>
+        <div class="c-wheels">
+          <div><span class="wl">FL</span><span class="wv">0.41</span></div>
+          <div><span class="wl">FR</span><span class="wv">0.39</span></div>
+          <div><span class="wl">RL</span><span class="wv">0.40</span></div>
+          <div><span class="wl">RR</span><span class="wv">0.38</span></div>
+        </div>
+      </div>
+      <div class="c-cell">
+        <h3>Statut mission</h3>
+        <div class="c-status-list">
+          <div class="row"><span class="k">Source de pose</span><span class="badge">MINS</span></div>
+          <div class="row"><span class="k">État FSM</span><span class="badge">PATROL</span></div>
+          <div class="row"><span class="k">Batterie</span><span class="badge gold">11.4 V</span></div>
+          <div class="row"><span class="k">Profondeur</span><span class="badge">active</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <p class="dir-c-note" data-dir="c">Typo : Rajdhani 700 pour les titres (présence, pas juste espacé), or réservé au prestige/branding — jamais utilisé comme couleur de statut.</p>
+
+  <script>
+    (function () {
+      var buttons = document.querySelectorAll('.switcher button');
+      var groups  = document.querySelectorAll('[data-dir]');
+
+      function show(which) {
+        buttons.forEach(function (b) {
+          b.setAttribute('aria-pressed', String(b.dataset.show === which));
+        });
+        if (which === 'all') {
+          document.body.classList.remove('filtering');
+          groups.forEach(function (g) { g.classList.remove('show'); });
+          return;
+        }
+        document.body.classList.add('filtering');
+        groups.forEach(function (g) {
+          g.classList.toggle('show', g.dataset.dir === which);
+        });
+      }
+
+      buttons.forEach(function (b) {
+        b.addEventListener('click', function () { show(b.dataset.show); });
+      });
+    })();
+  </script>
+</body>
+</html>
