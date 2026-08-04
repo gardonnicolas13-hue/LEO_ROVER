@@ -27,6 +27,7 @@
       nav_home:          'Home',
       nav_ops:           'Operations',
       nav_log:           'Logbook',
+      nav_report:        'Report',
       nav_robot:         'Robot',
       nav_navmodes:      'Nav Modes',
       nav_trajectory:       'Trajectory',
@@ -333,7 +334,9 @@
       /* ── logbook.html · Full report download ─────────────────────────────── */
       log_download_report:  'Download Full Report (PDF)',
       log_download_hint:    'Engineering report — mission-control architecture, vision pipeline, tightly-coupled MINS/VINS fusion (MSCKF), calibration & drift analysis (T1.1), safety & reliability, full mathematical derivations',
-      log_download_size:    'PDF · ~930 KB',
+      log_download_size:    'PDF · ~2.3 MB',
+      log_mins_link:         'MINS build \u0026 launch instructions',
+      log_mins_hint:         'Jumps straight to the MINS guide in Appendix D: download, build, install, calibrate, and test, start to finish (printed p.363).',
 
       /* ── logbook.html · Header ──────────────────────────────────────────── */
       log_kicker:        '// mission log · R&D internship',
@@ -615,6 +618,7 @@
       nav_home:          'Accueil',
       nav_ops:           'Opérations',
       nav_log:           'Journal',
+      nav_report:        'Rapport',
       nav_robot:         'Robot',
       nav_navmodes:      'Modes Nav',
       nav_trajectory:       'Trajectory',
@@ -920,7 +924,9 @@
       /* ── logbook.html · Téléchargement du rapport complet ─────────────────── */
       log_download_report:  'Télécharger le rapport complet (PDF)',
       log_download_hint:    'Rapport d\'ingénierie — architecture mission control, pipeline vision, fusion couplée serrée MINS/VINS (MSCKF), calibration & analyse de dérive (T1.1), sécurité & fiabilité, dérivations mathématiques complètes',
-      log_download_size:    'PDF · ~930 Ko',
+      log_download_size:    'PDF · ~2,3 Mo',
+      log_mins_link:         'Instructions MINS (build \u0026 lancement)',
+      log_mins_hint:         'Va directement au guide MINS de l\u2019Annexe D : telechargement, compilation, installation, calibration et test, de zero (p.363 imprimee).',
 
       /* ── logbook.html · En-tête ─────────────────────────────────────────── */
       log_kicker:        '// mission log · stage R&D',

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>LEO ROVER — Engineering Logbook</title>
 <script src="logbook_data.js?v=r1"></script>
-<script src="i18n.js?v=r17"></script>
+<script src="i18n.js?v=r18"></script>
 <script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
@@ -209,7 +209,7 @@
         </div>
 
         <!-- Full report download CTA -->
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1785797084" download
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1785881753" download
            class="tile glass mt-6 flex items-center gap-4 p-4 transition hover:border-accent/40 hover:bg-accent/5 group max-w-xl">
           <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/15 text-accent ring-1 ring-accent/30 transition group-hover:bg-accent/25 group-hover:shadow-neon">
             <i data-lucide="file-down" class="h-5 w-5"></i>
@@ -218,7 +218,26 @@
             <span class="block text-sm font-semibold text-white" data-i18n="log_download_report">Download Full Report (PDF)</span>
             <span class="mt-0.5 block text-xs text-zinc-500" data-i18n="log_download_hint">Engineering report — mission-control architecture, vision pipeline, tightly-coupled MINS/VINS fusion (MSCKF), calibration &amp; drift analysis (T1.1), safety &amp; reliability, full mathematical derivations</span>
           </span>
-          <span class="shrink-0 rounded-full bg-white/5 px-2.5 py-1 font-mono text-[10px] text-zinc-500 ring-1 ring-white/10" data-i18n="log_download_size">PDF · ~930 KB</span>
+          <span class="shrink-0 rounded-full bg-white/5 px-2.5 py-1 font-mono text-[10px] text-zinc-500 ring-1 ring-white/10" data-i18n="log_download_size">PDF · ~2.3 MB</span>
+        </a>
+
+        <!-- Lien direct : section MINS D.8.3 (p.363 imprimee / index PDF physique 365
+             -- #page= vise l'index physique, pas le numero imprime, verifie par
+             rendu ; ex-lien pointait sur le debut de l'Annexe D, p.333/335,
+             corrige le 04/08 pour pointer directement sur le guide MINS lui-meme
+             suite au retour Hector qui citait explicitement "page 363"). Ouvre
+             dans un nouvel onglet (PAS de download ici) pour que le fragment
+             #page= soit honore par le lecteur PDF du navigateur plutot que de
+             forcer un telechargement. -->
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1785881753#page=365"
+           target="_blank" rel="noopener"
+           class="mt-2 flex max-w-xl items-center gap-3 rounded-xl border border-white/5 px-4 py-2.5 text-xs text-zinc-400 transition hover:border-accent/30 hover:text-accent group">
+          <i data-lucide="cpu" class="h-4 w-4 shrink-0 text-zinc-500 transition group-hover:text-accent"></i>
+          <span class="min-w-0 flex-1">
+            <span class="block font-semibold text-zinc-300 transition group-hover:text-accent" data-i18n="log_mins_link">MINS build &amp; launch instructions</span>
+            <span class="mt-0.5 block text-[11px] text-zinc-500" data-i18n="log_mins_hint">Jumps straight to the MINS guide in Appendix D: download, build, install, calibrate, and test, start to finish (printed p.363).</span>
+          </span>
+          <i data-lucide="arrow-up-right" class="h-3.5 w-3.5 shrink-0 text-zinc-600 transition group-hover:text-accent"></i>
         </a>
       </div>
       <div class="hidden lg:block relative shrink-0 overflow-hidden rounded-2xl ring-1 ring-white/[.07]"
