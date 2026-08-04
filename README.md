@@ -16,7 +16,7 @@ master*. Le poste de travail exécute les estimateurs et sert le cockpit. Cette
 asymétrie est la source de la majorité des confusions initiales ; elle est
 détaillée au début de l'annexe D du rapport.
 
-- **Backend multiprocessus** (`leo_backend.py`, ~5 200 lignes) : boucle de
+- **Backend multiprocessus** (`leo_backend.py`, ~5 300 lignes) : boucle de
   contrôle à 20 Hz, télémétrie à 10 Hz et détection visuelle en sous-processus
   dédié, état partagé sous verrou unique tenu uniquement pendant les lectures
   et écritures, jamais pendant les E/S ou les opérations OpenCV.
@@ -28,11 +28,13 @@ détaillée au début de l'annexe D du rapport.
   verrouillage de balise, retour à la base, avec six couches de sécurité
   indépendantes (homme-mort, garde profondeur, plafonds de vitesse, arrêt sur
   perte de balise).
-- **Cockpit opérateur** : cinq pages statiques sur WebSocket `roslibjs`,
-  esthétique *glassmorphic*, double transport (WebSocket direct en LAN,
-  WSS via tunnel TLS pour l'accès public). `ops.html` pilote,
-  `demo.html` est en lecture seule par construction (aucun publisher,
-  aucune liaison de commande) pour les démonstrations.
+- **Cockpit opérateur** : quatre pages connectées en direct via WebSocket
+  `roslibjs` (`ops.html`, `trajectory.html`, `pid.html`, `demo.html`), plus
+  plusieurs pages statiques annexes (accueil, journal, modes de navigation,
+  description du robot), esthétique *glassmorphic*, double transport
+  (WebSocket direct en LAN, WSS via tunnel TLS pour l'accès public).
+  `ops.html` pilote, `demo.html` est en lecture seule par construction
+  (aucun publisher, aucune liaison de commande) pour les démonstrations.
 - **Auto-guérison** : watchdog cron surveillant les ports, la caméra, la
   liaison série et la divergence de l'estimateur, avec sondes de handshake
   WebSocket réelles plutôt que de simples tests de port.
@@ -51,7 +53,10 @@ détaillée au début de l'annexe D du rapport.
 ├── catkin_ws/src/
 │   ├── leo_navigation/         Nœuds ROS du projet : pose_selector, imu_sanitizer,
 │   │                           wheel_remap, carolus_tf_bridge, fichiers .launch
-│   └── leo_autonomy/           Paquet SLAM / exploration (construit, non déployé)
+│   └── leo_autonomy/           Paquet SLAM / exploration ; seul son détecteur
+│                                AprilTag (acquisition balise) tourne en
+│                                production, le reste est construit mais
+│                                non lancé
 │
 ├── web/                        Cockpit opérateur (front-end statique)
 │   ├── ops.html                Contrôle : pilotage, AUTO, source de pose, export
@@ -82,7 +87,7 @@ détaillée au début de l'annexe D du rapport.
 
 ## 📘 Le rapport
 
-**Le document de référence de ce projet est [`report_latex/main.pdf`](report_latex/main.pdf), 398 pages.**
+**Le document de référence de ce projet est [`report_latex/main.pdf`](report_latex/main.pdf), 412 pages.**
 
 Le code seul ne se suffit pas. Le rapport contient :
 
