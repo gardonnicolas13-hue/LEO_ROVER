@@ -2221,6 +2221,28 @@ python3 analyze_pose_variance.py /tmp/t1_1_static_pose.csv
   / Test 2} recorder on the Trajectory page rather than a terminal command,
   so it is the version of this test an operator without shell access can
   still run.
+
+  \textbf{How the recorder actually works, since it looks simpler than it
+  is.} Clicking \emph{Test 1} or \emph{Test 2} does two things at once: it
+  labels the run, and it starts a \code{rosbag record} process that
+  \code{leo\_backend.py} launches \emph{detached} from itself, writing
+  straight to disk. That detachment is the entire point: the cockpit's own
+  in-memory trajectory buffer is lost on every backend restart, which on
+  this platform is common enough (thermal throttling, the watchdog, a
+  crashed estimator) that a run relying on it can silently lose data
+  mid-drive with no visible symptom. A detached recording keeps writing
+  regardless, and \emph{Export to MATLAB} later reads whichever is more
+  authoritative: the finished recording on disk if one exists for that test
+  label, the in-memory buffer only as a fallback if no robust recording was
+  ever started for it. Both estimators are written to that same recording
+  unconditionally, whether MINS or openVINS is the one currently shown on
+  screen: the Test~1/Test~2 label only decides the filename prefix the
+  eventual export uses, never what gets captured. This is exactly the
+  mechanism validated on 2026-07-29 with a real pair of drives around the
+  lab (\S\ref{sec:july27twotest}): read that section first if the numbers
+  below look implausible on a first attempt, since it shows what a clean
+  pair of exports and a trustworthy verdict actually look like on this
+  platform, drift and all.
 \begin{enumerate}[leftmargin=1.2em]
 \item \textbf{Mark a rectangle on the floor.} Tape one of known dimensions,
   measured with a tape measure, not by eye; $2.00\,\text{m} \times

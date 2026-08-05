@@ -93,6 +93,57 @@
   .tile:hover { border-color: rgba(34,211,238,.35); }
   .tile .v { text-shadow: 0 0 12px rgba(34,211,238,.12); }
   header h1 { text-shadow: 0 0 18px rgba(34,211,238,.25); }
+  /* ── Aide "Comment ça marche ?" (2026-08-05) ─────────────────────────────
+     Bouton discret sur la tuile Test actif ; ouvre une fiche explicative en
+     recouvrement plutôt que d'allonger le HUD (page en hauteur fixe,
+     overflow:hidden -- pas de place pour du texte long dans la colonne). */
+  .info-btn {
+    width: 16px; height: 16px; border-radius: 50%; flex: none;
+    border: 1px solid var(--dim); color: var(--dim); background: transparent;
+    font-family: var(--mono); font-size: 10px; line-height: 14px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .info-btn:hover { color: var(--cyan); border-color: var(--cyan); }
+  .tile .k-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  #helpBackdrop {
+    display: none; position: fixed; inset: 0; z-index: 40;
+    background: rgba(4,6,10,.72); backdrop-filter: blur(2px);
+    align-items: center; justify-content: center; padding: 24px;
+  }
+  #helpBackdrop.open { display: flex; }
+  #helpPanel {
+    width: min(640px, 100%); max-height: 84vh; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--line);
+    box-shadow: 0 0 60px rgba(0,0,0,.6), 0 0 1px var(--cyan);
+    padding: 22px 24px;
+  }
+  #helpPanel h3 {
+    font-size: 14px; letter-spacing: .1em; color: var(--cyan); margin-bottom: 4px;
+    text-shadow: 0 0 14px rgba(34,211,238,.25);
+  }
+  #helpPanel h4 {
+    font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--orange);
+    margin: 18px 0 6px;
+  }
+  #helpPanel p, #helpPanel li { font-size: 12.5px; line-height: 1.65; color: var(--txt); }
+  #helpPanel p { margin-bottom: 8px; }
+  #helpPanel ul, #helpPanel ol { margin: 6px 0 6px 20px; }
+  #helpPanel li { margin-bottom: 5px; }
+  #helpPanel code {
+    font-family: var(--mono); font-size: 11.5px; color: var(--ok);
+    background: rgba(255,255,255,.04); padding: 1px 4px; border-radius: 2px;
+  }
+  #helpPanel .close {
+    float: right; background: transparent; border: 1px solid var(--line); color: var(--dim);
+    font-family: var(--mono); font-size: 11px; padding: 4px 9px; cursor: pointer;
+  }
+  #helpPanel .close:hover { color: var(--txt); border-color: var(--txt); }
+  #helpPanel .rlink {
+    display: inline-block; margin-top: 4px; color: var(--cyan); text-decoration: none;
+    border-bottom: 1px dotted var(--cyan); font-size: 12px;
+  }
+  #helpPanel .rlink:hover { color: #fff; }
+  #helpPanel .dim { color: var(--dim); }
 </style>
 </head>
 <body>
@@ -126,7 +177,9 @@
          REC reflète l'état réel côté backend (télémétrie), pas juste le clic
          local — si le backend redémarre, l'enregistrement (déjà détaché)
          continue et le badge le montre dès la reconnexion. -->
-    <div class="tile"><div class="k">Test actif</div>
+    <div class="tile">
+      <div class="k-row"><div class="k">Test actif</div>
+        <button class="info-btn" id="btnTestHelp" title="Comment ça marche ?">ⓘ</button></div>
       <div class="modes" style="margin-top:4px">
         <button class="mins active" id="btnTest1" title="Étiquette d'export : test1_*">TEST 1</button>
         <button class="vins" id="btnTest2" title="Étiquette d'export : test2_*">TEST 2</button>
@@ -210,6 +263,74 @@
     <div class="tile"><div class="k">Points trail</div><div class="v" id="hPts">0</div><div class="u">fenêtre 3000</div></div>
   </div>
 </main>
+
+<!-- ── Fiche "Comment ça marche ?" (2026-08-05, demande opérateur : expliquer
+     Test 1/Test 2 + le protocole rectangle en profondeur, ici ET dans le
+     rapport). En recouvrement plutôt que dans le HUD : la page est en
+     hauteur fixe (overflow:hidden), pas de place pour un pavé de texte dans
+     une colonne de 220px. Contenu tenu à jour avec l'annexe D §D.8.3-D.8.5
+     et Fusion_Campaign §12.12.7 du rapport -- si l'un change, l'autre doit
+     suivre. -->
+<div id="helpBackdrop">
+  <div id="helpPanel">
+    <button class="close" id="btnHelpClose">✕ FERMER</button>
+    <h3>COMMENT MARCHE TEST 1 / TEST 2</h3>
+
+    <h4>Le mécanisme</h4>
+    <p>Cliquer <b>TEST 1</b> ou <b>TEST 2</b> fait deux choses en même temps :
+      ça étiquette la prochaine prise, et ça démarre un enregistrement
+      <code>rosbag</code> lancé <b>détaché</b> du navigateur, côté PC. Ce
+      détachement est le point important : le buffer de trajectoire du site
+      est perdu à chaque redémarrage du backend (ça arrive : surchauffe,
+      chien de garde, estimateur qui plante) — l'enregistrement détaché, lui,
+      continue d'écrire sur disque même si le site se coupe.</p>
+    <p><b>MINS et openVINS sont TOUJOURS capturés ensemble</b>, quel que soit
+      le bouton actif à l'écran. Le choix Test&nbsp;1/Test&nbsp;2 ne change
+      que le préfixe des fichiers à l'export, jamais ce qui est enregistré.
+      Si un enregistrement est en cours et que tu cliques sur l'autre test, le
+      site demande confirmation, termine et sauvegarde le premier, puis
+      démarre le second.</p>
+
+    <h4>Export vers MATLAB</h4>
+    <p>Le bouton <b>EXPORT TO MATLAB</b> écrit
+      <code>web/exports/test1_mins.csv</code>, <code>test1_vins.csv</code> et
+      <code>test1.mat</code> (idem pour Test 2), et si MATLAB tourne sur le
+      PC, ouvre automatiquement le tracé MINS-vs-openVINS de <i>ce</i> tour.
+      Refaire un export sous la même étiquette écrase le précédent : refaire
+      un essai raté remplace, ça n'accumule pas de variantes.</p>
+
+    <h4>Le protocole "rectangle mesuré"</h4>
+    <p>Pour comparer les deux estimateurs à une vraie mesure au ruban, pas
+      seulement entre eux :</p>
+    <ol>
+      <li>Marquer un rectangle au sol (ruban), dimensions mesurées, pas à
+        l'œil.</li>
+      <li><b>TEST 1</b> → faire le tour du rectangle → <b>EXPORT</b>. (la
+        trace MINS de ce tour sera celle qu'on retient)</li>
+      <li><b>TEST 2</b> → un second tour, indépendant → <b>EXPORT</b>. (la
+        trace openVINS de celui-là sera retenue)</li>
+      <li>Depuis un terminal sur le PC — aucun bouton du site ne fait encore
+        ça :
+        <ul>
+          <li><code>compare_tests('web/exports/test1', 'web/exports/test2')</code>
+            — accord entre les deux tours (déjà existant)</li>
+          <li><code>plot_rectangle_test('web/exports/test1', L, l, 'mins')</code>
+            — écart en % contre les dimensions mesurées (nouveau)</li>
+        </ul>
+      </li>
+    </ol>
+
+    <p class="dim">Explications complètes, avec les commandes exactes et le
+      pourquoi de chaque choix :</p>
+    <a class="rlink" target="_blank" rel="noopener"
+       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1785903003#page=373">
+      → Rapport, Annexe D : protocole complet (p.371 imprimée)</a><br>
+    <a class="rlink" target="_blank" rel="noopener"
+       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1785903003#page=259">
+      → Rapport, §12.12.7 : un vrai exemple chiffré, déjà fait le 29/07 (p.257 imprimée)</a>
+  </div>
+</div>
+
 <!-- même source roslib que le cockpit (vendored, pas de CDN) — cohérent avec ops.html -->
 <script src="vendor/roslib.min.js?v=v1"></script>
 <script>
@@ -568,6 +689,15 @@
                  "Après le reset, clique Test 1 ou Test 2 pour démarrer le prochain essai.")) return;
     sendCmd({ action: "traj_reset" });
   };
+  /* ── Fiche "Comment ça marche ?" ──────────────────────────────────────── */
+  function openHelp() { $("helpBackdrop").classList.add("open"); }
+  function closeHelp() { $("helpBackdrop").classList.remove("open"); }
+  $("btnTestHelp").onclick = openHelp;
+  $("btnHelpClose").onclick = closeHelp;
+  $("helpBackdrop").onclick = (e) => { if (e.target.id === "helpBackdrop") closeHelp(); };
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeHelp();
+  });
   /* ── Calibration terrain ────────────────────────────────────────────────
      Etat maitre = BACKEND (telemetrie), jamais le clic local : si la page est
      rechargee ou ouverte sur un second appareil, l'operateur retrouve la
