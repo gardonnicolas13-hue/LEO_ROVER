@@ -658,12 +658,32 @@
   };
 
   function switchTo(target) {
-    if (!srv) return;
+    /* Un échec doit se VOIR. L'ancienne version sortait en silence quand le
+       service n'était pas encore prêt, et n'affichait rien non plus quand
+       l'appel échouait : dans les deux cas le bouton paraissait mort alors
+       que la cause (WebSocket pas connecté, service absent) était connue.
+       2026-08-05, même classe de bug que le sélecteur d'essai. */
+    if (!srv) {
+      $("wsstate").textContent = "SERVICE POSE INDISPONIBLE — RECONNECTE (F5)";
+      return;
+    }
     $("btnVins").disabled = $("btnMins").disabled = true;
     srv.callService(new ROSLIB.ServiceRequest({ data: target === "MINS" }), (res) => {
       $("btnVins").disabled = $("btnMins").disabled = false;
-      if (!res.success) { $("wsstate").textContent = res.message.toUpperCase().slice(0, 40); }
-    }, () => { $("btnVins").disabled = $("btnMins").disabled = false; });
+      /* On affiche le message du backend TEL QUEL, jamais un résumé maison :
+         il distingue quatre cas que l'opérateur doit pouvoir différencier —
+         "switched to X" (fait), "ARMED: will switch as soon as it publishes"
+         (en attente que la source parle), "armed switch cancelled" (un
+         2e clic annule l'armement !) et "already on X". Résumer tout ça en
+         "SOURCE -> X" masquait précisément le cas ARMED, d'où l'impression
+         que la bascule ne marchait pas. */
+      $("wsstate").textContent = (res.message || (res.success ? "OK" : "REFUS"))
+                                   .toUpperCase().slice(0, 56);
+    }, (err) => {
+      $("btnVins").disabled = $("btnMins").disabled = false;
+      $("wsstate").textContent = ("ECHEC BASCULE " + target + " : " +
+                                  (err || "sans detail")).toUpperCase().slice(0, 48);
+    });
   }
   $("btnVins").onclick = () => switchTo("VINS");
   $("btnMins").onclick = () => switchTo("MINS");
@@ -679,9 +699,17 @@
     /* Déjà en train d'enregistrer CET essai : rien à faire. */
     if (activeRec && activeRec.test === test) return;
 
-    /* Un AUTRE essai enregistre encore : on propose de le terminer proprement
-       (export) et d'enchaîner, au lieu de refuser (le refus laissait
-       l'opérateur bloqué, le bouton "revenant tout seul" — 28/07). */
+    /* finalize:true TOUJOURS, y compris quand la page croit qu'aucun
+       enregistrement ne tourne (2026-08-05, blocage vécu en direct).
+       POURQUOI : côté backend, _set_current_test tente d'abord de démarrer
+       l'enregistrement demandé ; il n'utilise `finalize` QUE si ce démarrage
+       échoue, c'est-à-dire uniquement si un autre essai tourne réellement.
+       L'envoyer systématiquement est donc sans effet quand il n'y a rien à
+       finaliser, et c'est la seule façon de ne pas dépendre de `activeRec` —
+       lequel vient de la télémétrie et peut être périmé ou absent (page
+       ouverte avant l'enregistrement, télémétrie coupée par une panne...).
+       Avec l'ancienne version, ce décalage envoyait la commande SANS
+       finalize, le backend refusait, et le bouton semblait mort. */
     if (activeRec && activeRec.test !== test) {
       const dur = Math.max(0, Math.round(Date.now() / 1000 - activeRec.started_ts));
       const ok = confirm(
@@ -694,15 +722,13 @@
       if (!ok) return;
       $("hExp").textContent = "fin de " + activeRec.test + " + export…";
       $("expTile").style.display = "";
-      sendCmd({ action: "set_test", test, finalize: true });
-      return;                     /* l'UI suivra la télémétrie du backend */
     }
-
-    /* Aucun enregistrement en cours (démarrage, ou après un RESET) :
-       le clic démarre simplement l'essai demandé. */
+    /* Rien de connu en cours : on bascule directement. Si un enregistrement
+       tournait quand même (état périmé), finalize le SAUVEGARDE au lieu de
+       le perdre — jamais de destruction silencieuse. */
     currentTest = test;
     refreshTestUI();
-    sendCmd({ action: "set_test", test });
+    sendCmd({ action: "set_test", test, finalize: true });
   }
   function refreshTestUI() {
     $("btnTest1").classList.toggle("active", currentTest === "test1");
