@@ -62,6 +62,7 @@ discontinuity in the output.
 """
 
 import math
+from collections import deque
 
 import numpy as np
 import rospy
@@ -145,6 +146,17 @@ class PoseSelector(object):
         # qu'un consommateur rigoureux (analyse hors ligne, RTB) puisse la
         # rejeter sans ambiguïté au lieu de la prendre pour une mesure fraîche.
         self.hold_covariance = float(rospy.get_param("~hold_covariance", 1e6))
+        # Base de temps d'évaluation de la vitesse (2026-08-05, MESURÉ).
+        # Comparer deux échantillons CONSÉCUTIFS (~11 ms) était le vrai défaut :
+        # un MSCKF applique ses corrections de façon DISCRÈTE au moment des
+        # mises à jour visuelles, donc un bond de 2-4 cm en 9 ms est le filtre
+        # qui se corrige, pas qui diverge — mais ça calcule 4.7 m/s et la garde
+        # rejetait 8.3 % des échantillons en conduite. Mesuré sur 2020 messages
+        # en roulant : max 4.7 m/s sur 11 ms, et 0.42 m/s pour le MÊME
+        # déplacement évalué sur 100 ms. Une vraie divergence, elle, est
+        # SOUTENUE : à 6 m/s elle parcourt 60 cm en 100 ms et reste détectée.
+        self.guard_baseline_s = float(rospy.get_param("~guard_baseline_s", 0.10))
+        self._sane_hist = deque()  # (t, x, y) des poses fused ACCEPTÉES
         self._sane_prev = None
         self._sane_prev_t = 0.0
         self._insane = False
@@ -307,9 +319,24 @@ class PoseSelector(object):
         # dans la correction SE3, la continuité du repère fused est préservée).
         now_t = msg.header.stamp.to_sec()
         if self._sane_prev is not None:
-            dt = max(1e-3, now_t - self._sane_prev_t)
-            dx = float(T_fused[0, 3] - self._sane_prev[0, 3])
-            dy = float(T_fused[1, 3] - self._sane_prev[1, 3])
+            # Référence = la plus ANCIENNE pose saine encore dans la fenêtre
+            # guard_baseline_s (et non la précédente immédiate) : c'est ce qui
+            # absorbe les corrections discrètes du filtre sans masquer une
+            # divergence, laquelle persiste sur toute la fenêtre. Tant que
+            # l'historique est plus court que la fenêtre (démarrage), on
+            # retombe naturellement sur la pose la plus ancienne disponible.
+            while len(self._sane_hist) > 1 and \
+                    now_t - self._sane_hist[0][0] > self.guard_baseline_s:
+                self._sane_hist.popleft()
+            if self._sane_hist:
+                ref_t, ref_x, ref_y = self._sane_hist[0]
+            else:
+                ref_t = self._sane_prev_t
+                ref_x = float(self._sane_prev[0, 3])
+                ref_y = float(self._sane_prev[1, 3])
+            dt = max(1e-3, now_t - ref_t)
+            dx = float(T_fused[0, 3]) - ref_x
+            dy = float(T_fused[1, 3]) - ref_y
             speed = (dx * dx + dy * dy) ** 0.5 / dt
             if speed > self.max_plausible_speed:
                 self._spike_run += 1
@@ -358,8 +385,13 @@ class PoseSelector(object):
                               "d'excursion — ré-ancrée sur la dernière pose saine",
                               source, now_t - self._insane_t0)
                 self._insane = False
+                # Le ré-ancrage change le repère : l'historique d'avant
+                # l'excursion n'est plus comparable au nouveau, il le ferait
+                # rejeter immédiatement. On repart d'une fenêtre vide.
+                self._sane_hist.clear()
         self._sane_prev = T_fused
         self._sane_prev_t = now_t
+        self._sane_hist.append((now_t, float(T_fused[0, 3]), float(T_fused[1, 3])))
 
         self._last_fused_mat = T_fused
 
