@@ -203,7 +203,7 @@
            un grand tour. Fige temporairement l'auto-suivi ; se relâche tout
            seul au prochain Test 1/Test 2/Reset pour ne pas rester bloqué. -->
       <button id="btnRecenter" style="margin-top:6px;width:100%;font-family:var(--mono);font-size:11px;letter-spacing:.08em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer"
-              title="Recadre la vue sur l'origine (0,0), sans rien marquer">🎯 RECENTRER SUR 0,0</button>
+              title="Tare l'affichage sur la position actuelle (odom et base_link coïncident au clic ; un vrai décalage revient dès que le robot bouge)">🎯 RECENTRER SUR 0,0 (tare)</button>
     </div>
     <!-- ── Export MATLAB (2026-07-27) ──────────────────────────────────────
          Bouton bien visible dans le panneau gauche de la vue Trajectory.
@@ -370,6 +370,14 @@
   let pose = null;           /* {x, y, yaw} */
   let startMark = null;      /* {x, y} — repère visuel local, voir btnStartMark */
   let viewFrozen = false;    /* true : vue figée sur (0,0), voir btnRecenter */
+  /* originOffset : "tare" d'affichage -- redéfinit OÙ le repère odom (0,0)
+     est dessiné, sans toucher aux vraies coordonnées de la pose. Sert à
+     faire coïncider base_link et odom au clic de façon HONNÊTE : on ne fait
+     pas croire que base_link est revenu à l'origine réelle, on redéfinit
+     l'origine affichée sur la position actuelle -- exactement comme tarer
+     une balance. Un vrai décalage entre les deux resterait visible ensuite,
+     dès que le robot bouge. Nul = pas de tare (comportement d'origine). */
+  let originOffset = null;   /* {x, y} en repère monde, ou null */
   let vlin = 0, vang = 0;
   let msgTimes = [];
   let lastTagStamp = 0;
@@ -667,7 +675,7 @@
      On explique maintenant le refus AVANT de l'envoyer, avec l'action à
      faire, au lieu de laisser l'UI se rétracter silencieusement. */
   function selectTest(test) {
-    viewFrozen = false;   /* ne pas rester bloqué sur (0,0) pour l'essai suivant */
+    viewFrozen = false; originOffset = null;   /* ne pas rester tarés pour l'essai suivant */
     /* Déjà en train d'enregistrer CET essai : rien à faire. */
     if (activeRec && activeRec.test === test) return;
 
@@ -707,11 +715,21 @@
                  (activeRec ? " (" + activeRec.test.toUpperCase() + ")" : "") +
                  " sans le sauvegarder ?\n\n" +
                  "Après le reset, clique Test 1 ou Test 2 pour démarrer le prochain essai.")) return;
-    viewFrozen = false;
+    viewFrozen = false; originOffset = null;
     sendCmd({ action: "traj_reset" });
   };
-  $("btnRecenter").onclick = () => { viewFrozen = !viewFrozen;
-    $("btnRecenter").textContent = viewFrozen ? "▦ REPRENDRE LE SUIVI AUTO" : "🎯 RECENTRER SUR 0,0"; };
+  $("btnRecenter").onclick = () => {
+    viewFrozen = !viewFrozen;
+    if (viewFrozen) {
+      /* Tare : la position ACTUELLE devient la nouvelle origine affichée.
+         base_link et odom coïncident donc au clic -- honnêtement, en
+         redéfinissant l'origine, pas en cachant un écart réel. */
+      originOffset = pose ? { x: pose.x, y: pose.y } : { x: 0, y: 0 };
+    } else {
+      originOffset = null;
+    }
+    $("btnRecenter").textContent = viewFrozen ? "▦ REPRENDRE LE SUIVI AUTO" : "🎯 RECENTRER SUR 0,0 (tare)";
+  };
   /* ── Repère visuel "point de départ" ──────────────────────────────────── */
   function refreshStartMarkBtn() {
     $("btnStartMark").textContent = startMark ? "✕ EFFACER LE REPÈRE" : "📍 MARQUER ICI (repère tracé)";
@@ -908,8 +926,8 @@
     /* bornes recalculées à 6 Hz (pas 60) puis viewport LISSÉ vers la cible */
     if (frameN++ % 10 === 0) computeBounds();
     const span = Math.max(bounds.maxx - bounds.minx, bounds.maxy - bounds.miny, 1.0) * 1.3;
-    const tgt = { cx: viewFrozen ? 0 : (bounds.minx + bounds.maxx) / 2,
-                  cy: viewFrozen ? 0 : (bounds.miny + bounds.maxy) / 2,
+    const tgt = { cx: viewFrozen && originOffset ? originOffset.x : (bounds.minx + bounds.maxx) / 2,
+                  cy: viewFrozen && originOffset ? originOffset.y : (bounds.miny + bounds.maxy) / 2,
                   s: Math.min(W, H) / span };
     if (!disp.init) {
       Object.assign(disp, { cx: tgt.cx, cy: tgt.cy, s: tgt.s });
@@ -1015,7 +1033,11 @@
       ctx.fillText(label, ox + 5 * dpr, oy - 5 * dpr);
       ctx.globalAlpha = 1;
     };
-    drawFrame(0, 0, 0, "odom", true);             /* racine réelle de /tf */
+    /* Sans tare : odom au vrai (0,0), racine réelle de /tf. Avec tare :
+       odom dessiné à la position tarée -- l'écart RÉEL entre eux reste
+       visible dès que le robot bouge, rien n'est caché. */
+    drawFrame(originOffset ? originOffset.x : 0, originOffset ? originOffset.y : 0,
+               0, "odom", true);
     const bl = tfBase || (pose ? { x: disp.x, y: disp.y, yaw: disp.yaw } : null);
     if (bl) drawFrame(bl.x, bl.y, bl.yaw, "base_link", false);
 
