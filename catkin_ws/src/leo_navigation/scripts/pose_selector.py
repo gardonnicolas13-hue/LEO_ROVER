@@ -125,10 +125,32 @@ class PoseSelector(object):
         # garde de vraisemblance : vitesse max physiquement possible du rover
         # (0.4 m/s commandés ; 1.5 laisse la marge des corrections normales)
         self.max_plausible_speed = float(rospy.get_param("~max_plausible_speed", 1.5))
+        # Nombre d'échantillons CONSÉCUTIFS au-dessus du seuil avant de
+        # déclarer la source folle (2026-08-05). Avant : 1 seul suffisait, donc
+        # un pic isolé verrouillait l'état et, comme le gel ne publiait rien,
+        # /robot_pose_fused tombait à ~0 Hz — cockpit figé alors que la source
+        # était saine 99 % du temps. Un pic isolé est maintenant simplement
+        # ÉCARTÉ (l'échantillon n'entre pas dans la trace) sans verrouiller.
+        # 3 à ~90 Hz = ~33 ms de rejet continu avant de considérer que ce
+        # n'est plus un pic mais une vraie excursion.
+        self.spike_tolerance = int(rospy.get_param("~spike_tolerance", 3))
+        # Pendant un gel, on RÉÉMET la dernière pose saine au lieu de ne rien
+        # publier. Ce n'est PAS une pose inventée : c'est la dernière mesure
+        # valide, exactement ce que tout consommateur gardait déjà en mémoire
+        # faute de mieux. La différence est qu'ils continuent de recevoir, donc
+        # l'IHM reste vivante et un contrôle de débit distingue enfin "source
+        # gelée" (topic vivant, covariance énorme) de "nœud mort" (topic muet).
+        self.hold_during_freeze = bool(rospy.get_param("~hold_during_freeze", True))
+        # Covariance annoncée sur une pose tenue : volontairement énorme, pour
+        # qu'un consommateur rigoureux (analyse hors ligne, RTB) puisse la
+        # rejeter sans ambiguïté au lieu de la prendre pour une mesure fraîche.
+        self.hold_covariance = float(rospy.get_param("~hold_covariance", 1e6))
         self._sane_prev = None
         self._sane_prev_t = 0.0
         self._insane = False
         self._insane_t0 = 0.0
+        self._spike_run = 0        # rejets consécutifs en cours
+        self._held_count = 0       # poses tenues republiées (diagnostic)
 
         # Most recent raw message seen from each source (always kept fresh,
         # even for the source that isn't currently active) so a switch can
@@ -290,14 +312,41 @@ class PoseSelector(object):
             dy = float(T_fused[1, 3] - self._sane_prev[1, 3])
             speed = (dx * dx + dy * dy) ** 0.5 / dt
             if speed > self.max_plausible_speed:
-                if not self._insane:
+                self._spike_run += 1
+                self._insane_last_T = T_fused
+                self._insane_last_t = now_t
+                if self._spike_run >= self.spike_tolerance and not self._insane:
+                    # Rejet SOUTENU : ce n'est plus un pic isolé, c'est une
+                    # excursion. On verrouille (et on le dit une seule fois).
                     self._insane = True
                     self._insane_t0 = now_t
                     rospy.logwarn("[pose_selector] pose %s invraisemblable "
-                                  "(%.1f m/s) — pose servie GELÉE", source, speed)
-                self._insane_last_T = T_fused
-                self._insane_last_t = now_t
-                return  # on ne sert rien : la dernière pose saine reste en vigueur
+                                  "(%.1f m/s, %d echantillons consecutifs) — "
+                                  "source GELEE, derniere pose saine tenue",
+                                  source, speed, self._spike_run)
+                # Dans TOUS les cas l'échantillon aberrant est écarté : il
+                # n'entre ni dans la trace, ni dans _sane_prev, ni dans la
+                # correction SE3. Aucune trajectoire fausse n'est injectée.
+                # Mais on continue de SERVIR la dernière pose saine, pour ne
+                # pas assécher le topic (voir hold_during_freeze).
+                if self.hold_during_freeze and self._last_fused_mat is not None:
+                    held = _odom_from_mat(self._last_fused_mat, msg.header.stamp,
+                                          self.odom_frame, self.base_frame,
+                                          template=msg)
+                    # covariance saturée = "pose tenue, pas une mesure fraîche"
+                    cov = list(held.pose.covariance)
+                    for i in (0, 7, 14, 21, 28, 35):
+                        cov[i] = self.hold_covariance
+                    held.pose.covariance = cov
+                    self.pub_fused.publish(held)
+                    self._held_count += 1
+                    if self._held_count % 200 == 0:
+                        rospy.logwarn("[pose_selector] %d poses tenues republiees "
+                                      "depuis le debut (source %s instable)",
+                                      self._held_count, source)
+                return
+            # Échantillon accepté : la série de pics est rompue.
+            self._spike_run = 0
             if self._insane:
                 # la source est redevenue calme -> ré-ancrage : la correction
                 # absorbe l'offset accumulé pendant l'excursion, la pose servie
