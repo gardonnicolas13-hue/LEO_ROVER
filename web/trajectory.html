@@ -732,7 +732,11 @@
       /* Tare : la position ACTUELLE devient la nouvelle origine affichée.
          base_link et odom coïncident donc au clic -- honnêtement, en
          redéfinissant l'origine, pas en cachant un écart réel. */
-      originOffset = pose ? { x: pose.x, y: pose.y } : { x: 0, y: 0 };
+      /* Tare complète : position ET cap. Sans le cap, base_link se
+         superposait à odom en position mais restait tourné du cap courant,
+         donc les deux repères ne s'alignaient pas. */
+      originOffset = pose ? { x: pose.x, y: pose.y, yaw: pose.yaw }
+                          : { x: 0, y: 0, yaw: 0 };
     } else {
       originOffset = null;
     }
@@ -942,6 +946,7 @@
        écart réel réapparaît dès que le robot bouge. */
     const ox = originOffset ? originOffset.x : 0;
     const oy = originOffset ? originOffset.y : 0;
+    const oyaw = originOffset ? (originOffset.yaw || 0) : 0;
     const tgt = { cx: viewFrozen ? 0 : (bounds.minx + bounds.maxx) / 2 - ox,
                   cy: viewFrozen ? 0 : (bounds.miny + bounds.maxy) / 2 - oy,
                   s: Math.min(W, H) / span };
@@ -967,8 +972,12 @@
                tarée soustrairait la tare deux fois. ox=oy=0 sans tare. */
     const XT = (tx) => W / 2 + (tx - cxw) * s;
     const YT = (ty) => H / 2 - (ty - cyw) * s;   /* y monde vers le haut */
-    const X = (wx) => XT(wx - ox);
-    const Y = (wy) => YT(wy - oy);
+    /* Tare SE(2) complète : p_taré = R(-cap_tare) · (p_monde - t_tare).
+       La rotation mélange x et y, donc X/Y prennent les DEUX coordonnées
+       (contrairement à XT/YT). Sans tare : oyaw=0, R = identité. */
+    const cO = Math.cos(oyaw), sO = Math.sin(oyaw);
+    const X = (wx, wy) => XT((wx - ox) * cO + (wy - oy) * sO);
+    const Y = (wx, wy) => YT(-(wx - ox) * sO + (wy - oy) * cO);
 
     /* grille métrique subtile (pas adaptatif 0.5/1/2/5 m) */
     const step = [0.25, 0.5, 1, 2, 5, 10].find(st => st * s > 55 * dpr) || 10;
@@ -1005,10 +1014,11 @@
           curMode = b.mode;
           ctx.strokeStyle = COLORS[curMode] || "#888";
           ctx.beginPath();
-          ctx.moveTo(X(b.break ? b.x : a.x), Y(b.break ? b.y : a.y));
+          const sx = b.break ? b.x : a.x, sy = b.break ? b.y : a.y;
+          ctx.moveTo(X(sx, sy), Y(sx, sy));
           if (b.break) continue;          /* pas de segment depuis a */
         }
-        ctx.lineTo(X(b.x), Y(b.y));
+        ctx.lineTo(X(b.x, b.y), Y(b.x, b.y));
       }
       if (curMode !== null) ctx.stroke();
     }
@@ -1016,18 +1026,19 @@
 
     /* nodes AprilTag */
     tags.forEach(t => {
+      const tx = X(t.x, t.y), ty = Y(t.x, t.y);
       ctx.fillStyle = "#3fdc97";
-      ctx.beginPath(); ctx.arc(X(t.x), Y(t.y), 4 * dpr, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(tx, ty, 4 * dpr, 0, 7); ctx.fill();
       ctx.strokeStyle = "rgba(63,220,151,.4)"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(X(t.x), Y(t.y), 9 * dpr, 0, 7); ctx.stroke();
+      ctx.beginPath(); ctx.arc(tx, ty, 9 * dpr, 0, 7); ctx.stroke();
       ctx.fillStyle = "rgba(63,220,151,.8)";
-      ctx.fillText("TAG " + t.id, X(t.x) + 12 * dpr, Y(t.y) - 6 * dpr);
+      ctx.fillText("TAG " + t.id, tx + 12 * dpr, ty - 6 * dpr);
     });
 
     /* repère "point de départ" (croix + cercle blanc, distinct des tags/du
        trail pour ne pas le confondre avec une détection capteur) */
     if (startMark) {
-      const mx = X(startMark.x), my = Y(startMark.y), r = 10 * dpr;
+      const mx = X(startMark.x, startMark.y), my = Y(startMark.x, startMark.y), r = 10 * dpr;
       ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.6 * dpr;
       ctx.beginPath(); ctx.arc(mx, my, r, 0, 7); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(mx - r * 1.5, my); ctx.lineTo(mx + r * 1.5, my); ctx.stroke();
@@ -1042,33 +1053,42 @@
        fused si /tf pas encore reçu — même donnée sous-jacente). */
     const Lax = step * 0.7;                       /* longueur d'axe, en mètres */
     const drawFrame = (wx, wy, yaw, label, dim) => {
-      const ox = X(wx), oy = Y(wy);
-      const xe = [X(wx + Lax * Math.cos(yaw)), Y(wy + Lax * Math.sin(yaw))];
-      const ye = [X(wx - Lax * Math.sin(yaw)), Y(wy + Lax * Math.cos(yaw))];
+      /* fx/fy, PAS ox/oy : ox/oy sont la tare, définie plus haut et capturée
+         par X/Y — les réutiliser ici les masquerait et rendrait la lecture
+         du code trompeuse. Les extrémités d'axes sont calculées en MONDE
+         puis projetées : la rotation de tare s'applique donc toute seule. */
+      const fx = X(wx, wy), fy = Y(wx, wy);
+      const xw = [wx + Lax * Math.cos(yaw), wy + Lax * Math.sin(yaw)];
+      const yw = [wx - Lax * Math.sin(yaw), wy + Lax * Math.cos(yaw)];
+      const xe = [X(xw[0], xw[1]), Y(xw[0], xw[1])];
+      const ye = [X(yw[0], yw[1]), Y(yw[0], yw[1])];
       ctx.lineWidth = (dim ? 2.0 : 2.6) * dpr; ctx.globalAlpha = dim ? 0.75 : 1;
       ctx.strokeStyle = "#ff3b30";                /* X rouge */
-      ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(xe[0], xe[1]); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(xe[0], xe[1]); ctx.stroke();
       ctx.strokeStyle = "#34dc6b";                /* Y vert */
-      ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(ye[0], ye[1]); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(ye[0], ye[1]); ctx.stroke();
       ctx.fillStyle = "#ff3b30"; ctx.beginPath(); ctx.arc(xe[0], xe[1], 2.6*dpr, 0, 7); ctx.fill();
       ctx.fillStyle = "#34dc6b"; ctx.beginPath(); ctx.arc(ye[0], ye[1], 2.6*dpr, 0, 7); ctx.fill();
       ctx.fillStyle = "rgba(201,209,217,.9)";
       ctx.font = `${10 * dpr}px ui-monospace, monospace`;
-      ctx.fillText(label, ox + 5 * dpr, oy - 5 * dpr);
+      ctx.fillText(label, fx + 5 * dpr, fy - 5 * dpr);
       ctx.globalAlpha = 1;
     };
-    /* Sans tare : odom au vrai (0,0), racine réelle de /tf. Avec tare :
-       odom dessiné à la position tarée -- l'écart RÉEL entre eux reste
-       visible dès que le robot bouge, rien n'est caché. */
-    drawFrame(originOffset ? originOffset.x : 0, originOffset ? originOffset.y : 0,
-               0, "odom", true);
+    /* odom dessiné AU point de tare ET avec le cap de tare : après la
+       rotation R(-cap_tare) il retombe donc exactement sur l'origine du
+       repère taré, axes alignés sur la grille. base_link, lui, garde son
+       vrai cap monde : au moment du clic il coïncide, et tout écart
+       ultérieur (position ou cap) redevient visible immédiatement. */
+    drawFrame(ox, oy, oyaw, "odom", true);
     const bl = tfBase || (pose ? { x: disp.x, y: disp.y, yaw: disp.yaw } : null);
     if (bl) drawFrame(bl.x, bl.y, bl.yaw, "base_link", false);
 
     /* rover : triangle orienté à la pose INTERPOLÉE (fluide), halo mode */
     if (pose) {
-      const px = X(disp.x), py = Y(disp.y), c = COLORS[mode] || "#ccc";
-      ctx.save(); ctx.translate(px, py); ctx.rotate(-disp.yaw + Math.PI / 2);
+      const px = X(disp.x, disp.y), py = Y(disp.x, disp.y), c = COLORS[mode] || "#ccc";
+      /* cap taré aussi : sinon le triangle pointerait à côté de sa propre
+         trajectoire une fois le repère tourné. */
+      ctx.save(); ctx.translate(px, py); ctx.rotate(-(disp.yaw - oyaw) + Math.PI / 2);
       ctx.shadowColor = c; ctx.shadowBlur = 14 * dpr;
       ctx.fillStyle = c;
       ctx.beginPath(); ctx.moveTo(0, -9 * dpr); ctx.lineTo(6 * dpr, 7 * dpr);
@@ -1076,9 +1096,13 @@
       ctx.restore();
       /* Mêmes coordonnées que le tracé : tarées si une tare est active,
          sinon brutes -- HUD et carte ne doivent jamais se contredire. */
-      $("hX").textContent   = (pose.x - ox).toFixed(3);
-      $("hY").textContent   = (pose.y - oy).toFixed(3);
-      $("hYaw").textContent = (pose.yaw * 57.2958).toFixed(1);
+      const dxw = pose.x - ox, dyw = pose.y - oy;
+      $("hX").textContent   = ( dxw * cO + dyw * sO).toFixed(3);
+      $("hY").textContent   = (-dxw * sO + dyw * cO).toFixed(3);
+      /* cap ramené dans (-180, 180] pour éviter un "359.4" après tare */
+      let capT = (pose.yaw - oyaw) * 57.2958;
+      capT = ((capT % 360) + 540) % 360 - 180;
+      $("hYaw").textContent = capT.toFixed(1);
     }
 
     /* HUD droite */
