@@ -2213,7 +2213,135 @@ python3 analyze_pose_variance.py /tmp/t1_1_static_pose.csv
   \S\ref{ap:repro-comprun} end to end. That procedure also covers switching
   the cockpit's \emph{Pose Source} to MINS and recording both estimators to a
   rosbag, which the website's own buffers are not reliable enough to replace.
+\item \textbf{Validate against a measured rectangle, for an absolute
+  dimensional check.} Protocol T1.1 catches a wrong estimator standing
+  still; \S\ref{ap:repro-comprun} catches disagreement \emph{between} MINS
+  and openVINS while moving. Neither compares either one to a physical,
+  tape-measured shape. This one does, and the same recording serves both
+  estimators (\S\ref{ap:repro-rect-vins} reuses it for openVINS below,
+  rather than driving twice).
+\begin{enumerate}[leftmargin=1.2em]
+\item \textbf{Mark a rectangle on the floor.} Tape one of known dimensions,
+  measured with a tape measure, not by eye; $2.00\,\text{m} \times
+  1.50\,\text{m}$ fits most lab spaces, but use whatever the room allows.
+  Mark the starting corner and the direction of travel: you will start and
+  finish there, facing the same way, so the loop closes.
+\item \textbf{Wake openVINS before recording}, with a jerk
+  (\S\ref{ap:repro-launch}): the same bag will be analysed for both
+  estimators, and openVINS publishes nothing until it has felt one.
+\item \textbf{Record the drive}, exactly as in \S\ref{ap:repro-comprun}:
+\begin{lstlisting}[language=bash]
+cd ~/TOUT
+tools/record_trajectories.sh 120 rect_test
+\end{lstlisting}
+\item \textbf{Drive the rectangle once}, corner to corner, back to the
+  marked start point and heading. Slowly and smoothly; a sharp turn at each
+  corner is not required and does not help this particular measurement,
+  since the analysis below reads the trajectory's overall extent, not its
+  individual corners.
+\item \textbf{Convert and analyse, for MINS:}
+\begin{lstlisting}[language=bash]
+python3 tools/bag_to_csv.py data/trajectories/rect_test_<timestamp>.bag
+cd tools
+matlab -batch "plot_rectangle_test('../data/trajectories/rect_test_<timestamp>', 2.00, 1.50, 'mins')"
+\end{lstlisting}
+  \textbf{Expected:} a printed block with the measured dimensions, the
+  trajectory's bounding box, the percentage error on each side, and the
+  loop-closure gap, plus a saved
+  \code{rect\_test\_<timestamp>\_mins\_rect.png} overlaying the trajectory
+  on the ideal rectangle. For context, not a pass/fail threshold: this
+  platform's own wheel odometry alone over-reports straight-line distance
+  by $39\%$ uncorrected (\S\ref{ap:repro-wheels}); a correctly wired
+  estimator should track the measured rectangle far more closely than that.
 \end{enumerate}
+\begin{trapbox}{Figure pending: this test has not yet been run}
+The procedure above is complete and ready to run, but has not been executed
+on this platform as of this writing: no figure exists yet to insert here.
+Run it once, then place the resulting \code{*\_mins\_rect.png} at the end
+of this list.
+\end{trapbox}
+\end{enumerate}
+
+\subsection{The same test, for openVINS}
+\label{ap:repro-rect-vins}
+openVINS has no dedicated ``start to finish'' walkthrough in this appendix
+the way MINS now does (\S\ref{ap:repro-mins-guide}); its build and launch
+are covered in \S\ref{ap:repro-build} and \S\ref{ap:repro-launch}. What
+follows is only the test methodology, mirrored from the MINS protocol
+above, because that is specifically what was asked for.
+
+\textbf{No second drive is needed.} \code{record\_trajectories.sh} captures
+both estimators from the same rosbag (\S\ref{ap:repro-comprun}), so the
+rectangle drive of the previous subsection already contains openVINS's
+trace, provided it was jerked awake before recording started, as instructed
+there. Re-driving the rectangle a second time for openVINS would not
+improve anything, and would introduce a second, independent source of
+driving error into what should be a controlled comparison.
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Confirm openVINS actually woke up}, before trusting the
+  recording:
+\begin{lstlisting}[language=bash]
+rostopic hz /ov_msckf/odomimu           # expect ~75-90 Hz
+\end{lstlisting}
+  Silence here (\S\ref{ap:repro-launch}) means the CSV extracted below will
+  be empty or absurdly short, not that the analysis script below is broken.
+\item \textbf{Convert and analyse, for openVINS.} The conversion step is
+  the same command as for MINS and only needs running once: both
+  \code{\_mins.csv} and \code{\_vins.csv} come out of it together.
+\begin{lstlisting}[language=bash]
+python3 tools/bag_to_csv.py data/trajectories/rect_test_<timestamp>.bag
+cd tools
+matlab -batch "plot_rectangle_test('../data/trajectories/rect_test_<timestamp>', 2.00, 1.50, 'vins')"
+\end{lstlisting}
+  \textbf{Expected:} the same style of report as MINS's (measured
+  dimensions, achieved bounding box, percentage error per side, loop-closure
+  gap), saved to \code{rect\_test\_<timestamp>\_vins\_rect.png}. Use the
+  \emph{same} \code{length\_m}/\code{width\_m} arguments as the MINS run:
+  both are being measured against the identical physical rectangle, which
+  is the entire point of comparing them.
+\end{enumerate}
+\begin{trapbox}{Figure pending: this test has not yet been run}
+Same status as the MINS run above: the procedure is ready, the rosbag has
+not yet been recorded. Once it is, this figure and the MINS one come from
+the \emph{same} drive, one \code{plot\_rectangle\_test.m} call apart.
+\end{trapbox}
+
+\subsection{MINS versus openVINS, against the same measured rectangle}
+\label{ap:repro-rect-compare}
+Both subsections above produce independent numbers against the same
+physical reference, from the same drive. This is a genuinely different
+comparison from the one in \S\ref{ap:repro-comprun}: that procedure
+measures how much MINS and openVINS agree \emph{with each other}, which two
+correlated estimators (both integrate the same gyroscope) can do while both
+are still wrong in the same direction. Comparing each one separately to a
+tape measure cannot make that mistake.
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Put both numbers side by side.} From the two console outputs
+  (or the two \code{\_rect.png} annotations), tabulate: the measured length
+  and width (identical for both, it is the same rectangle), each
+  estimator's achieved length and width, each estimator's percentage error
+  on each side, and each estimator's loop-closure gap.
+\item \textbf{Read the percentage errors before the closure gap.} A small
+  closure gap with a large dimensional error is possible: an estimator that
+  consistently under-scales the whole trajectory can still return close to
+  its own starting point, because the scale error cancels out over a closed
+  loop. The dimensional comparison is what catches that; \S\ref{sec:july29align}
+  makes the same point about scale hiding inside an alignment-based metric.
+\item \textbf{Whichever estimator is closer on both dimensions} is the one
+  with the more accurate metric scale on this run, for this platform, on
+  this floor. This is a single data point, not a general verdict: repeat
+  across a few drives, in both directions around the rectangle, before
+  trusting the comparison, the way \S\ref{ap:repro-calibrun} insists on
+  three passes for the ground-truth floor protocol before applying anything.
+\end{enumerate}
+\begin{trapbox}{Figure pending: this test has not yet been run}
+The comparison table and its conclusion belong here once both figures above
+exist. Nothing in this subsection should be filled in from expectation or
+from a different run: the whole point of an absolute reference is that it
+is measured, not assumed.
+\end{trapbox}
 
 \subsection{Where each estimator keeps its configuration}
 \label{ap:repro-config-ref}
