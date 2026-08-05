@@ -318,6 +318,18 @@ ROBUST_REC_BAG2CSV    = os.path.join(_TOUT_ROOT, "tools", "bag_to_csv.py")
 ROBUST_REC_TOPICS = [
     "/mins/imu/odom", "/ov_msckf/odomimu", "/robot_pose_fused",
     "/leo_navigation/pose_source", "/firmware/wheel_odom",
+    # /tag_detections (2026-08-05) : les AprilTag posés aux coins du rectangle
+    # sont enregistrés comme SIMPLE OBSERVATION, jamais appliqués à la pose.
+    # C'est la distinction qui rend la mesure valide : si on recalait la pose
+    # sur les coins, la trajectoire épouserait le rectangle PAR CONSTRUCTION et
+    # ne mesurerait plus rien (le piège "lisse, reproductible et métriquement
+    # dénué de sens" de §12.13). Enregistrées à côté, elles donnent au
+    # contraire la position VRAIE à 4 instants connus : la différence avec la
+    # pose estimée est l'erreur ABSOLUE, bien plus forte qu'une fermeture de
+    # boucle, et c'est la mesure que l'annexe D signale comme jamais faite.
+    # S'abonner ici est sans risque : contrairement au slot VICON de MINS
+    # ci-dessus, /tag_detections n'a aucune règle d'exclusivité.
+    "/tag_detections",
 ]
 CAROLUS_LAUNCH = os.path.join(                     # source des params affichés
     os.path.dirname(os.path.abspath(__file__)),

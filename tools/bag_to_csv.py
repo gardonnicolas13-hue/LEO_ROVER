@@ -54,6 +54,13 @@ TOPIC_MAP = {
     # et un bag ne contient jamais les deux peuples.
     "/mins/external_ref/carolus":  ("carolus", "pose"),
     "/leo_navigation/pose_source": ("source",  "source"),
+    # AprilTag posés aux coins du rectangle (2026-08-05). Enregistrés comme
+    # OBSERVATION seule : rien n'est recalé dessus, sinon la trajectoire
+    # épouserait le rectangle par construction et ne mesurerait plus rien.
+    # Un message porte un TABLEAU de détections (souvent vide) : on écrit une
+    # ligne PAR détection, d'où un format propre (t, id, x, y, z, distance)
+    # différent des CSV de pose à 11 colonnes.
+    "/tag_detections":             ("tags",    "tags"),
 }
 
 
@@ -99,7 +106,12 @@ def main():
         path = os.path.join(outdir, "%s_%s.csv" % (base, suffix))
         f = open(path, "w", newline="")
         w = csv.writer(f)
-        w.writerow(["t", "source"] if kind == "source" else ODOM_HDR)
+        if kind == "source":
+            w.writerow(["t", "source"])
+        elif kind == "tags":
+            w.writerow(["t", "id", "x", "y", "z", "distance_m"])
+        else:
+            w.writerow(ODOM_HDR)
         writers[topic] = (w, kind)
         files[topic] = (f, path)
         counts[topic] = 0
@@ -115,6 +127,20 @@ def main():
 
             if kind == "source":
                 w.writerow(["%.6f" % rel, msg.data])
+            elif kind == "tags":
+                # Un message = un TABLEAU (souvent vide quand aucun tag n'est
+                # dans le champ). On n'écrit que les détections réelles, une
+                # ligne chacune ; les messages vides ne produisent rien, donc
+                # le CSV ne contient que les instants où un coin a été VU.
+                for det in msg.detections:
+                    p = det.pose.pose.pose.position
+                    tid = det.id[0] if len(det.id) else -1
+                    dist = (p.x * p.x + p.y * p.y + p.z * p.z) ** 0.5
+                    w.writerow(["%.6f" % rel, tid,
+                                "%.6f" % p.x, "%.6f" % p.y, "%.6f" % p.z,
+                                "%.6f" % dist])
+                    counts[topic] += 1
+                continue          # compteur déjà incrémenté par détection
             else:
                 if kind == "odom":
                     p = msg.pose.pose.position
