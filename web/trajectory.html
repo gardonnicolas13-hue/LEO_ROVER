@@ -187,6 +187,15 @@
       <div id="recBadge" style="margin-top:6px;font-size:11px;letter-spacing:.08em;color:var(--dim)">— pas d'enregistrement —</div>
       <button id="btnTrajReset" style="margin-top:6px;width:100%;font-family:var(--mono);font-size:11px;letter-spacing:.08em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer"
               title="Annule l'enregistrement en cours et repart à zéro pour le même test">↺ RESET (essai raté)</button>
+      <!-- ── Repère visuel "point de départ" (2026-08-05) ──────────────────
+           Purement local à cette page, aucune commande robot : capture la
+           pose affichée à l'instant du clic et l'épingle sur le tracé
+           (même famille de rendu que les tags AprilTag). Sert à juger à
+           l'œil si la trajectoire d'un tour revient bien dessus -- pas à
+           confondre avec "MARQUER LE DÉPART" du panneau Calibration terrain
+           plus bas, qui est un tout autre protocole (calib_terrain.py). -->
+      <button id="btnStartMark" style="margin-top:6px;width:100%;font-family:var(--mono);font-size:11px;letter-spacing:.08em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer"
+              title="Épingle la position actuelle sur le tracé, pour voir si le tour y revient">📍 MARQUER ICI (repère tracé)</button>
     </div>
     <!-- ── Export MATLAB (2026-07-27) ──────────────────────────────────────
          Bouton bien visible dans le panneau gauche de la vue Trajectory.
@@ -351,6 +360,7 @@
   const tags  = [];          /* {x, y, id} — nodes AprilTag (pose robot à la détection) */
   let mode = null;           /* "VINS" | "MINS" */
   let pose = null;           /* {x, y, yaw} */
+  let startMark = null;      /* {x, y} — repère visuel local, voir btnStartMark */
   let vlin = 0, vang = 0;
   let msgTimes = [];
   let lastTagStamp = 0;
@@ -689,6 +699,16 @@
                  "Après le reset, clique Test 1 ou Test 2 pour démarrer le prochain essai.")) return;
     sendCmd({ action: "traj_reset" });
   };
+  /* ── Repère visuel "point de départ" ──────────────────────────────────── */
+  function refreshStartMarkBtn() {
+    $("btnStartMark").textContent = startMark ? "✕ EFFACER LE REPÈRE" : "📍 MARQUER ICI (repère tracé)";
+  }
+  $("btnStartMark").onclick = () => {
+    if (startMark) { startMark = null; refreshStartMarkBtn(); return; }
+    if (!pose) { alert("Pas encore de pose reçue — attends que le tracé démarre."); return; }
+    startMark = { x: pose.x, y: pose.y };
+    refreshStartMarkBtn();
+  };
   /* ── Fiche "Comment ça marche ?" ──────────────────────────────────────── */
   function openHelp() { $("helpBackdrop").classList.add("open"); }
   function closeHelp() { $("helpBackdrop").classList.remove("open"); }
@@ -861,6 +881,10 @@
       if (t.x < minx) minx = t.x; if (t.x > maxx) maxx = t.x;
       if (t.y < miny) miny = t.y; if (t.y > maxy) maxy = t.y;
     }
+    if (startMark) {
+      if (startMark.x < minx) minx = startMark.x; if (startMark.x > maxx) maxx = startMark.x;
+      if (startMark.y < miny) miny = startMark.y; if (startMark.y > maxy) maxy = startMark.y;
+    }
     if (minx <= maxx) bounds = { minx, maxx, miny, maxy };
   }
 
@@ -944,6 +968,18 @@
       ctx.fillStyle = "rgba(63,220,151,.8)";
       ctx.fillText("TAG " + t.id, X(t.x) + 12 * dpr, Y(t.y) - 6 * dpr);
     });
+
+    /* repère "point de départ" (croix + cercle blanc, distinct des tags/du
+       trail pour ne pas le confondre avec une détection capteur) */
+    if (startMark) {
+      const mx = X(startMark.x), my = Y(startMark.y), r = 10 * dpr;
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.6 * dpr;
+      ctx.beginPath(); ctx.arc(mx, my, r, 0, 7); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(mx - r * 1.5, my); ctx.lineTo(mx + r * 1.5, my); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(mx, my - r * 1.5); ctx.lineTo(mx, my + r * 1.5); ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,.85)";
+      ctx.fillText("DÉPART", mx + r + 4 * dpr, my - 6 * dpr);
+    }
 
     /* ── Repères TF : axes X (rouge) / Y (vert) ──────────────────────────────
        ODOM à l'origine du tracé (racine réelle de /tf — pas de `map` publié,
