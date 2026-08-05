@@ -716,6 +716,14 @@
                  " sans le sauvegarder ?\n\n" +
                  "Après le reset, clique Test 1 ou Test 2 pour démarrer le prochain essai.")) return;
     viewFrozen = false; originOffset = null;
+    /* Le tracé affiché est accumulé ICI (trail.push, sur chaque pose reçue),
+       pas côté backend : sans ce vidage, "traj_reset" nettoyait les buffers
+       serveur et le rosbag mais la trace restait à l'écran indéfiniment --
+       le bouton semblait ne rien faire. Le repère "départ" est volontairement
+       CONSERVÉ : il matérialise un point physique au sol qui, lui, n'a pas
+       bougé entre deux essais. */
+    trail.length = 0;
+    disp.init = false;          /* laisse la vue se recadrer sur la pose seule */
     sendCmd({ action: "traj_reset" });
   };
   $("btnRecenter").onclick = () => {
