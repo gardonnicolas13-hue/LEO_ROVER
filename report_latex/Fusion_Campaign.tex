@@ -7023,6 +7023,20 @@ this trapbox once it exists, not before.
     with it the working-distance beacon detection. Re-measure the envelope
     after cooling: the correct A/B experiment is overrun rate at fixed
     load, not temperature alone \\
+39 & \textbf{Second absolute-error method: implemented, never measured}
+    (\S\ref{sec:aug05beacon}). Item~37's beacon bridge is gated on
+    item~36; this session added a complementary method on already-
+    calibrated hardware (the Kalibr'd IR pair, item~2) that needs
+    neither the tag's world position nor the camera--IMU extrinsic, only
+    a fixed tag re-sighted from the same spot. The detector, the
+    recording path, the CSV format and \code{tools/tag\_drift.py} are
+    all deployed and verified against synthetic data with a known
+    answer; no tag has yet been placed at the rectangle's third corner
+    for a real multi-lap run &
+    mount an AprilTag at a fixed, re-visitable point (the rectangle
+    protocol's third corner is already instrumented for it,
+    \S\ref{ap:repro-mins-guide}); drive at least two laps past it in one
+    recording; run \code{tag\_drift.py} on the result \\
 \end{longtable}
 \end{center}
 
