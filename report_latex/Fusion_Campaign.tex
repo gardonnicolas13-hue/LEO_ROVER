@@ -6294,6 +6294,68 @@ a discrete correction of fixed size.}
 \label{tab:guardwindow}
 \end{table}
 
+\paragraph{Why the window separates the two cases, in closed form.} The
+replay above is an empirical demonstration; the reason it works has a short
+derivation. Model a discrete correction of size $\delta$ landing at time
+$t_c$ inside an otherwise steady drive at speed $v_0$: the position is
+$x(t) = v_0 t + \delta\,H(t-t_c)$, with $H$ the Heaviside step. For a window
+of duration $T$ that contains $t_c$, Eq.~\ref{eq:guardwindow} reads
+\begin{equation}
+v_{\text{apparent}}(T) \;=\; \frac{\lvert x(t)-x(t-T)\rvert}{T}
+\;=\; v_0 + \frac{\delta}{T} ,
+\label{eq:guardstep}
+\end{equation}
+which \emph{decreases} monotonically in $T$ and tends to the true speed
+$v_0$ as $T$ grows: the correction's contribution is amortised over an
+increasingly long interval. A \emph{sustained} runaway of speed $v_{\text{bad}}$,
+by contrast, has $x(t)=v_{\text{bad}}\,t$ and
+\begin{equation}
+v_{\text{apparent}}(T) \;=\; v_{\text{bad}} ,
+\label{eq:guardramp}
+\end{equation}
+independent of $T$ entirely: there is no amortising it, because every
+sub-interval of the runaway is itself the runaway. Substituting the worst
+observed case ($v_0=0.13$\,m/s, $\delta=4.23$\,cm) into
+Eq.~\ref{eq:guardstep} gives the crossing point where the correction alone
+would still trip the $v_{\max}=1.5$\,m/s guard,
+$T^\star = \delta/(v_{\max}-v_0) \approx 30.9$\,ms --- comfortably below the
+deployed $T=100$\,ms, at which Eq.~\ref{eq:guardstep} evaluates to
+$0.553$\,m/s, roughly a factor of three under threshold rather than the
+bare $\delta/T=0.423$\,m/s a reader would get by dropping the $v_0$ term.
+\begin{center}
+\begin{tikzpicture}[font=\scriptsize]
+  \def\kx{0.045} \def\ky{1.0}
+  \draw[->, thick] (0,0) -- ({160*\kx},0) node[right]{$T$ (ms)};
+  \draw[->, thick] (0,0) -- (0,{6.3*\ky}) node[above]{$v_{\text{apparent}}$ (m/s)};
+  % seuil de la garde
+  \draw[dashed, black!55] (0,{1.5*\ky}) -- ({160*\kx},{1.5*\ky});
+  \node[left, black!55] at (0,{1.5*\ky}) {$1.5$};
+  % divergence soutenue : plate, ne descend jamais sous le seuil
+  \draw[very thick, alertred] (0,{6*\ky}) -- ({160*\kx},{6*\ky});
+  \node[right, alertred] at ({160*\kx},{6*\ky}) {$v_{\text{bad}}$ soutenu};
+  % correction discrete : Eq. guardstep, points precalcules
+  \draw[very thick, accentblue, smooth]
+    plot coordinates {({11*\kx},{3.975*\ky}) ({15*\kx},{2.95*\ky})
+      ({20*\kx},{2.245*\ky}) ({25*\kx},{1.822*\ky}) ({31*\kx},{1.495*\ky})
+      ({40*\kx},{1.188*\ky}) ({55*\kx},{0.899*\ky}) ({75*\kx},{0.694*\ky})
+      ({100*\kx},{0.553*\ky}) ({130*\kx},{0.455*\ky}) ({150*\kx},{0.412*\ky})};
+  \node[accentblue] at ({70*\kx},{2.6*\ky}) {$v_0+\delta/T$};
+  % marqueurs aux deux bases de temps discutees dans le texte
+  \fill ({11*\kx},{3.975*\ky}) circle (1.3pt);
+  \node[above, accentblue] at ({11*\kx},{3.975*\ky}) {$11$ms};
+  \fill ({100*\kx},{0.553*\ky}) circle (1.3pt);
+  \node[above, accentblue] at ({100*\kx},{0.653*\ky}) {$100$ms};
+  \draw[dotted] ({31*\kx},0) -- ({31*\kx},{1.5*\ky});
+  \node[below] at ({31*\kx},0) {$T^\star{=}31$};
+\end{tikzpicture}
+\end{center}
+The blue curve is Eq.~\ref{eq:guardstep} on the worst measured correction;
+the flat red line is Eq.~\ref{eq:guardramp} on a sustained $6$\,m/s runaway.
+Only the former crosses below threshold as $T$ grows, which is the entire
+mechanism: nothing in the fix distinguishes ``discrete'' from ``sustained''
+by pattern-matching, the window merely makes a one-off average out while
+leaving a persistent one untouched.
+
 Deployed and re-measured live: \code{/robot\_pose\_fused} publishing at
 $76$--$83$\,Hz through driven turns that previously froze it within the first
 second.
@@ -6381,10 +6443,35 @@ whatever the rover is resting against) is not level; if it does not, the IMU
 is mounted at an angle inside the chassis that the URDF --- which declares
 identity rotation, $\text{RPY}=(0,0,0)$, between \code{base\_link} and
 \code{imu\_frame} --- does not know about. Either way, an uncorrected specific
-force this size, doubly integrated, accounts for the drift measured above:
-a residual of only $0.1$\,m/s$^2$ integrates to
-$\tfrac{1}{2}(0.1)(15)^2 = 11.3$\,m in $15$\,s, matching the $11.4$\,m
-observed on openVINS to within the precision of the estimate.
+force this size, doubly integrated, accounts for the drift measured above,
+and the check runs cleanly in both directions. Forward, a constant residual
+$a$ that a filter fails to null integrates twice into
+\begin{equation}
+d(\Delta t) \;=\; \tfrac{1}{2}\,a\,\Delta t^2 ,
+\label{eq:doubleint}
+\end{equation}
+so guessing $a=0.1$\,m/s$^2$ predicts $d(15) = \tfrac{1}{2}(0.1)(15)^2 =
+11.3$\,m. Backward, inverting Eq.~\ref{eq:doubleint} on the openVINS drift
+actually measured, $d=11.4$\,m over $\Delta t=15$\,s, gives
+\begin{equation}
+a \;=\; \frac{2d}{\Delta t^2} \;=\; \frac{2(11.4)}{15^2} \;=\; 0.1013\ \text{m/s}^2 ,
+\label{eq:doubleintinv}
+\end{equation}
+recovering the guessed value to three figures: $0.1$\,m/s$^2$ was not a
+round number chosen for the illustration, it is what the observed drift
+itself implies.
+
+That figure is worth contrasting with the raw specific force the tilt
+alone would put on the $x$-axis, $g\sin(6.67^\circ) \approx 1.14$\,m/s$^2$
+--- an order of magnitude larger than the $0.10$\,m/s$^2$ that actually
+leaked into drift. The difference is not a discrepancy: a \emph{constant}
+tilt is exactly the kind of slowly-varying error a filter's own attitude
+and bias states can absorb, given any excitation to observe it against
+(rotation, the camera, ZUPT resets), so only whatever fraction the
+estimator fails to track shows up as uncorrected drift. That residual
+fraction is $0.10/1.14 \approx 9\,\%$ of the raw tilt-induced force here ---
+consistent with an estimator that is mostly, but not completely,
+compensating for a bias it was never told about explicitly.
 
 \subsection{Same-day ground-truth calibration: an asymmetry, not a scale
 error}
@@ -6424,11 +6511,50 @@ $5.2\,\%$ error in the other. Decomposing the pair into a symmetric part
 \text{asym.} = \tfrac12(g_L-g_R),
 \label{eq:asym}
 \end{equation}
-gives MINS a $3.3\,\%$ symmetric component against a $2.7\,\%$ antisymmetric
-one: the asymmetry is not a rounding artefact, it is comparable in size to
+applied to $g_L=1.0059$, $g_R=1.0607$ gives
+\begin{equation}
+\text{scale} = \tfrac12(1.0059+1.0607)-1 = +3.3\,\%, \qquad
+\text{asym.} = \tfrac12(1.0059-1.0607) = -2.7\,\% ,
+\label{eq:asymval}
+\end{equation}
+so the asymmetry is not a rounding artefact, it is comparable in size to
 the scale error itself, consistent with the rigid-wheel skid-steer asymmetry
 already measured on this platform's differential turning
 (\S\ref{ap:repro-wheels}).
+\begin{center}
+\begin{tikzpicture}[font=\scriptsize, scale=1.0]
+  % Deux panneaux COTE A COTE plutot qu'un seul repere partage : la premiere
+  % version superposait les deux rayons a 18 deg l'un de l'autre, ce qui
+  % entassait les quatre etiquettes dans le meme coin. Separer physiquement
+  % "gauche" et "droite" laisse la place de lire chaque angle seul.
+  \begin{scope}
+    \coordinate (OL) at (0,0);
+    \draw[->, thin] (OL) -- (2.0,0);
+    \draw[dashed, black!50] (OL) -- (0,2.0);
+    \draw[dashed, black!50] (OL) ++(0.5,0) arc[start angle=0, end angle=90, radius=0.5];
+    \draw[very thick, accentblue] (OL) -- ({1.9*cos(100)},{1.9*sin(100)});
+    \draw[accentblue] (OL) ++(0.9,0) arc[start angle=0, end angle=100, radius=0.9];
+    \node[align=center, below] at (1.0,-0.4)
+      {\textbf{gauche}, $g_L=1.0059$\\dépasse le $90^\circ$ (gris) de peu};
+  \end{scope}
+  \begin{scope}[xshift=4.4cm]
+    \coordinate (OR) at (0,0);
+    \draw[->, thin] (OR) -- (2.0,0);
+    \draw[dashed, black!50] (OR) -- (0,2.0);
+    \draw[dashed, black!50] (OR) ++(0.5,0) arc[start angle=0, end angle=90, radius=0.5];
+    \draw[very thick, alertred] (OR) -- ({1.9*cos(125)},{1.9*sin(125)});
+    \draw[alertred] (OR) ++(0.9,0) arc[start angle=0, end angle=125, radius=0.9];
+    \node[align=center, below] at (1.0,-0.4)
+      {\textbf{droite}, $g_R=1.0607$\\dépasse le $90^\circ$ nettement plus};
+  \end{scope}
+\end{tikzpicture}
+\end{center}
+Both readings overshoot the same $90^\circ$ real target (grey, dashed, same
+reference on both panels), but by visibly different amounts (angles
+exaggerated here for legibility, not to numerical scale): a single
+corrective gain that pulls the right-turn ray back to $90^\circ$ would
+overshoot in the other direction on the left-turn ray, and vice versa,
+which is the arithmetic of Eq.~\ref{eq:asymval} already showed.
 
 The straight-line row is the sharpest single number of this session: openVINS
 reported $1.8660$ for a metre actually driven, an $86.6\,\%$ over-read on the
