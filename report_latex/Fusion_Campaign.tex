@@ -6360,7 +6360,21 @@ $\bar{\mathbf{a}}$:
      into one plane)};
 \end{tikzpicture}
 \end{center}
-Six to seven degrees of tilt is large enough to see by eye on this platform.
+Six to seven degrees of tilt is large enough to see by eye on this platform,
+and it is not new: the raw stationary reading that established the magnitude
+defect on 2026-07-28 (\S\ref{sec:imucalib}, $\mathbf{a}=(1.045,\,0.604,\,
+8.664)$\,m/s$^2$, before \code{accel\_scale}) decomposes by
+Eq.~\ref{eq:rollpitch} to $+3.99^\circ$ roll and $-6.86^\circ$ pitch ---
+within $0.2^\circ$ of today's reading on eleven days' separation and, since
+\code{accel\_scale} is a uniform multiplier that cannot change a vector's
+direction, on both sides of that correction. That earlier session flagged
+the tilt explicitly as ``a separate question'' and did not pursue it,
+correctly ruling it out only as an explanation for the magnitude defect
+(\S\ref{sec:imucalib}'s own norm-invariance argument). The two independent
+measurements together make a transient cause --- a knock, a temporarily
+uneven surface --- unlikely: whatever is producing this tilt has held
+steady for at least eleven days.
+
 Two causes remain open, distinguishable by a $180^\circ$ yaw-in-place test not
 yet performed: if the sign of the tilt flips with the turn, the floor (or
 whatever the rover is resting against) is not level; if it does not, the IMU
