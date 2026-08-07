@@ -2279,12 +2279,16 @@ matlab -batch "plot_rectangle_test('../web/exports/test1', 2.00, 1.50, 'mins')"
   a correctly wired estimator should track the measured rectangle far more
   closely than that.
 \end{enumerate}
-\begin{trapbox}{Figure pending: this test has not yet been run}
-The procedure above is complete and ready to run, but has not been executed
-on this platform as of this writing: no figure exists yet to insert here.
-Run it once, then place the resulting \code{test1\_mins\_rect.png} at the
-end of this list.
-\end{trapbox}
+\begin{casestudy}{Run 2026-08-05: closed, against the taped rectangle below}
+$6.405\,\text{m}\times3.455\,\text{m}$, taped and tape-measured. Test 1,
+MINS trusted. Figure~\ref{fig:aug05mins} and \S\ref{sec:aug05result} give
+the full result and its interpretation; in short, bounding box
+$6.176\times3.919$\,m ($-3.6\,\%$ length, $+13.4\,\%$ width), loop closure
+$0.449$\,m over a $23.35$\,m path ($1.9\,\%$). The asymmetry between the two
+axis errors is not noise: \S\ref{sec:aug05calib} ties it to a measured
+turning asymmetry on this platform, not to a uniform scale error, which is
+the reading the raw bounding-box numbers alone cannot give.
+\end{casestudy}
 \end{enumerate}
 
 \subsection{The same test, for openVINS}
@@ -2325,9 +2329,20 @@ matlab -batch "plot_rectangle_test('../web/exports/test2', 2.00, 1.50, 'vins')"
   being measured against the identical physical rectangle, which is what
   makes \S\ref{ap:repro-rect-compare} below meaningful.
 \end{enumerate}
-\begin{trapbox}{Figure pending: this test has not yet been run}
-Same status as the MINS run above: the procedure is ready, Test 2 has not
-yet been recorded.
+\begin{trapbox}{Run 2026-08-05: executed, and openVINS did not close the
+loop}
+Test 2 was recorded against the identical rectangle, in the same session, in
+the same rosbag pipeline as the MINS run above. Unlike that run, this one is
+not a validation: openVINS returned a $675.28\times96.01$\,m bounding box and
+a $2760.55$\,m path against a $19.72$\,m measured perimeter. The full
+diagnosis --- a rewritten pose-fusion guard, a diagnosed IMU tilt, a thermal
+envelope this session sat inside rather than beside, and the algebraic proof
+that no single scale factor can rescue this trajectory --- is
+\S\ref{sec:aug05guard}--\S\ref{sec:aug05result}, not repeated here. What
+belongs here is the honest status: the procedure above is correct and was
+followed exactly; its output on this platform, this day, is not a usable
+openVINS figure. \S\ref{ap:repro-hitrun} and a re-run once the platform is
+cooled and lit remain the way to get one.
 \end{trapbox}
 
 \subsection{MINS versus openVINS, against the same measured rectangle}
@@ -2376,12 +2391,42 @@ Kabsch recalage does for a single simultaneous drive.
   \S\ref{ap:repro-calibrun} insists on three passes for the ground-truth
   floor protocol before applying anything.
 \end{enumerate}
-\begin{trapbox}{Figure pending: neither test has been run yet}
-Both the agreement comparison and the dimensional comparison belong here
-once Test 1 and Test 2 exist. Nothing in this subsection should be filled
-in from expectation or from a different pair of runs: the whole point of
-an absolute reference is that it is measured, not assumed.
-\end{trapbox}
+\begin{casestudy}{Run 2026-08-05: both tests exist, and the comparison is not
+a fair one}
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+& Test 1 --- MINS & Test 2 --- openVINS \\
+\midrule
+Length error   & $-3.6\,\%$  & $+10443.0\,\%$ \\
+Width error    & $+13.4\,\%$ & $+2679.0\,\%$ \\
+Loop closure   & $0.449$\,m ($1.9\,\%$) & $635.6$\,m ($23.0\,\%$) \\
+Heading drift  & $5.1^\circ$ & $5.9^\circ$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Both figures came from the same \code{compare\_tests.m} and
+\code{plot\_rectangle\_test.m} calls this appendix specifies, against the
+identical physical rectangle, in the same session. Read plainly, they are
+not close: openVINS's dimensional error runs three orders of magnitude past
+MINS's. \textbf{Do not report this as ``MINS outperforms openVINS by
+$100\times$.''} That framing implies two comparable algorithmic results,
+one merely worse than the other, and \S\ref{sec:aug05result} shows it is not
+that: MINS completed a valid acquisition, openVINS's acquisition failed for
+reasons independently diagnosed and platform-specific --- a thermal envelope
+this session sat inside (\S\ref{sec:aug05thermal}), IMU gaps at $80\,\%$ of
+the automated abort threshold, and an uncorrected mount tilt
+(\S\ref{sec:aug05tilt}) doubly integrating into exactly the kind of drift
+openVINS has no wheel odometry to resist. The near-identical heading drift
+between the two ($5.1^\circ$ vs $5.9^\circ$) is the tell: an estimator whose
+orientation tracking were fundamentally broken would show it here too, and
+neither does. What this comparison honestly establishes is narrower and
+still useful: MINS is validated end to end on this platform, against a
+physical reference, today; openVINS is not yet, and \S\ref{tab:openitems}
+records what a fair re-attempt requires --- a cooled Pi, a lit floor, and
+ideally the still-outstanding Kalibr camera--IMU extrinsic
+(\S\ref{ap:repro-calib}).
+\end{casestudy}
 
 \subsection{Where each estimator keeps its configuration}
 \label{ap:repro-config-ref}

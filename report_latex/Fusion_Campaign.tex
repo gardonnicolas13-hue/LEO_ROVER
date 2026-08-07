@@ -6108,6 +6108,565 @@ the single blocking prerequisite for the entire absolute-error programme, and
 is recorded as such in Table~\ref{tab:openitems} and in
 \S\ref{ap:next-intrinsics}.
 
+\section{Field session, August 5: a rewritten guard, a diagnosed tilt, and
+the first rectangle closed}
+\label{sec:aug05}
+
+This session executed the rectangle protocol requested directly by the
+supervisor: a physical rectangle, taped and tape-measured at
+$6.405\,\text{m}\times3.455\,\text{m}$, driven once trusting MINS and once
+trusting openVINS, each compared against the tape measurement rather than
+against each other (\S\ref{ap:repro-mins-guide}--\S\ref{ap:repro-rect-compare}
+give the operator-facing procedure; what follows is the reasoning and the
+mathematics behind what that procedure actually measured). Three findings
+came out of it, in the order they were forced by the data rather than the
+order that would read best: a load-bearing bug in the pose-fusion guard, found
+and fixed only because the rectangle test happened to drive through it; a
+tilt in the IMU mount that a decade of prior sessions never had reason to
+isolate; and, finally, the rectangle itself, closed cleanly by MINS and not
+at all by openVINS, for reasons the first two findings and the platform's
+thermal envelope (\S\ref{ap:repro-hitrun}) explain jointly.
+
+\subsection{The pose-fusion guard: a false floor, then a true one}
+\label{sec:aug05guard}
+\code{pose\_selector.py}'s plausibility guard has existed since 2026-07-13 for
+a specific, narrow reason: during a camera dropout an estimator coasts on
+inertial propagation alone, and a doubly-integrated accelerometer bias can
+move the served pose by metres per second on a rover that tops out near
+$0.4$\,m/s. The guard compares each incoming pose against the last
+\emph{accepted} one and freezes the served output the instant the implied
+speed exceeds a threshold,
+\begin{equation}
+v_k \;=\; \frac{\lVert \mathbf{p}_k - \mathbf{p}_{\text{ref}}\rVert}{t_k - t_{\text{ref}}},
+\qquad
+v_k > v_{\max}=1.5\ \text{m/s} \;\Rightarrow\; \text{reject},
+\label{eq:guardspeed}
+\end{equation}
+re-anchoring the correction transform once the source is calm again so the
+served frame stays continuous through the excursion. It had never been
+exercised by a full driven loop before this session, only by the camera-loss
+transients it was built for.
+
+\paragraph{Symptom.} Driving the rectangle with openVINS as the served
+source, the cockpit's trajectory display froze the instant the rover moved,
+recovered while stationary, and froze again on the next turn.
+\code{/robot\_pose\_fused} dropped to $\sim\!2$\,Hz with the trail buffer
+stuck at a handful of points, and the guard's own log was saturated:
+\begin{center}\ttfamily\footnotesize
+[pose\_selector] pose VINS invraisemblable (17.3 m/s) --- pose servie GELEE\\{}
+[pose\_selector] source VINS calmee apres 0.0 s d'excursion --- re-ancree
+\end{center}
+alternating several times per second. Nothing here is exotic: it is
+Eq.~\ref{eq:guardspeed} doing exactly what it was written to do, on a
+$17.3\,\text{m/s}$ reading impossible for this platform. What was wrong was
+the diagnosis that followed, not the guard.
+
+\paragraph{A hypothesis that measurement refused.} The first candidate
+explanation was the floor on the denominator of Eq.~\ref{eq:guardspeed},
+$\Delta t = \max(10^{-3}\,\text{s},\, t_k - t_{\text{ref}})$: at $90$\,Hz the
+true sample interval is close to $11$\,ms, so if two timestamps ever landed
+within the $1$\,ms floor, an entirely ordinary few-centimetre step would read
+as tens of metres per second. Five hundred and ninety-two consecutive
+openVINS messages, captured with the rover stationary, refuted it directly:
+median $\Delta t = 11.00$\,ms, minimum $9.00$\,ms, zero samples under
+$4$\,ms, worst speed implied at the $1$\,ms floor only $0.3$\,m/s. The
+hypothesis is recorded here specifically because it did not survive contact
+with data --- the discipline this report tries to hold throughout
+(\S\ref{sec:tuning}) is to say so plainly rather than let a plausible guess
+stand in for a measured cause.
+
+\paragraph{The real mechanism, found by capturing the rover in motion.}
+Sampling $2020$ consecutive openVINS messages while the rectangle was
+actually being driven told a different story: timing stayed clean (median
+$\Delta t=11.0$\,ms, minimum $9.0$\,ms, matching the static capture), but
+$8.3\,\%$ of consecutive-sample speeds computed by Eq.~\ref{eq:guardspeed}
+exceeded $v_{\max}$, the single worst case a $4.23$\,cm step inside a
+$9$\,ms interval --- $4.7$\,m/s by the formula, and a real, correctly-timed
+measurement. An MSCKF applies its visual-update corrections
+\emph{discretely}, at each new keyframe; a few centimetres of legitimate
+correction landing inside one $9$\,ms sample interval is the filter working
+as designed, not the rover teleporting. Eq.~\ref{eq:guardspeed}, evaluated
+between consecutive samples, cannot tell that step apart from the runaway it
+exists to catch: both are large numerators over a small, fixed denominator.
+
+\paragraph{Two independent defects, two independent fixes.} Diagnosing the
+mechanism separated what had looked like one bug into two, addressed in two
+commits.
+
+\emph{Latch tolerance.} A single rejected sample latched the frozen state
+immediately, and the frozen branch published nothing at all --- a bare
+\code{return} --- so every consumer of \code{/robot\_pose\_fused} (the
+cockpit display, the rosbag recorder, any rate-based health check) lost its
+input the instant the guard fired, which is the entire visible symptom above.
+Both are now additive changes only, applied without weakening
+Eq.~\ref{eq:guardspeed}'s acceptance rule: a sample over threshold is still
+never written into the trace, the correction transform, or the reference
+pose, so no rejected sample can ever reach the trajectory or a downstream
+consumer as if it were accepted. What changes is what happens to a rejection.
+\begin{center}
+\begin{tikzpicture}[font=\scriptsize, node distance=11mm and 18mm,
+  st/.style={draw, rounded corners=3pt, minimum width=24mm, minimum height=8mm, fill=black!3, align=center},
+  arr/.style={-{Stealth[length=2mm]}}]
+\node[st, fill=accentblue!8, draw=accentblue] (sane) {SANE\\served fresh};
+\node[st, right=of sane] (reject) {sample over $v_{\max}$};
+\node[st, below=of reject, fill=alertred!10, draw=alertred] (insane) {INSANE\\held pose served,\\cov.\ $=10^6$};
+\draw[arr] (sane.east) -- (reject.west);
+\draw[arr] (reject) -- node[right]{3 consecutive} (insane);
+\draw[arr] (reject.north) to[out=90,in=90] node[above]{$<3$: discard sample, stay SANE} (sane.north);
+\draw[arr] (insane) to[out=180,in=270] node[left, align=right]{next sane sample:\\re-anchor} (sane.south);
+\end{tikzpicture}
+\end{center}
+An isolated spike --- one to two consecutive rejections, the discrete-update
+case above --- no longer latches anything: the sample is discarded and the
+next one is judged on its own merits. Only a \emph{sustained} run of
+\code{spike\_tolerance}$=3$ consecutive rejections ($\approx 33$\,ms at
+$90$\,Hz) declares the source insane, at which point the last known-good pose
+is republished with its diagonal covariance forced to $10^6$ --- not a
+fabricated position, the last real measurement every consumer already held by
+default, now still arriving so a rate check can tell ``source frozen, topic
+alive'' apart from ``node dead, topic silent''. Replayed against the driving
+capture as a pure decision-table exercise (Table~\ref{tab:guardreplay}):
+normal traffic keeps every sample flowing, an isolated spike no longer trips
+the latch, and a sustained run still does.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+Scenario & Fresh & Held & Latched? \\
+\midrule
+Normal drive (20 samples)          & 20 & 0  & no \\
+Isolated spike (1 of 20)           & 19 & 1  & \textbf{no} (was: yes) \\
+Sustained divergence (10 of 20)    & 10 & 10 & yes (unchanged) \\
+\bottomrule
+\end{tabular}
+\caption{Guard state-machine replay, latch-tolerance fix only. The isolated
+case is the one that changed: it neither latches nor is silently invented ---
+the sample is discarded, the topic keeps publishing.}
+\label{tab:guardreplay}
+\end{table}
+
+\emph{The metric itself.} The latch fix alone still evaluates
+Eq.~\ref{eq:guardspeed} between \emph{consecutive} samples, so the same
+$4.23$\,cm/$9$\,ms correction still individually fails the test every time it
+occurs; it simply no longer freezes the topic. The deeper fix replaces the
+denominator's reference point: instead of the immediately preceding sample,
+compare against the oldest still-accepted pose inside a sliding window of
+duration $T=0.1$\,s,
+\begin{equation}
+v_k \;=\; \frac{\lVert \mathbf{p}_k - \mathbf{p}_{k-w}\rVert}{t_k - t_{k-w}},
+\qquad
+t_k - t_{k-w} \;\le\; T ,
+\label{eq:guardwindow}
+\end{equation}
+falling back to the immediate predecessor while less than $T$ of history
+exists (start-up, and immediately after a re-anchor, where the window is
+deliberately cleared: the frame just changed, so old entries are not
+comparable to the new one). The same displacement read against a longer
+baseline reads a smaller speed for exactly the same physical event, because a
+discrete correction of fixed size $\delta$ contributes $\delta/T$ once $T$
+exceeds the interval it occurred in, while a \emph{sustained} runaway of
+speed $v$ still covers $vT$ within the same window --- the window shrinks the
+correction's apparent speed roughly in proportion to $T$, but leaves a true
+runaway's apparent speed unchanged. The $4.23$\,cm case: $4.7$\,m/s at
+$T=11$\,ms, $0.42$\,m/s at $T=100$\,ms, comfortably under $v_{\max}$.
+
+Replayed on synthetic traffic built to match the measured statistics ($0.3$\,m/s
+mean drift plus $2$--$4$\,cm discrete corrections at the observed rate,
+$900$ samples at $90$\,Hz) and separately on a sustained $6$\,m/s runaway,
+Table~\ref{tab:guardwindow} is the result: false rejections disappear, true
+divergence detection is unchanged.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lcc}
+\toprule
+Baseline $T$ & False rejects (normal traffic, /900) & Detected (6\,m/s runaway, /200) \\
+\midrule
+$11$\,ms (consecutive-sample) & $46$ ($5.1\,\%$) & $199$ \\
+$100$\,ms (Eq.~\ref{eq:guardwindow}) & $\mathbf{0}$ & $199$ \\
+\bottomrule
+\end{tabular}
+\caption{The baseline-window fix (Eq.~\ref{eq:guardwindow}), verified by
+replay before deployment. A sustained runaway is caught identically at both
+baselines because it accumulates displacement proportionally to $T$, unlike
+a discrete correction of fixed size.}
+\label{tab:guardwindow}
+\end{table}
+
+Deployed and re-measured live: \code{/robot\_pose\_fused} publishing at
+$76$--$83$\,Hz through driven turns that previously froze it within the first
+second.
+
+\subsection{An uncommanded IMU tilt}
+\label{sec:aug05tilt}
+With the rover confirmed stationary --- wheel velocities
+$[0,0,0,0]$, zero \code{/cmd\_vel} on every axis --- \code{/mins/imu/odom}
+still drifted $0.75$\,m in $15$\,s ($50$\,mm/s) and \code{/ov\_msckf/odomimu}
+$11.4$\,m in the same window ($765$\,mm/s), both far outside protocol
+T1.1's $1$\,mm/s pass criterion (\S\ref{ap:repro-t11}). The gyroscope was
+clean at rest ($0.0002$\,rad/s about every axis), so the search moved to the
+accelerometer.
+
+\paragraph{Magnitude checks out; direction does not.} Thirteen samples of
+\code{/imu/data\_clean}, stationary, gave
+$\bar{\mathbf{a}} = (1.1356,\ 0.6689,\ 9.6810)$\,m/s$^2$
+($\sigma = 0.015, 0.014, 0.019$). Its norm,
+\begin{equation}
+\lVert\bar{\mathbf{a}}\rVert = \sqrt{1.1356^2+0.6689^2+9.6810^2}
+ = 9.7703\ \text{m/s}^2,
+\label{eq:accnorm}
+\end{equation}
+sits $0.0197$\,m/s$^2$ ($0.2\,\%$) below Melbourne FL local gravity
+($9.790$\,m/s$^2$, used throughout this report). That confirms
+\code{accel\_scale}$=1.1186$ (\S\ref{ap:repro-ourcode}) is doing its job: the
+much larger, already-documented magnitude defect it corrects for
+($8.7525$\,m/s$^2$ raw, $-10.6\,\%$) is not what is happening here. This is a
+second, independent finding: the sensor reports the right \emph{amount} of
+specific force, from the wrong \emph{direction}.
+
+\paragraph{Decomposing the direction.} A stationary IMU measures $-\mathbf{g}$
+expressed in its own frame; with the yaw component unobservable from a single
+static reading, the roll and pitch it implies follow the standard
+aerospace decomposition,
+\begin{equation}
+\text{roll} = \operatorname{atan2}(a_y,\,a_z), \qquad
+\text{pitch} = \operatorname{atan2}\!\bigl(-a_x,\ \sqrt{a_y^2+a_z^2}\bigr),
+\label{eq:rollpitch}
+\end{equation}
+in the REP-103 body convention ($x$ forward, $y$ left, $z$ up). Substituting
+$\bar{\mathbf{a}}$:
+\begin{equation}
+\text{roll} = \operatorname{atan2}(0.6689,\,9.6810) = +3.95^\circ, \qquad
+\text{pitch} = \operatorname{atan2}(-1.1356,\,9.7048) = -6.67^\circ .
+\label{eq:rollpitchval}
+\end{equation}
+\begin{center}
+\begin{tikzpicture}[font=\scriptsize, scale=1.0]
+  % Angle drawn at 25 deg, not the measured 6.67 deg: at true scale the two
+  % vectors overlap and the figure is illegible. Exaggeration is stated
+  % explicitly, in the figure and in the caption, alongside the real value.
+  \draw[->, thick] (0,0) -- (0,2.6) node[above right=1pt]{$z_{\text{body}}$};
+  \draw[->, thick] (0,0) -- (2.4,0) node[right]{$x_{\text{body}}$};
+  \draw[->, thick, dashed, alertred] (0,0) -- (0,2.3)
+    node[above left=1pt]{$-\mathbf g$, if level};
+  \draw[->, very thick, accentblue] (0,0) -- ({2.3*sin(25)},{2.3*cos(25)})
+    node[above right=1pt]{$\bar{\mathbf a}$ measured};
+  \draw[accentblue] (0.75,0) arc[start angle=0, end angle=25, radius=0.75]
+    node[midway, right=2pt]{$25^\circ$ (exaggerated)};
+  \node[align=center, below] at (1.1,-0.4)
+    {measured: nose down $6.67^\circ$, rolled $3.95^\circ$\\(angle
+     exaggerated $\sim\!4\times$ for legibility; pitch \& roll collapsed
+     into one plane)};
+\end{tikzpicture}
+\end{center}
+Six to seven degrees of tilt is large enough to see by eye on this platform.
+Two causes remain open, distinguishable by a $180^\circ$ yaw-in-place test not
+yet performed: if the sign of the tilt flips with the turn, the floor (or
+whatever the rover is resting against) is not level; if it does not, the IMU
+is mounted at an angle inside the chassis that the URDF --- which declares
+identity rotation, $\text{RPY}=(0,0,0)$, between \code{base\_link} and
+\code{imu\_frame} --- does not know about. Either way, an uncorrected specific
+force this size, doubly integrated, accounts for the drift measured above:
+a residual of only $0.1$\,m/s$^2$ integrates to
+$\tfrac{1}{2}(0.1)(15)^2 = 11.3$\,m in $15$\,s, matching the $11.4$\,m
+observed on openVINS to within the precision of the estimate.
+
+\subsection{Same-day ground-truth calibration: an asymmetry, not a scale
+error}
+\label{sec:aug05calib}
+A single pass of the cockpit's ground-truth panel (\S\ref{ap:repro-calibrun})
+was run the same day, each maneuver measured once against every source
+simultaneously (Table~\ref{tab:aug05calib}). One pass falls short of the
+three the protocol itself requires before trusting a number
+(\S\ref{ap:repro-calibrun} again), but the pattern across the three maneuvers
+is already informative independent of that caveat.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+Maneuver (measured/real) & Wheels & MINS & openVINS & Raw gyro \\
+\midrule
+$90^\circ$ left  & $1.0586$ & $1.0059$ & $0.9986$ & $0.9932$ \\
+$90^\circ$ right & $1.1473$ & $1.0607$ & $1.0435$ & $1.0470$ \\
+$1$\,m straight  & $0.9685$ & $0.8922$ & $1.8660$ & --- \\
+\bottomrule
+\end{tabular}
+\caption{Single-pass ground-truth calibration, 2026-08-05. Entries are
+measured/real: $1.000$ is exact agreement.}
+\label{tab:aug05calib}
+\end{table}
+
+A single multiplicative scale factor cannot explain the rotation rows. MINS
+reads $1.0059$ left and $1.0607$ right; correcting the right-turn reading with
+a single gain $g=1/1.0607$ would move the left-turn reading to
+$1.0059/1.0607 = 0.9484$, trading a $0.6\,\%$ error in one direction for a
+$5.2\,\%$ error in the other. Decomposing the pair into a symmetric part
+(true scale, same sign both directions) and an antisymmetric part
+(direction-dependent, cancels on average),
+\begin{equation}
+\text{scale} = \tfrac12(g_L+g_R) - 1, \qquad
+\text{asym.} = \tfrac12(g_L-g_R),
+\label{eq:asym}
+\end{equation}
+gives MINS a $3.3\,\%$ symmetric component against a $2.7\,\%$ antisymmetric
+one: the asymmetry is not a rounding artefact, it is comparable in size to
+the scale error itself, consistent with the rigid-wheel skid-steer asymmetry
+already measured on this platform's differential turning
+(\S\ref{ap:repro-wheels}).
+
+The straight-line row is the sharpest single number of this session: openVINS
+reported $1.8660$ for a metre actually driven, an $86.6\,\%$ over-read on the
+one maneuver where MSCKF has no rotation to fall back on and depends entirely
+on translational parallax --- exactly the geometry the thermal IMU gaps of
+\S\ref{sec:aug05thermal} degrade first.
+
+\subsection{Thermal envelope during this session}
+\label{sec:aug05thermal}
+The rectangle attempts spanned the full width of the operating envelope
+\S\ref{ap:repro-hitrun} already documents at $86$\,--\,$89^\circ$C, measured
+directly rather than inferred from downstream symptoms
+(Table~\ref{tab:aug05thermal}).
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+& Before cooldown & After (camera off, $\sim\!2$\,min) & After camera restart \\
+\midrule
+Temperature       & $89.6^\circ$C & $82.3^\circ$C & $85.2^\circ$C \\
+CPU clock         & $600$\,MHz (capped) & $1475$\,MHz & $1280$\,MHz \\
+\code{get\_throttled} & \code{0xe0006} & \code{0xe0008} & --- \\
+IMU gaps / 20\,s   & $20$ & $10$ & --- \\
+\bottomrule
+\end{tabular}
+\caption{Stopping the camera nodelet (measured at $198\,\%$ CPU alone) and
+waiting recovered the full $1.5$\,GHz clock and halved the IMU gap rate;
+restarting the camera immediately began eroding both again.
+\code{0xe0006}$\to$\code{0xe0008}: the frequency-capped and
+currently-throttled bits cleared, the soft thermal-limit bit did not.}
+\label{tab:aug05thermal}
+\end{table}
+Two things follow from this table, neither of them new in kind but both
+freshly measured. First, the $20$-gap reading sat at $80\,\%$ of
+\code{tools/hotrun\_monitor.py}'s own $25$-gap abort threshold: the rectangle
+attempts that produced this session's openVINS divergence were not on the
+edge of the documented envelope, they were inside it, close to its boundary.
+Second, the recovered clock eroded back toward the cap within roughly two
+minutes of the camera resuming, confirming again (\S\ref{ap:repro-hitrun})
+that a stopped-camera pause is a genuine but short-lived recovery, not a fix
+--- active cooling remains the only durable answer.
+
+\subsection{The rectangle, closed}
+\label{sec:aug05result}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.72\linewidth]{figures/rect_test_aug05_mins.png}
+\caption{MINS against the taped $6.405\,\text{m}\times3.455\,\text{m}$
+rectangle, 2026-08-05, produced by
+\code{plot\_rectangle\_test('test1', 6.405, 3.455, 'mins')}
+(\S\ref{ap:repro-mins-guide}). Bounding box $6.176\times3.919$\,m
+($-3.6\,\%$ / $+13.4\,\%$); loop closure $0.449$\,m over a $23.35$\,m path
+($1.9\,\%$); heading drift over the full loop $5.1^\circ$.}
+\label{fig:aug05mins}
+\end{figure}
+The length error is small and one-sided ($-3.6\,\%$); the width error is
+larger and one-sided the other way ($+13.4\,\%$). Table~\ref{tab:aug05calib}
+gives the more likely reading over a pure scale error: this platform's
+turning asymmetry (\S\ref{sec:aug05calib}) accumulates differently depending
+on which way the rover turns at each corner, so a rectangle driven
+consistently anticlockwise does not distort its two axes equally. A coarse,
+purely qualitative read of the raw trajectory against elapsed time
+(Table~\ref{tab:aug05progress}; not a validated per-corner algorithm, offered
+only as a description of what the logged points show) is consistent with
+that reading: distance from the start point falls to a local minimum near
+$t=159$\,s, just after the rectangle's third corner, before drifting further
+to the final $0.449$\,m over the last leg.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{rrrr}
+\toprule
+$t$ (s) & $x$ (m) & $y$ (m) & dist. from start (m) \\
+\midrule
+0   & $-0.01$ & $-0.00$ & $0.01$ \\
+79  & $+5.79$ & $+3.38$ & $6.71$ \\
+133 & $-0.10$ & $+3.25$ & $3.25$ \\
+159 & $-0.06$ & $-0.21$ & $0.21$ \\
+213 & $+0.06$ & $-0.44$ & $0.45$ \\
+\bottomrule
+\end{tabular}
+\caption{Raw trajectory progression, 5 of 9 sampled instants. Qualitative
+motivation for \S\ref{sec:aug05beacon} only.}
+\label{tab:aug05progress}
+\end{table}
+
+openVINS did not close the same rectangle. The same physical loop, recorded
+in the same rosbag, gave a $675.28\times96.01$\,m bounding box and a
+$2760.55$\,m path against a $19.72$\,m measured perimeter ---
+$140\times$ over. Figure~\ref{fig:aug05compare}, produced by
+\code{compare\_tests.m}, puts both laps on one figure.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/rect_test_aug05_compare.png}
+\caption{\code{compare\_tests('test1','test2')}: MINS (Test 1, trusted) and
+openVINS (Test 2, trusted) against the same physical loop. Left: both
+trajectories, one axis. Right: distance from the starting point over time
+--- openVINS climbs to a plateau near $40$\,m within the first $20$\,s, then
+jumps once, near $t\approx190$\,s, to the $635$\,m range and holds there for
+the remainder of the recording.}
+\label{fig:aug05compare}
+\end{figure}
+
+\paragraph{A single scale factor cannot rescue this trajectory, and the check
+is worth showing in full.} If openVINS's error were pure uniform scale, some
+constant $k$ would bring every axis into agreement simultaneously. Solving
+for $k$ from each dimension independently,
+\begin{equation}
+k_L = \frac{6.405}{675.28} = 0.00948, \qquad
+k_W = \frac{3.455}{96.01}  = 0.03598, \qquad
+k_P = \frac{19.72}{2760.55} = 0.00714,
+\label{eq:scalecheck}
+\end{equation}
+gives three factors disagreeing by up to $3.8\times$ ($k_W/k_L$). Applying
+$k_L$ alone, the value that makes the length exact by construction, to every
+axis: length lands on target by definition, but width becomes $0.911$\,m
+against a $3.455$\,m target ($-73.6\,\%$), and the loop-closure gap becomes
+$6.028$\,m --- thirteen times \emph{worse} than MINS's $0.449$\,m, not
+better. This is a deformation of the trajectory's shape, not a resizing of
+it, and no single number corrects it (\S\ref{sec:july29align} makes the
+identical point about scale hiding inside an alignment-based metric, from
+the other direction).
+
+Nearly identical heading drift over the two independent loops --- $5.1^\circ$
+MINS, $5.9^\circ$ openVINS, from the same \code{compare\_tests.m} run above
+--- says the same thing from a second angle: an estimator whose orientation
+tracking were fundamentally broken would show it here too. openVINS's
+failure this session is concentrated in scale, not in heading, matching the
+open question already on record for this platform
+(\S\ref{sec:july29align}: ``openVINS's scale disagrees with itself between
+runs''), and matching a result this platform \emph{has} produced under
+better conditions: $0.025$\,m loop closure, $0.1\,\%$, on 2026-07-29
+(\S\ref{sec:july27twotest}), the same estimator, the same rover, an
+$86^\circ$C Pi rather than $89$--$90^\circ$C and a lit, textured floor rather
+than the dim underside of furniture. The comparison in this section is
+between a completed acquisition and a failed one, not a fair contest between
+two algorithms on equal footing; \S\ref{tab:openitems} records what
+completing it fairly would require.
+
+\subsection{A second absolute-error method: paired sightings, no anchor
+required}
+\label{sec:aug05beacon}
+\S\ref{ap:repro-absolute}'s beacon bridge gives a continuous absolute error
+once anchored, but is gated on the colour camera's intrinsics, which remain
+uncalibrated at operating resolution (same section, opening trapbox): its
+output today is smooth, repeatable, internally consistent and metrically
+meaningless, the same phrase this report already uses for the identical
+failure mode in a different context (\S\ref{sec:july30intrinsics}). Rather
+than wait on that recalibration, this session added a second, complementary
+method built on hardware already trusted for a different purpose: the
+infrared stereo pair, already Kalibr-calibrated to $0.20$--$0.23$\,px
+(\S\ref{ap:repro-calib}) because openVINS and MINS both depend on it, and
+already running AprilTag detection at $\sim\!5$--$6$\,Hz for the corridor
+markers (\S\ref{ap:trap-diffdrive}).
+
+\paragraph{The measurement principle.} Suppose a fixed AprilTag is sighted
+twice, at times $t_a$ and $t_b$, and its position in the camera frame is the
+same at both instants to within a small tolerance $\varepsilon$:
+$\lVert\mathbf{c}(t_a)-\mathbf{c}(t_b)\rVert \le \varepsilon$. Because the tag
+has not moved, this means the \emph{camera} was in the same place at both
+instants, to the same tolerance. If $\hat{\mathbf p}$ denotes the pose an
+estimator reports, a perfect estimator would then satisfy
+$\hat{\mathbf p}(t_a) = \hat{\mathbf p}(t_b)$; the observed difference,
+\begin{equation}
+\varepsilon_{\text{drift}} \;=\; \bigl\lVert \hat{\mathbf p}(t_b) -
+\hat{\mathbf p}(t_a) \bigr\rVert ,
+\qquad
+\text{given}\ \ \lVert\mathbf{c}(t_a)-\mathbf{c}(t_b)\rVert \le \varepsilon ,
+\label{eq:tagdrift}
+\end{equation}
+is drift accumulated between the two sightings. Crucially, Eq.~\ref{eq:tagdrift}
+never needs the tag's true position in the world, nor the camera--IMU
+extrinsic connecting the detection to \code{base\_link}: both would be
+needed to say \emph{where} the beacon is, but Eq.~\ref{eq:tagdrift} only ever
+asks whether the rover was in the same place twice. This is the same relation
+the ground-truth panel's rotation maneuvers already exploit in one dimension
+(depart and return to a marked heading); here it is a free-standing check at
+any point in a longer loop, not only at the loop's own start and end.
+\begin{center}
+\begin{tikzpicture}[font=\scriptsize, scale=0.95,
+  cn/.style={draw, circle, fill=black!4, minimum size=5mm},
+  bn/.style={draw, diamond, fill=accentblue!15, draw=accentblue, minimum size=7mm}]
+% Rectangle drawn slightly larger than the two sighting markers below need,
+% so the tag and both robot positions each get clear room for their own
+% label -- the earlier version packed all three into the corner itself and
+% the labels overlapped.
+\draw[thick] (0,0) rectangle (6.4,3.46);
+\node[cn] (start) at (0,0) {};
+\node[below right=1pt] at (start) {\footnotesize start/finish};
+\draw[->, accentblue, thick] (6.4,0) -- (6.4,3.46) -- (0,3.46);
+\draw[->, accentblue, thick] (0,3.46) -- (0,0) -- (6.4,0);
+\node[bn] (beacon) at (0.55,3.46) {};
+\node[above=2pt] at (beacon) {\footnotesize fixed tag, corner 3};
+% ra/rb well separated (>2 units) with labels routed to opposite sides,
+% specifically so neither the markers nor their captions can touch --
+% a tighter first attempt made both ambiguous at print resolution.
+\node[cn, fill=alertred!25, draw=alertred] (ra) at (0.45,2.35) {};
+\node[left=2pt] at (ra) {\footnotesize $t_a$, lap 1};
+\node[cn, fill=alertred!25, draw=alertred] (rb) at (2.55,1.15) {};
+\node[right=2pt] at (rb) {\footnotesize $t_b$, lap 2};
+\draw[<->, alertred, thick, dashed] (ra) -- node[above, sloped, pos=0.5]{$\varepsilon_{\text{drift}}$} (rb);
+\end{tikzpicture}
+\end{center}
+
+\paragraph{Why the third corner, and why an observation, not a correction.}
+Table~\ref{tab:aug05progress} places the point of closest apparent approach
+to the start near the \emph{third} corner, one leg before the final,
+largest-error segment; a fixed reference there can tell whether that
+near-closure was genuine convergence or coincidence, which the single
+end-to-end loop-closure number in \S\ref{sec:aug05result} cannot. The tag is
+therefore placed to be sighted once per lap at that corner, across several
+laps of the same rectangle.
+
+What Eq.~\ref{eq:tagdrift} is not is a way to zero the estimator's state at
+that corner. Doing so was considered and rejected: snapping the pose to a
+known value at each corner would make the driven trajectory match the
+rectangle \emph{by construction}, exactly the failure this report already
+names when it happens elsewhere --- ``smooth, repeatable, internally
+consistent and metrically meaningless'' (\S\ref{ap:repro-absolute}) applies
+here word for word. \code{/tag\_detections} is instead recorded into the same
+detached rosbag as every other topic
+(\code{ROBUST\_REC\_TOPICS}, \code{leo\_backend.py}) purely as an observation
+channel, wired into nothing that reads or writes the estimator's state.
+\code{tools/tag\_drift.py} performs Eq.~\ref{eq:tagdrift} entirely offline,
+after the fact, pairing sightings of the same tag ID separated by at least
+$5$\,s (so a sighting is never compared against itself) and within
+$\varepsilon=5$\,cm of each other in camera coordinates by default. Verified
+against a synthetic pair of sightings carrying a known $0.264$\,m drift
+before being run on real data: the tool reads back $0.264$\,m exactly.
+Camera-frame AprilTag positions also feed
+\code{plot\_rectangle\_test.m}'s figures directly, marking both where the
+rover stood at each sighting and, separately, the tag's own deduced position
+--- the latter derived through the documented tape-measure camera extrinsic
+(\code{T\_imu\_cam}, \S\ref{ap:repro-mins-guide}) rather than a Kalibr
+solution, so it is offered as
+a visual aid, while the \emph{spread} between repeated deductions of one
+physical tag remains meaningful regardless: the tag has not moved, so any
+spread is drift by Eq.~\ref{eq:tagdrift}, independent of how well the
+extrinsic locates it in an absolute sense.
+
+\begin{trapbox}{This method has not yet measured anything}
+Everything above is implemented, tested against synthetic data with a known
+answer, and deployed: the detector, the recording, the CSV format, and
+\code{tag\_drift.py} itself. What has not happened yet is placing a tag at
+the rectangle's third corner and driving multiple laps past it --- every
+number in Eq.~\ref{eq:tagdrift}'s worked example above is synthetic, chosen
+to exercise the tool, not a field measurement. The first real run belongs in
+this trapbox once it exists, not before.
+\end{trapbox}
+
 \section{Open items registry}
 \label{sec:openitems}
 \small
