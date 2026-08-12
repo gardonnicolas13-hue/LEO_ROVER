@@ -7277,7 +7277,259 @@ is the outcome the habit is for. What remains open, honestly: item 38's
 controlled A/B, and a live checksum storm whose cause is a hypothesis, not
 yet a finding.
 
-\section{Open items registry}
+\section{The Carolus quaternion, traced to source: why sixteen trials were
+never going to converge on a general answer}
+\label{sec:quaternion}
+The supervisor's question, prompted by two independent deployments (LIMO,
+\S\ref{sec:limodoc}; this platform) each finding a working sign convention by
+exhaustive trial, was direct: is there a general solution, one that would also
+work on a Robomaster with no prior Carolus deployment at all? The honest
+answer is not a single quaternion, portable across mounts, that number cannot
+exist, since three different physical camera mountings have three different
+correct answers by construction. What this section delivers instead is
+stronger: the exact mechanism, traced into Carolus's own source rather than
+inferred from its behaviour, that made sixteen-trial search the only available
+method until now, and a closed-form procedure that replaces the search with
+one measured calibration motion, on any robot, Robomaster included.
+
+\subsection{Two prior deployments, both solved by search}
+\label{sec:limodoc}
+Two lab-internal guides document independent Carolus integrations, both
+predating this section. \emph{``How to use Carolus to make the LIMO follow
+the beacon''} (T.~Brezins, LIMO rover, ROS Noetic) found, by exhaustive
+sign search over $2^4=16$ combinations with the axis-letter permutation
+already fixed, the working conversion
+$X_{\text{robot}}=-Z_c,\,Y_{\text{robot}}=-X_c,\,Z_{\text{robot}}=-Y_c$ for
+translation and \code{rotation.x,y,z,w}
+$=(-o_z,\,o_x,\,-o_y,\,-o_w)$ for orientation, and states plainly: \emph{``if
+you not use this Rover, you must find your own quaternion.''} A companion
+guide for this Leo Rover (\S\ref{ap:repro-mins-guide}'s Carolus chain)
+independently found the identical translation letters and signs, but a
+\emph{different} orientation sign combination,
+$(-o_z,\,o_x,\,o_y,\,o_w)$, reporting the same $2^4$-combination search and
+the same warning. Two of four rotation signs differ between the two working
+conventions despite an otherwise near-identical forward-facing colour-camera
+mount, concrete, sourced evidence that no fourth robot can safely reuse
+either number without its own verification.
+
+\subsection{What is genuinely universal: the optical-to-body rotation}
+\label{sec:quatuniversal}
+Carolus (package \code{carolus\_astrobee}, derived from NASA's Astrobee
+free-flyer code) solves a P4P problem in Ceres and publishes a
+\code{geometry\_msgs/PoseStamped} on \code{/pose}. Its cost function, read
+directly from \code{ceresP4P.hpp:120--150}, is the textbook calibrated pinhole
+model, nothing platform-specific in it:
+\begin{lstlisting}[language=C++]
+ceres::AngleAxisRotatePoint(camera_R.data(), target_point, camera_point);
+camera_point[0] += camera_T[0]; camera_point[1] += camera_T[1];
+camera_point[2] += camera_T[2];
+double xp = camera_point[0] / camera_point[2];   // pinhole: x/z
+double yp = camera_point[1] / camera_point[2];   // pinhole: y/z
+predicted_point[0] = xp*focalx_length_ + cx_;
+predicted_point[1] = yp*focaly_length_ + cy_;
+\end{lstlisting}
+This is $X_{\text{cam}} = R\,X_{\text{world}} + T$ followed by division by the
+\emph{third} coordinate, i.e.\ the standard OpenCV/optical convention: $X$
+right, $Y$ down, $Z$ forward (out of the lens, increasing with depth). With
+the known beacon points defined about their own origin, $X_{\text{world}}=0$
+gives $X_{\text{cam}}=T$: the published translation is genuinely the
+beacon's position in the camera's own optical axes, no hidden library
+convention, verified by reading the optimiser, not assumed from the output.
+
+ROS body-style frames (REP~103, the convention \code{base\_link} and every TF
+in this project's tree already use) place $X$ forward, $Y$ left, $Z$ up. A
+point with optical coordinates $(X_o,Y_o,Z_o)$ has body-style coordinates
+obtained by matching what each axis physically means: forward is the optical
+depth axis, left is minus optical right, up is minus optical down:
+\begin{equation}
+\begin{pmatrix}X_b\\Y_b\\Z_b\end{pmatrix}
+= R_{ob}\begin{pmatrix}X_o\\Y_o\\Z_o\end{pmatrix}, \qquad
+R_{ob} = \begin{pmatrix} 0&0&1\\ -1&0&0\\ 0&-1&0 \end{pmatrix}.
+\label{eq:rob}
+\end{equation}
+$R_{ob}$ is orthogonal ($R_{ob}R_{ob}^\top=I$) with $\det R_{ob}=+1$: a proper
+rotation, not a reflection, exactly as a fixed relabelling of one rigid
+camera's own axes must be. \textbf{This matrix is universal.} It follows from
+the two convention definitions alone (REP~103, REP~104/OpenCV) and depends on
+neither the beacon, the solver, nor the robot. It is the entire content of
+the ``letter correspondence'' both the LIMO and this platform's own
+documentation found empirically ($X_{\text{robot}}=\pm Z_c$,
+$Y_{\text{robot}}=\pm X_c$, $Z_{\text{robot}}=\pm Y_c$, \S\ref{sec:limodoc}):
+Eq.~\ref{eq:rob} is the reason the \emph{letters} always matched across two
+unrelated mounts, and derives in three lines what both predecessor documents
+found by pattern-matching two independent trial-and-error searches against
+each other.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex, scale=1.0]
+  % optical frame, left
+  \begin{scope}
+    \draw[thick] (0,0) circle (0.35);
+    \fill[black!70] (0,0) circle (0.06);
+    \node[font=\scriptsize] at (0,-0.7) {camera (optical)};
+    \draw[->, accentblue] (0,0) -- (1.1,0) node[right, font=\scriptsize] {$X_o$ right};
+    \draw[->, accentblue] (0,0) -- (0,-1.0) node[below, font=\scriptsize] {$Y_o$ down};
+    \draw[->, alertred, very thick] (0,0) -- (0.75,0.75) node[above right, font=\scriptsize] {$Z_o$ forward (depth)};
+  \end{scope}
+  % body frame, right
+  \begin{scope}[xshift=6.6cm]
+    \draw[thick, rounded corners=2pt] (-0.5,-0.35) rectangle (0.5,0.35);
+    \node[font=\scriptsize] at (0,-0.7) {robot body (REP-103)};
+    \draw[->, alertred, very thick] (0,0) -- (1.1,0) node[right, font=\scriptsize] {$X_b$ forward};
+    \draw[->, accentblue] (0,0) -- (-0.75,0.75) node[above left, font=\scriptsize] {$Y_b$ left};
+    \draw[->, accentblue] (0,0) -- (0,1.1) node[above, font=\scriptsize] {$Z_b$ up};
+  \end{scope}
+  \draw[->, densely dashed] (1.4,0.1) -- (4.9,0.1) node[midway, above, font=\scriptsize] {$R_{ob}$, Eq.~\ref{eq:rob}};
+\end{tikzpicture}
+\caption[Optical to body frame]{The one universal piece: optical depth
+($Z_o$, red) becomes body forward ($X_b$, red) on every camera, on every
+robot, because both conventions are fixed definitions, not measurements.
+Nothing about this diagram is platform-specific.}
+\label{fig:opticalbody}
+\end{figure}
+
+\subsection{What is not universal, traced to the exact line that breaks it}
+\label{sec:quatbug}
+If Eq.~\ref{eq:rob} were the whole story, applying it to both translation and
+rotation would settle the question on any robot in one derivation, no search
+required. It does not, and the reason is a specific, quotable inconsistency
+in \code{carolus\_astrobee.cpp} between how translation and rotation are
+published, not a deeper property of optics.
+
+Immediately after the solve, translation is published as the solver's raw
+output, \code{PoseAstrobeeMsgs.pose.position = bestPose.t} verbatim
+(\code{carolus\_astrobee.cpp:1180--1182}). Rotation is not:
+\begin{lstlisting}[language=C++]
+// TRANSPOSE TO GET THE CORRECT ROTATION MATRIX -- IF NOT TRANSPOSED,
+// THE ROTATION MATRIX IS INVERTED
+// DOUBLE CHECK THIS ITS 5AM
+Eigen::Quaterniond q(bestPose.R.transpose());
+\end{lstlisting}
+(\code{carolus\_astrobee.cpp:1185--1187}, comments verbatim). This is not this
+project's guess about upstream intent: it is the original authors' own,
+timestamped uncertainty, left in the code. For a rigid transform
+$X_{\text{cam}}=R\,X_{\text{world}}+T$, the self-consistent inverse (``where
+is the camera, expressed in the world/beacon frame'') is
+\begin{equation}
+R_{\text{inv}} = R^\top, \qquad T_{\text{inv}} = -R^\top T.
+\label{eq:properinv}
+\end{equation}
+\code{carolus\_astrobee.cpp} publishes $R_{\text{inv}}=R^\top$ but
+$T_{\text{pub}}=T$, not $-R^\top T$. The published pair is a hybrid: an
+inverted rotation paired with a non-inverted translation, which is not one
+consistent SE(3) transform in either direction. \textbf{This is precisely why
+no single textbook rotation, applied uniformly to both position and
+orientation, was ever going to reconcile the empirical sign findings}: the
+two components are not related by the same convention to begin with, so
+searching for one $4\times4$ (or one quaternion) that fixes both at once is
+searching for something that, given the source above, does not exist. Both
+predecessor documents' sixteen-combination sweeps (\S\ref{sec:limodoc}) were
+the correct response to this exact bug, not a shortcut around a cleaner
+answer that was available and missed.
+
+\subsection{The general method: one measured calibration, not sixteen trials}
+\label{sec:quatgeneral}
+The mismatch above is specific to this one upstream file. A Robomaster
+integration would not inherit this exact bug, it might have none, or a
+different one in whatever P4P/PnP code it uses. \textbf{A method that first
+diagnoses this file would not be general.} The method that is general treats
+Carolus (or any beacon detector) as an uncalibrated black box and solves for
+whatever fixed correction it needs directly from measurement, which is
+correct regardless of what is or is not consistent inside the box.
+
+\paragraph{Setup.} Let $(R_c^{(i)}, t_c^{(i)})$ be Carolus's raw published
+rotation and translation at calibration pose $i$, and let $(R_g^{(i)},
+t_g^{(i)})$ be the same rover pose measured by ground truth (tape measure and
+a marked heading, as already established for this platform's floor protocol,
+\S\ref{ap:repro-calibrun}). The unknown is a single, fixed calibration
+rotation $C$ such that
+\begin{equation}
+R_g^{(i)} = C\, R_c^{(i)}\, C^\top \quad\text{or}\quad R_g^{(i)} = C\, R_c^{(i)}
+\label{eq:calibgeneral}
+\end{equation}
+for every $i$ (the first form if $C$ conjugates a rotation expressed in
+Carolus's frame into the ground frame; the second if $C$ instead re-expresses
+a rotation already acting on ground-frame coordinates, which of the two
+applies is itself determined, not assumed, by the residual in step~3 below).
+
+\paragraph{Procedure.}
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{One reference pose is not enough for rotation}, only for
+  translation's axis permutation and per-axis sign (three components, three
+  independent equations, generically enough with one non-degenerate sighting
+  once the beacon is not on an axis of the rover). Rotation about the
+  optical axis itself is unobservable from a single sighting at a generic
+  angle: take a \emph{second} pose related to the first by a known,
+  commanded rotation (this platform already has a scripted primitive for
+  exactly this, \code{90\textdegree\ G}/\code{90\textdegree\ D} on the
+  Trajectory tab, \S\ref{ap:repro-calibrun}).
+\item \textbf{Solve for $C$ in closed form.} With two or more
+  $(R_c^{(i)}, R_g^{(i)})$ pairs, Eq.~\ref{eq:calibgeneral} is a Wahba's
+  problem: minimise $\sum_i \lVert R_g^{(i)} - C R_c^{(i)} \rVert_F^2$ over
+  the rotation group. The closed-form solution is the same SVD construction
+  already implemented in this project's own Matlab tooling for trajectory
+  alignment (\code{local\_kabsch2d}, \S\ref{ap:repro-comprun}, here in 3D
+  rather than 2D and applied to orientations rather than positions):
+  $H=\sum_i R_c^{(i)\top} R_g^{(i)}$, $H=U\Sigma V^\top$,
+  $C = V\,\mathrm{diag}(1,1,\det(VU^\top))\,U^\top$. Two poses related by a
+  rotation about a vertical axis already fully constrain $C$; a third,
+  non-coplanar pose is a check, not a requirement.
+\item \textbf{Translation calibration is then a linear solve, not a search.}
+  With $C$ fixed, $t_g^{(i)} \approx C\,t_c^{(i)} + d$ for a fixed offset
+  $d$ (the beacon-to-ground-origin displacement); two or more sightings give
+  an over-determined linear system, solved by least squares.
+\item \textbf{Validate, don't assume convergence.} Apply $(C,d)$ to a
+  held-out sighting not used in the fit; residual position error should be
+  within the beacon's own known measurement noise
+  ($\sim$5\,cm, \code{config\_vicon.yaml}, \S\ref{ap:repro-mins-guide}), not
+  simply small relative to the uncorrected error.
+\end{enumerate}
+This is the answer to the supervisor's actual question. It requires no prior
+knowledge of Carolus's internal bug, no inspection of anyone's source code,
+and generalises unchanged to Robomaster or any other platform: two measured
+poses, one closed-form SVD, one linear solve, one held-out check. Sixteen (or
+$2^4=16$, or $24\times16=384$, \S\ref{sec:limodoc}) blind trials are not a
+step of this procedure at any point.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex,
+  box/.style={draw, rounded corners=2pt, align=center, fill=black!3,
+              text width=3.0cm, inner sep=5pt}]
+  \node[box] (p1) at (0,1.15)
+       {\textbf{pose 1}\\\scriptsize $(R_c^{(1)}, t_c^{(1)})$ raw\\\scriptsize $(R_g^{(1)}, t_g^{(1)})$ measured};
+  \node[box] (p2) at (0,-1.15)
+       {\textbf{pose 2}\\\scriptsize known rotation from 1\\\scriptsize $(R_c^{(2)}, t_c^{(2)})$ raw\\\scriptsize $(R_g^{(2)}, t_g^{(2)})$ measured};
+  \node[box, fill=blue!6, draw=accentblue, text width=3.6cm] (svd) at (5.2,0)
+       {\textbf{closed-form SVD}\\\scriptsize (Wahba/Kabsch, Eq.~\ref{eq:calibgeneral})\\$\Downarrow$\\$C$ (rotation), $d$ (offset)};
+  \node[box, text width=2.6cm] (check) at (9.7,0)
+       {\textbf{held-out pose 3}\\\scriptsize residual $<$ 5\,cm\,?};
+  \draw[->] (p1.east) -- ++(0.5,0) |- (svd.west);
+  \draw[->] (p2.east) -- ++(0.5,0) |- (svd.west);
+  \draw[->] (svd) -- (check);
+\end{tikzpicture}
+\caption[General quaternion calibration procedure]{The general method: two
+measured poses fix $C$ in closed form (no search), a linear solve fixes the
+translation offset, a third pose validates. Portable to any beacon detector
+on any robot, since it never inspects the detector's internals.}
+\label{fig:quatcalib}
+\end{figure}
+
+\begin{trapbox}{Not yet run on this platform, or on Robomaster}
+Everything above is derived and, for the optical-to-body rotation
+(Eq.~\ref{eq:rob}) and the source-code inconsistency (\S\ref{sec:quatbug}),
+directly verified against \code{ceresP4P.hpp} and \code{carolus\_astrobee.cpp}.
+The calibration procedure of \S\ref{sec:quatgeneral} has not yet been
+executed, on this rover or any other: it requires two physical, tape-measured
+poses and the \code{90\textdegree} scripted primitive already available on
+the Trajectory tab, a field session this report does not yet contain. The
+existing empirical sign convention already locked into
+\code{carolus\_tf\_bridge.py}'s \code{\~{}quat\_signs} default
+(\code{"-+++"}, \S\ref{sec:quaternion}) continues to be what this platform
+actually runs until that calibration session replaces it with a measured,
+closed-form value.
+\end{trapbox}
 \label{sec:openitems}
 \small
 \begin{center}
