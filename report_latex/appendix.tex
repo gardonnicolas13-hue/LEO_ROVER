@@ -4059,3 +4059,156 @@ tidy narrative:
   will, the campaign survives.
 \end{enumerate}
 
+\section{Pose-regulation motion control: Carolus and AprilTag, to an
+arbitrary (X, Y, Z, $\theta$)}
+\label{ap:posecontrol}
+Every autonomous behaviour documented elsewhere in this report
+(\S\ref{sec:pid}, \S\ref{sec:apriltagfallback}) \emph{centres} on a target,
+it drives the target's pixel offset toward zero, with no notion of a
+specific commanded $(X,Y,Z,\theta)$ to stop at. This appendix specifies,
+derives, and implements the missing capability the supervisor requested:
+given an arbitrary desired ground-frame pose, drive there from an arbitrary
+start, using either Carolus or AprilTag as the position sensor, through the
+same ground frame Section~1 already established
+(\S\ref{sec:quatuniversal}, \code{beacon\_link}).
+
+\subsection{Why a three-phase controller, not a single smooth law}
+\label{ap:posecontrolchoice}
+A single, continuously-blended control law that drives $(x,y,\theta)$ to a
+goal simultaneously exists in the literature (polar-coordinate feedback,
+Aicardi et al.\ 1995) and was evaluated for this appendix. It was not
+chosen, for a reason worth stating rather than hiding: its stability proof
+requires a specific coupling between the heading-error gain and the
+final-orientation-error gain that this report could not independently
+re-derive with full confidence in the time available, and \textbf{shipping
+an unverified stability argument to a rover with a live, unresolved UART
+fault (\S\ref{sec:aug11mins}) is a worse mistake than shipping a simpler
+controller with a plain per-phase proof.} The controller specified below
+uses three sequential phases, each individually a single-degree-of-freedom
+proportional regulation whose convergence is a one-line argument, and
+mirrors the exact pattern already implemented and field-validated on this
+lab's LIMO platform (\code{LimoUltimateMission}'s
+\code{TURN\_1}$\to$\code{MOVE\_L}$\to$\code{TURN\_2} state machine,
+\S\ref{sec:limodoc}), rather than introducing an unvalidated technique where
+a validated one already exists in the same lab.
+
+\subsection{Geometry and control law}
+\label{ap:posecontrolmath}
+Let $(x,y,\theta)$ be the current pose in the ground frame
+(\code{beacon\_link}) and $(x_g,y_g,\theta_g)$ the commanded goal ($Z$ is
+not independently controlled, this platform's motion is planar, so a
+requested $Z$ is only meaningful as a height at which the target was sighted,
+not a controllable degree of freedom, and is not carried into the control
+law below). Define
+\begin{equation}
+\Delta x = x_g - x,\quad \Delta y = y_g - y,\quad
+\rho = \sqrt{\Delta x^2+\Delta y^2},\quad
+\gamma = \operatorname{atan2}(\Delta y,\Delta x).
+\label{eq:posegeom}
+\end{equation}
+\textbf{Phase 1, TURN\_1 (rotate to face the goal).} Error
+$e_1=\operatorname{wrap}(\gamma-\theta)\in(-\pi,\pi]$, control
+$\omega = \operatorname{clamp}(k_\theta e_1,\,\pm\omega_{\max})$, this
+project's own \code{PID} class (\S\ref{sec:pidmath}) instantiated with
+$K_i{=}0$ exactly as the existing \code{\_pid\_lock\_align} loop is. A
+single scalar error driven by proportional feedback toward zero is
+Lyapunov-trivial: $V=\tfrac12 e_1^2$, $\dot V = e_1\dot e_1 = -k_\theta e_1^2
+\le 0$ for $k_\theta>0$.
+\textbf{Exit:} $|e_1|<\varepsilon_\theta$.
+
+\textbf{Phase 2, MOVE\_L (drive to the goal, correcting bearing en route).}
+$v = v_{\text{cruise}}$ (constant, this platform's obstacle governor,
+\S\ref{sec:obstacleloop}, remains active underneath and unmodified: this
+phase adds a goal, it does not remove the existing safety layer), with a
+small proportional bearing correction re-evaluating
+Eq.~\ref{eq:posegeom} every control tick,
+$\omega = \operatorname{clamp}(k_\phi\,\operatorname{wrap}(\gamma(t)-\theta(t)),\,\pm\omega_{\text{corr}})$,
+$\omega_{\text{corr}}\ll\omega_{\max}$ so the robot corrects heading without
+re-entering a full stop-and-turn. \textbf{Exit:} $\rho<\varepsilon_\rho$.
+
+\textbf{Phase 3, TURN\_2 (rotate to the commanded final heading).} Error
+$e_3 = \operatorname{wrap}(\theta_g-\theta)$, identical control and
+convergence argument as Phase~1. \textbf{Exit:} $|e_3|<\varepsilon_\theta$,
+mission complete.
+
+\subsection{Sensor front end: Carolus and AprilTag feed the same state
+machine}
+\label{ap:posecontrolsensor}
+The pose $(x,y,\theta)$ Eq.~\ref{eq:posegeom} consumes is, deliberately,
+sensor-agnostic: it is whichever of \code{/odom\_in\_beacon}
+(\code{carolus\_tf\_bridge.py}, Carolus, \S\ref{sec:aug12readiness}) or an
+equivalent AprilTag-derived ground-frame pose is freshest, following the
+same strict-priority pattern already verified for centring
+(\S\ref{sec:apriltagfallback}) rather than a second, separate arbitration
+scheme. AprilTag's own detection message already carries a full 6-DOF pose
+(\code{d.pose.pose.pose} in \code{\_on\_tag\_detections}, currently
+reprojected to a 2D pixel centre and a scalar distance only, for the
+centring use case); this appendix's implementation reads the same message's
+full pose and passes it through the identical optical-to-body rotation
+already derived and verified (Eq.~\ref{eq:rob}), rather than a second,
+independently-tuned conversion.
+
+\begin{lstlisting}[language=Python]
+# catkin_ws/src/leo_navigation/scripts/goto_pose.py -- NEW, this session.
+# Three-phase pose regulation (SS D.15.2), sensor-agnostic front end (SS D.15.3).
+# NOT wired into any .launch file and NOT added to leo_backend.py's FSM --
+# see the trapbox below for why.
+
+class GotoPose:
+    def __init__(self, goal_x, goal_y, goal_theta):
+        self.goal = (goal_x, goal_y, goal_theta)
+        self.phase = "TURN_1"
+        self.pid_turn = PID(Kp=K_THETA, Ki=0.0, Kd=0.08,
+                             out_min=-OMEGA_MAX, out_max=OMEGA_MAX)
+
+    def update(self, x, y, theta, now):
+        gx, gy, gtheta = self.goal
+        dx, dy = gx - x, gy - y
+        rho = math.hypot(dx, dy)
+        gamma = math.atan2(dy, dx)
+
+        if self.phase == "TURN_1":
+            e = wrap(gamma - theta)
+            omega = self.pid_turn.update(e, now)
+            if abs(e) < EPS_THETA:
+                self.phase = "MOVE_L"; self.pid_turn.reset()
+            return (0.0, omega)
+
+        if self.phase == "MOVE_L":
+            e = wrap(gamma - theta)
+            omega = clamp(K_PHI * e, -OMEGA_CORR, OMEGA_CORR)
+            if rho < EPS_RHO:
+                self.phase = "TURN_2"; self.pid_turn.reset()
+                return (0.0, 0.0)
+            return (V_CRUISE, omega)  # obstacle governor (S:obstacleloop) still applies
+
+        if self.phase == "TURN_2":
+            e = wrap(gtheta - theta)
+            omega = self.pid_turn.update(e, now)
+            if abs(e) < EPS_THETA:
+                self.phase = "DONE"
+            return (0.0, omega)
+
+        return (0.0, 0.0)  # DONE
+\end{lstlisting}
+
+\begin{trapbox}{Written this session, deliberately not deployed}
+\code{goto\_pose.py} is new, real code, not pseudocode, and every equation
+in \S\ref{ap:posecontrolmath} is verified by hand (each phase's Lyapunov
+argument is one line, checked directly, not cited without derivation). It
+is \textbf{not} added to \code{leo\_backend.py}'s FSM, not referenced from
+any \code{.launch} file, and has not been run against the real robot, for
+one concrete reason: \S\ref{sec:aug11mins} documents a live, unresolved
+UART checksum storm on this exact platform, found the same night this
+controller was written, capable of silently dropping
+\code{/firmware/wheel\_states}. Deploying a new autonomous motion-control
+path on top of a known-degraded sensor input, before that fault is even
+diagnosed, would risk producing a field result that measures the fault
+rather than the controller. The three-phase design (\S\ref{ap:posecontrolchoice})
+and the reused, already-verified building blocks (the \code{PID} class,
+the optical-to-body rotation, the strict-priority sensor front end) mean
+integration, once the UART fault is resolved, is wiring \code{GotoPose}
+into the existing FSM as one more state alongside \code{LOCK\_BEACON} and
+\code{GOTO\_BEACON}, not new development.
+\end{trapbox}
+

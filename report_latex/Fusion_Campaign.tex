@@ -7530,6 +7530,201 @@ existing empirical sign convention already locked into
 actually runs until that calibration session replaces it with a measured,
 closed-form value.
 \end{trapbox}
+
+\section{Relocalization theory: why an absolute fix corrects accumulated
+drift, and by how much}
+\label{sec:relocmath}
+Item 5's VICON-slot integration (\S\ref{ap:repro-mins-guide},
+\code{config\_vicon.yaml}) is implemented and unenabled
+(\S\ref{sec:aug11mins} already established this precisely). What follows is
+the theory the supervisor's requested straight-line experiment
+(\S\ref{sec:relocexp} below) will measure against: not a description of what
+should happen, but a derivation of what a correctly-tuned filter is
+mathematically required to do, so the eventual field result can be judged
+against a real prediction rather than a vague expectation of ``it should
+snap back.''
+
+\subsection{Drift as a growing covariance, not a growing error}
+\label{sec:driftmodel}
+Between absolute fixes, MINS propagates position purely by integrating IMU
+and wheel measurements, each corrupted by process noise. For a filter
+tracking position error as a random walk driven by noise intensity $q$
+(the propagation step of any Kalman-family estimator, \code{config\_estimator.yaml}'s
+own noise densities being exactly this $q$, already documented as measured
+via Allan variance rather than datasheet, \S\ref{ap:repro-mins-guide}), the
+estimator's own belief about its uncertainty evolves as
+\begin{equation}
+P(t) = P(t_0) + q\,(t - t_0),
+\label{eq:covgrowth}
+\end{equation}
+variance growing \emph{linearly} in the time since the last correction, not
+the position error itself, which is a single unknown realisation, not a
+distribution. This distinction matters for reading the experiment correctly:
+a single straight-line run's actual drift is one sample from a distribution
+whose spread grows by Eq.~\ref{eq:covgrowth}, so one run confirms an order of
+magnitude, not the growth law itself, which would need repeated trials at
+matched duration to fit.
+
+\subsection{The correction is a precision-weighted average, not a reset}
+\label{sec:kalmanfix}
+When a Carolus-derived fix $z = x + v$ arrives, $v\sim\mathcal N(0,R)$ (this
+platform's own \code{config\_vicon.yaml}: \code{noise\_p}$=0.05$\,m, so
+$R\approx(0.05)^2 = 2.5\times10^{-3}\,\text{m}^2$ per axis), the scalar
+Kalman update gives the corrected estimate and its variance as
+\begin{align}
+K &= \frac{P}{P+R}, \label{eq:gain}\\
+x^{+} &= x^{-} + K\,(z - x^{-}), \label{eq:xupdate}\\
+P^{+} &= (1-K)\,P^{-} = \frac{P^{-} R}{P^{-}+R}
+      = \left(\frac{1}{P^{-}} + \frac{1}{R}\right)^{-1}. \label{eq:pupdate}
+\end{align}
+Eq.~\ref{eq:pupdate}'s last form, precisions (inverse variances) summing
+rather than variances averaging, is the exact reason a beacon fix does not
+merely nudge the estimate but effectively overrides it once drift has run
+long enough: if $P^{-}\gg R$ (accumulated uncertainty far exceeds the
+beacon's own $2.5\times10^{-3}\,\text{m}^2$), Eq.~\ref{eq:gain} gives
+$K\to 1$ and Eq.~\ref{eq:pupdate} gives $P^{+}\to R$, independent of how
+large $P^{-}$ actually was. \textbf{The correction magnitude is therefore
+not a tuned behaviour, it is what the arithmetic in Eq.~\ref{eq:xupdate} does
+automatically once the beacon's precision dominates}: the ``jump'' the
+supervisor's protocol asks the student to observe (\S\ref{sec:relocexp}) is
+the innovation term $K(z-x^{-})$, which for $K\approx1$ is approximately the
+\emph{entire} accumulated error at that instant, not a fraction of it.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex]
+  \draw[->] (0,0) -- (10.2,0) node[right, font=\scriptsize] {$t$};
+  \draw[->] (0,0) -- (0,4.1) node[left, font=\scriptsize, align=center] {position\\error};
+  % growing drift band before the fix, sqrt(P) envelope
+  \draw[domain=0:5.6, samples=60, densely dashed, alertred]
+       plot ({\x}, {0.5*sqrt(\x)});
+  \draw[domain=0:5.6, samples=60, densely dashed, alertred]
+       plot ({\x}, {-0.5*sqrt(\x)});
+  \draw[alertred] (0,0) .. controls (2,0.9) and (4,1.6) .. (5.6,1.9);
+  \node[alertred, font=\scriptsize, anchor=south] at (2.8,1.0) {actual drift, one realisation};
+  \node[alertred, font=\scriptsize, anchor=north, align=center] at (4.6,-1.5)
+       {$\pm\sqrt{P(t)}$ envelope\\(Eq.~\ref{eq:covgrowth}, grows $\propto\sqrt{t}$)};
+  % correction instant
+  \draw[thick, densely dotted] (5.6,-2.2) -- (5.6,3.9);
+  \node[font=\scriptsize, anchor=south west] at (5.6,3.9) {beacon fix};
+  \fill (5.6,1.9) circle (1.6pt);
+  \draw[->, very thick, accentblue] (5.6,1.9) -- (5.6,0.15);
+  \node[accentblue, font=\scriptsize, anchor=west, align=left] at (5.75,1.05)
+       {$K(z-x^-)$\\(Eq.~\ref{eq:xupdate})};
+  % post-fix, tight band around zero
+  \draw[domain=5.6:10, samples=40, densely dashed, green!55!black]
+       plot ({\x}, {0.13+0.05*sqrt(\x-5.6)});
+  \draw[domain=5.6:10, samples=40, densely dashed, green!55!black]
+       plot ({\x}, {-0.13-0.05*sqrt(\x-5.6)});
+  \draw[green!55!black, very thick] (5.6,0.1) -- (10,0.1);
+  \node[green!55!black, font=\scriptsize, anchor=north west] at (6.0,-0.35) {$P^+\to R$ (Eq.~\ref{eq:pupdate}), drift resumes from here};
+\end{tikzpicture}
+\caption[Relocalization correction, predicted]{The predicted shape of the
+straight-line experiment (\S\ref{sec:relocexp}), derived, not measured: an
+uncertainty envelope opening as $\sqrt t$ while no fix arrives (dashed red),
+an abrupt correction sized by the innovation at the instant a fix lands
+(blue arrow, Eq.~\ref{eq:xupdate}), and a tight, beacon-precision envelope
+resuming immediately after (dashed green). No data from this rover appears
+in this figure; it is what Eq.~\ref{eq:covgrowth}--\ref{eq:pupdate} require,
+against which a real run can be checked.}
+\label{fig:relocpredicted}
+\end{figure}
+
+\subsection{The straight-line experiment this predicts, not yet run}
+\label{sec:relocexp}
+The supervisor's protocol, precisely: record a rosbag through
+\code{tools/record\_trajectories.sh} (\S\ref{ap:repro-comprun}) while
+driving a long straight line with the beacon initially out of view, exposing
+it partway through, either by manual driving or a scripted straight-line
+primitive (the encoder-calibration scripts, \S\ref{ap:repro-wheels}, already
+show the pattern: subscribe to odometry, integrate distance, gate a
+\code{Twist} publisher on a threshold). \code{tools/plot\_relocalization.m}
+(written this session, \S\ref{sec:aug12readiness} below) locates the
+correction instant from the first timestamp in \code{*\_carolus.csv} and
+reports the jump magnitude directly, the same $K(z-x^{-})$ quantity
+Eq.~\ref{eq:xupdate} predicts.
+
+\begin{trapbox}{Not yet run, on this platform or any other}
+Everything in this section is a derivation from standard linear-Gaussian
+estimation theory (Eq.~\ref{eq:covgrowth}--\ref{eq:pupdate}) applied to
+\emph{this platform's own measured numbers} (\code{config\_vicon.yaml}'s
+$R\approx2.5\times10^{-3}\,\text{m}^2$), not a report of anything observed.
+It is gated on the same prerequisites already recorded in
+\S\ref{sec:aug11mins} and \S\ref{sec:aug12readiness}: \code{vicon.enabled}
+is \code{false}, the beacon's global coordinates are unsurveyed, and the
+live UART checksum storm found the same night this theory was written
+(\S\ref{sec:aug11mins}) is an open, unresolved threat to
+\code{/firmware/wheel\_states}, one of MINS's three fused inputs, which
+would corrupt exactly the propagation phase Eq.~\ref{eq:covgrowth} models.
+Figure~\ref{fig:relocpredicted} is a prediction to test against, not a
+result.
+\end{trapbox}
+
+\subsection{Code audit, same session: one real bug, one missing tool, one
+name correction}
+\label{sec:aug12readiness}
+Before extending the theory above, the code it depends on was audited
+directly rather than assumed current from earlier documentation.
+\code{carolus\_vicon\_bridge.py} and \code{config\_vicon.yaml}
+(\S\ref{ap:repro-mins-guide}) were re-read in full: both already met the
+standard this audit checked for (explicit exception handling with no crash
+path when the beacon is out of view; every configuration field commented),
+no change made. Two real gaps were found and closed:
+\begin{itemize}[leftmargin=1.4em]
+\item \code{tools/plot\_relocalization.m}, referenced by name in
+  \S\ref{sec:relocexp} and in earlier drafts of this guide, had only ever
+  been drafted as chat text, never written to \code{tools/}. Written for
+  real this session, with explicit error handling for every missing- or
+  empty-CSV case (a bare file-not-found stack trace is not an acceptable
+  failure mode for a script meant to run unattended after a field session);
+  verified against a nonexistent path, confirmed to raise a named, readable
+  error rather than a raw one.
+\item \code{leo\_backend.py}'s AprilTag long-range fallback
+  (\S\ref{sec:apriltagfallback}) carried its $0.7$\,s freshness threshold as
+  a bare literal, duplicated in two call sites. Promoted to a named
+  constant, \code{TAG\_FALLBACK\_MAX\_AGE\_S}, both sites updated,
+  \code{py\_compile} clean.
+\end{itemize}
+A separate, independent cross-check (Table~\ref{tab:openitems}'s item~1
+requirement, ``the TF2 node handling the \code{beacon\_link} anchor'')
+found that the file matching this description in this project's own tree is
+\code{carolus\_tf\_bridge.py}, not the generic example this guide's
+Section~1 originally illustrated the mechanism with: the generic example
+(modelled on the LIMO document, \S\ref{sec:limodoc}) republishes
+\code{base\_link}$\to$\code{camera\_frame} as a static transform, which
+this platform's own TF tree already carries (verified by listening to
+\code{/tf} directly, \S\ref{ap:repro-launcharch}), so republishing it would
+give \code{base\_link} two parents and break the tree. The real node's own
+\code{\~{}publish\_body\_chain} guard (default \code{false}) exists
+specifically to prevent this, with an explicit \code{rospy.logerr} if
+enabled without verification first, a stronger and more accurate artefact
+for this guide than the illustrative example it replaces.
+
+\subsection{Foundation for Section 2: the existing Carolus/AprilTag
+arbitration, re-verified}
+\label{sec:apriltagfallback}
+The motion-control appendix that follows (\S\ref{ap:posecontrol}) issues
+commands through the same target-acquisition path already live in
+\code{leo\_backend.py}, not a parallel one, so it is verified here rather
+than assumed. \code{\_target\_center(det)} returns Carolus's own per-frame
+centroid whenever present, and only consults the AprilTag long-range
+fallback (\code{\_on\_tag\_detections}, reprojecting the nearest tag through
+the already-Kalibr'd \code{cam0} intrinsics, $p_x=336.372\,(x/z)+310.200$)
+on the frames where Carolus's own detection is absent, gated by
+$\code{TAG\_FALLBACK\_MAX\_AGE\_S}=0.7$\,s. Strict priority, not arbitration
+by comparison, is what prevents the two sources from ever competing: no code
+path evaluates both and picks one, so no comparison logic exists to
+oscillate. What is confirmed \emph{not} to exist is any hysteresis on the
+handoff itself: near the boundary of Carolus's own reliable range
+($\approx$0.5--4\,m), a frame-to-frame flicker in Carolus's own detection
+would switch sources every such frame, and the two sources do not report
+pixel-identical positions for the same physical beacon (Carolus: direct
+detection; AprilTag: a computed reprojection). This is recorded as an
+identified, currently unguarded risk, not a proven field problem, since no
+live AUTO traverse has yet exercised this boundary
+(\S\ref{sec:pidvalidation}).
+
+\section{Open items registry}
 \label{sec:openitems}
 \small
 \begin{center}
