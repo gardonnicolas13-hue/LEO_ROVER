@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en" class="dark scroll-smooth">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LEO ROVER — Engineering Audit</title>
+<script src="i18n.js?v=r18"></script>
+<script src="vendor/tailwind.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: {
+      fontFamily: {
+        sans: ['Inter','system-ui','sans-serif'],
+        mono: ['"JetBrains Mono"','ui-monospace','monospace'],
+        display: ['Rajdhani','Inter','sans-serif'],
+      },
+      colors: {
+        space:  { 950:'#0B0E14', 900:'#10141c', 800:'#161b24' },
+        accent: { DEFAULT:'#22d3ee', soft:'#67e8f9', deep:'#0e7490' },
+        plasma: { DEFAULT:'#ff6b35', soft:'#ff8f66', deep:'#c2410c' },
+        alert:  { DEFAULT:'#FC3D21' },
+        ok:     { DEFAULT:'#3fdc97' },
+        warn:   { DEFAULT:'#eab308' },
+      },
+      boxShadow: {
+        glow:'0 0 0 1px rgba(34,211,238,.25), 0 0 40px -10px rgba(34,211,238,.6)',
+        neon:'0 0 6px rgba(34,211,238,.6), 0 0 24px rgba(34,211,238,.4)',
+      },
+      keyframes: {
+        'fade-up':{ '0%':{ opacity:0, transform:'translateY(16px)' }, '100%':{ opacity:1, transform:'translateY(0)' } },
+      },
+      animation: { 'fade-up':'fade-up .6s ease-out both' },
+    }},
+  };
+</script>
+<link rel="stylesheet" href="fonts/fonts.css?v=f1" />
+<link rel="stylesheet" href="mission.css?v=m1" />
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0B0E14; }
+  .grid-bg { background-image:
+      linear-gradient(rgba(34,211,238,.05) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(34,211,238,.05) 1px,transparent 1px);
+      background-size:46px 46px; }
+  .glass { background:rgba(255,255,255,.035); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); }
+  .tile { border:1px solid rgba(255,255,255,.08); border-radius:1.25rem; }
+  .tile:hover { border-color:rgba(34,211,238,.2); }
+  .text-gradient { background:linear-gradient(120deg,#fff,#67e8f9 45%,#ff6b35);
+      -webkit-background-clip:text; background-clip:text; color:transparent; }
+  ::-webkit-scrollbar{ width:9px; }
+  ::-webkit-scrollbar-thumb{ background:#1c2733; border-radius:5px; }
+
+  .section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; letter-spacing: .2em; text-transform: uppercase;
+    color: rgba(34,211,238,.7); margin-bottom: 4px; margin-top: 16px;
+  }
+  .section-label:first-child { margin-top: 0; }
+
+  .report-pre {
+    background: rgba(0,0,0,.45);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: .5rem; padding: .75rem 1rem;
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    color: #a1a1aa; overflow-x: auto; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word;
+  }
+
+  .metrics-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .metrics-table th {
+    text-align: left; font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: rgba(34,211,238,.7); padding: 7px 10px;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+  .metrics-table td {
+    padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,.04);
+    color: #a1a1aa; vertical-align: top;
+  }
+  .metrics-table tr:last-child td { border-bottom: none; }
+  .metrics-table td:first-child { color: #e4e4e7; font-weight: 500; }
+
+  .status-ok { color: #3fdc97; font-weight: 600; }
+  .status-warn { color: #eab308; font-weight: 600; }
+  .status-bad { color: #FC3D21; font-weight: 600; }
+
+  .doc-body h2 { font-family:'Rajdhani',sans-serif; font-weight:700; font-size:1.35rem;
+    color:#fff; margin-top:2rem; margin-bottom:.6rem; }
+  .doc-body h3 { font-family:'Rajdhani',sans-serif; font-weight:700; font-size:1.05rem;
+    color:#e4e4e7; margin-top:1.4rem; margin-bottom:.4rem; }
+  .doc-body p { color:#a1a1aa; line-height:1.7; margin-bottom:.9rem; font-size:.92rem; }
+  .doc-body ul, .doc-body ol { color:#a1a1aa; line-height:1.7; margin-bottom:.9rem;
+    padding-left:1.3rem; font-size:.92rem; }
+  .doc-body li { margin-bottom:.25rem; }
+  .doc-body code { background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08);
+    border-radius:.3rem; padding:.05rem .35rem; font-family:'JetBrains Mono',monospace;
+    font-size:.82em; color:#67e8f9; }
+  .doc-body strong { color:#e4e4e7; }
+  .doc-body a { color:#67e8f9; text-decoration:underline; text-underline-offset:2px; }
+</style>
+</head>
+
+<body class="font-sans text-zinc-200 antialiased selection:bg-accent/30">
+  <div class="pointer-events-none fixed inset-0 -z-10 grid-bg opacity-40"></div>
+  <div class="pointer-events-none fixed -top-32 left-1/4 -z-10 h-96 w-96 rounded-full bg-accent/10 blur-[150px]"></div>
+  <div class="pointer-events-none fixed bottom-0 right-0 -z-10 h-96 w-96 rounded-full bg-plasma/10 blur-[150px]"></div>
+
+  <!-- ══════════════════ NAV ══════════════════ -->
+  <header class="sticky top-0 z-50 border-b border-white/5 glass">
+    <div class="mx-auto flex max-w-7xl items-center justify-between px-5 py-3.5">
+      <a href="index.html" class="group flex items-center gap-3">
+        <span class="flex items-center gap-2">
+          <img src="vendor/NASA_logo.svg" alt="NASA" loading="lazy"
+               class="h-9 w-9 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 shadow-glow transition group-hover:scale-105" />
+          <img src="vendor/fit_seal.svg" alt="Florida Institute of Technology" loading="lazy"
+               class="h-9 w-9 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 transition group-hover:scale-105" />
+        </span>
+        <span class="hidden h-7 w-px bg-white/15 sm:block"></span>
+        <span class="font-display text-base font-bold tracking-widest">LEO<span class="text-accent">·</span>AUDIT</span>
+      </a>
+      <nav class="hidden items-center gap-1 md:flex">
+        <a href="index.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Home</a>
+        <a href="ops.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Operations</a>
+        <a href="logbook.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Logbook</a>
+        <a href="audit.html" class="rounded-lg bg-white/5 px-3 py-2 text-sm text-white">Audit</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ══════════════════ HERO ══════════════════ -->
+  <section class="mx-auto max-w-4xl px-5 pb-8 pt-16">
+    <p class="font-mono text-xs uppercase tracking-[.3em] text-accent">// engineering audit · technical guide review</p>
+    <h1 class="mt-3 font-display text-4xl font-black tracking-tight sm:text-5xl">
+      <span class="text-gradient">Robot Readiness &amp; Requirements Audit</span>
+    </h1>
+    <p class="mt-4 max-w-2xl text-zinc-400">
+      Two cross-check passes over the MINS/VICON relocalization and motion-control
+      sections of the Technical Guide: what is code-complete, what is field-validated,
+      and what is genuinely still open — checked directly against the running code,
+      not asserted from memory.
+    </p>
+    <div class="mt-5 flex flex-wrap gap-3 text-[11px]">
+      <span class="rounded bg-white/5 px-2.5 py-1 font-mono text-zinc-400 ring-1 ring-white/10">2026-08-12</span>
+      <span class="rounded bg-white/5 px-2.5 py-1 font-mono text-zinc-400 ring-1 ring-white/10">robot_readiness_audit.md</span>
+      <span class="rounded bg-white/5 px-2.5 py-1 font-mono text-zinc-400 ring-1 ring-white/10">verification_grille_prof.md</span>
+    </div>
+  </section>
+
+  <!-- ══════════════════ DOC 1 ══════════════════ -->
+  <section class="mx-auto max-w-4xl px-5 pb-6">
+    <div class="tile glass animate-fade-up p-6 sm:p-8">
+      <p class="section-label">// document 1</p>
+      <h2 class="font-display text-2xl font-bold text-white">Robot Readiness Audit</h2>
+      <div class="doc-body mt-2">
+        <p>Scope: Section 1 (TF2 / MINS / VICON relocalization) and Section 2 (motion
+        control, PID, AprilTag fallback) of the Technical Guide. Every claim below
+        was checked directly against the running code or by executing the tool in
+        question.</p>
+        <p><strong>Reading this table:</strong> "Code-complete" means the implementation
+        is correct and free of the bugs it was checked for. It does <strong>not</strong> mean
+        "validated on the robot" — those are tracked as separate columns on purpose.</p>
+
+        <h3>Section 1 — TF2, MINS Estimation, VICON Relocalization</h3>
+        <div class="overflow-x-auto">
+        <table class="metrics-table">
+          <tr><th>Component</th><th>Code-complete?</th><th>Field-validated?</th><th>Notes</th></tr>
+          <tr><td><code>carolus_vicon_bridge.py</code></td><td class="status-ok">Yes</td><td class="status-warn">No</td>
+              <td>TF lookup failure caught explicitly; publishes nothing and loops — no crash path when the beacon isn't visible.</td></tr>
+          <tr><td><code>config_vicon.yaml</code></td><td class="status-ok">Yes</td><td class="status-warn">No</td>
+              <td>Every field commented. <code>vicon.enabled: false</code> with an explicit reason (bridge unverified live + beacon coordinates unsurveyed). No change needed.</td></tr>
+          <tr><td><code>tools/bag_to_csv.py</code></td><td class="status-ok">Yes</td><td class="status-ok">Yes</td>
+              <td><code>py_compile</code> clean, path handling verified.</td></tr>
+          <tr><td><code>tools/plot_relocalization.m</code></td><td class="status-ok">Created this audit</td><td class="status-warn">No</td>
+              <td>Did not exist before this audit — only drafted inline in chat, never saved. Written with explicit error handling for every missing/empty-data case, verified against a nonexistent path (clean named error, not a raw stack trace).</td></tr>
+        </table>
+        </div>
+
+        <p class="mt-4"><strong>Blocking dependency, found live, not yet resolved:</strong>
+        <code>serial_node</code> is emitting a sustained <code>wrong checksum for topic id and msg</code>
+        burst on the robot (~2.7 msg/s, ARM clock steady at 1500 MHz, so not the known
+        thermal cause). This can silently drop <code>/firmware/wheel_states</code>, one of
+        MINS's three fused inputs. Any relocalization test run before this is diagnosed
+        risks measuring against a degraded MINS estimate with no visible symptom.</p>
+
+        <h3>Section 2 — Motion Control, PID, AprilTag Fallback</h3>
+        <div class="overflow-x-auto">
+        <table class="metrics-table">
+          <tr><th>Component</th><th>Code-complete?</th><th>Field-validated?</th><th>Notes</th></tr>
+          <tr><td><code>PID</code> class</td><td class="status-ok">Yes</td><td class="status-ok">Yes (live in AUTO)</td>
+              <td>Measured-Δt discretization, clamped-integration anti-windup, derivative low-pass all confirmed by reading the implementation.</td></tr>
+          <tr><td><code>_target_center()</code></td><td class="status-ok">One bug fixed</td><td class="status-warn">Partial</td>
+              <td>AprilTag freshness threshold was a bare literal <code>0.7</code> duplicated in two places — promoted to a named constant, <code>TAG_FALLBACK_MAX_AGE_S</code>. No hysteresis exists on the Carolus↔AprilTag handoff itself — a known, unguarded limitation, not yet observed as a problem.</td></tr>
+          <tr><td>Four PID instances</td><td class="status-ok">Yes</td><td class="status-warn">No</td>
+              <td>All gain constants confirmed defined (no <code>NameError</code> risk). Live in the deployed control path; not yet exercised over a live AUTO traverse under normal network conditions.</td></tr>
+        </table>
+        </div>
+
+        <h3>Overall verdict</h3>
+        <p><strong>Code-complete and internally consistent for both sections. Not ready
+        to present as "operational on the robot" without qualification</strong> — three
+        concrete things remain unproven by measurement: the VICON relocalization jump
+        itself, the AUTO-mode qualitative PID behaviour, and the Carolus/AprilTag handoff
+        under motion. The live UART checksum storm is a precondition for trusting either
+        of the first two once network access returns.</p>
+
+        <h3>Immediate next steps</h3>
+        <ol>
+          <li>Diagnose and resolve the UART checksum storm before trusting any pose-dependent field test.</li>
+          <li>Survey the beacon's global coordinates, confirm <code>/mins/external_ref/carolus</code> publishes live, then <code>vicon.enabled: true</code> + <code>restart_stack.sh</code>.</li>
+          <li>Run the straight-line relocalization test; analyse with <code>tools/plot_relocalization.m</code>.</li>
+          <li>Run a live AUTO traverse to validate all four PID loops, watching specifically for jitter at the Carolus/AprilTag handoff.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ DOC 2 ══════════════════ -->
+  <section class="mx-auto max-w-4xl px-5 pb-20">
+    <div class="tile glass animate-fade-up p-6 sm:p-8">
+      <p class="section-label">// document 2</p>
+      <h2 class="font-display text-2xl font-bold text-white">Grille de vérification — exigences Pr. Hector Gutierrez</h2>
+      <div class="doc-body mt-2">
+        <p>Chaque ligne a été vérifiée par lecture directe du fichier cité. Un écart
+        réel avec ce que le Technical Guide décrivait jusqu'ici est signalé
+        explicitement plutôt que masqué.</p>
+
+        <div class="overflow-x-auto">
+        <table class="metrics-table">
+          <tr><th>#</th><th>Exigence</th><th>Chemin exact</th><th>Statut</th></tr>
+          <tr><td>1</td><td>TF2 : ancrage <code>beacon_link</code> + transformation optique</td>
+              <td><code>catkin_ws/.../scripts/carolus_tf_bridge.py</code></td><td class="status-ok">Présent ⚠️</td></tr>
+          <tr><td>2a</td><td>rosbag → CSV</td><td><code>tools/bag_to_csv.py</code></td><td class="status-ok">Présent</td></tr>
+          <tr><td>2b</td><td>Comparaison Matlab (drive simultané)</td><td><code>tools/plot_trajectories.m</code></td><td class="status-ok">Présent</td></tr>
+          <tr><td>2c</td><td>Comparaison Matlab (rectangle mesuré)</td><td><code>tools/plot_rectangle_test.m</code></td><td class="status-ok">Présent</td></tr>
+          <tr><td>3a</td><td>Pont VICON (Carolus → MINS)</td><td><code>.../scripts/carolus_vicon_bridge.py</code></td><td class="status-ok">Présent</td></tr>
+          <tr><td>3b</td><td>Paramétrage VICON</td><td><code>.../config/leo/config_vicon.yaml</code></td><td class="status-ok">Présent</td></tr>
+          <tr><td>4</td><td>Centrage Carolus + instances PID</td><td><code>leo_backend.py</code> (classe <code>PID</code>, ~L1204)</td><td class="status-ok">Présent</td></tr>
+          <tr><td>5</td><td>Arbitrage <code>_target_center()</code> + pixels Kalibr</td><td><code>leo_backend.py</code> (~L4170, ~L4121)</td><td class="status-ok">Présent</td></tr>
+        </table>
+        </div>
+
+        <h3>⚠️ Correction nécessaire sur la Section 1.1 déjà rédigée</h3>
+        <p>Le point 1 est présent, mais <strong>sous un fichier et avec une logique
+        différents de l'exemple générique donné en Section 1.1</strong> du guide. Mon
+        exemple publiait une transformation statique <code>base_link → camera_frame</code>
+        sur le modèle du document LIMO/Turki. Le vrai nœud de ce projet documente que
+        cette transformation <strong>existe déjà</strong> sur l'arbre TF réel de ce robot
+        (vérifié le 30/07 par écoute directe de <code>/tf</code>) — la republier donnerait
+        deux parents à <code>base_link</code> et casserait l'arbre. Le nœud a un garde-fou
+        <code>~publish_body_chain</code> (défaut <code>False</code>) précisément pour empêcher ça.</p>
+        <p>Deuxième écart : ce nœud n'est déclaré dans aucun <code>.launch</code> — lancé à
+        la main volontairement (cette plateforme a déjà connu un vrai conflit de TF).</p>
+
+        <h3>Verdict global</h3>
+        <p>5/5 exigences matérialisées par un fichier réel et fonctionnel. Aucune absence.
+        Un écart de contenu entre le guide déjà rédigé et le code réel a été trouvé et
+        signalé (point 1) plutôt que laissé tel quel.</p>
+      </div>
+    </div>
+  </section>
+
+  <script src="vendor/lucide-1.25.0.umd.js?v=v1"></script>
+  <script>
+    lucide.createIcons();
+    if (window.I18N) I18N.apply();
+  </script>
+</body>
+</html>

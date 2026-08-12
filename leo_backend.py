@@ -220,6 +220,10 @@ MAX_PID_DT_S   = 3.0 / CONTROL_HZ  # s — au-delà, un PID.update() saute son
 TELEMETRY_HZ   = 10      # Hz — JSON telemetry publish rate
 PUBLISH_IMG_HZ = 20      # Hz — annotated image publish rate (web stream)
 CENTER_HOLD_S  = 0.5     # s — target persistence (stable lock)
+TAG_FALLBACK_MAX_AGE_S = 0.7  # s — AprilTag long-range fallback freshness gate
+                         # (audit 2026-08-12: était un littéral 0.7 dupliqué en
+                         # deux endroits, _target_center() et l'approche LOCK ;
+                         # nommé pour un seul point de réglage terrain)
 CAM_ALIVE_TIMEOUT = 2.0  # s — was 1.0 s; widened 2026-07-21 after AUTO mode was
                          # observed hard-stopping ("micro stops", fully immobile,
                          # confirmed live) on brief camera gaps under today's
@@ -3568,7 +3572,8 @@ class LeoBackend:
                     # (distance tag AprilTag, sinon damier), puis rituel.
                     d_tag = (self._tag_dist
                              if (getattr(self, "_tag_dist", None) is not None
-                                 and now - getattr(self, "_tag_center_t", 0.0) < 0.7)
+                                 and now - getattr(self, "_tag_center_t", 0.0)
+                                     < TAG_FALLBACK_MAX_AGE_S)
                              else None)
                     det_lm = det.get("map_landmark", {})
                     d_cb = det_lm.get("dist_est") if det_lm.get("valid") else None
@@ -4174,9 +4179,10 @@ class LeoBackend:
             self._last_center = c
             self._last_center_t = now
             return c
-        # repli longue portée : centre du tag AprilTag (frais < 0.7 s)
+        # repli longue portée : centre du tag AprilTag (frais < TAG_FALLBACK_MAX_AGE_S)
         tc = getattr(self, "_tag_center", None)
-        if tc is not None and (now - getattr(self, "_tag_center_t", 0.0)) < 0.7:
+        if tc is not None and (now - getattr(self, "_tag_center_t", 0.0)) \
+                < TAG_FALLBACK_MAX_AGE_S:
             self._last_center = tc
             self._last_center_t = now
             return tc

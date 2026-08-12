@@ -161,6 +161,7 @@
         <a href="navigation_modes.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
           <a href="trajectory.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
           <a href="pid.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_pid">PID</a>
+        <a href="audit.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Audit</a>
       </nav>
       <div class="flex items-center gap-2">
         <div class="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/[.03] p-0.5" title="Language">
@@ -185,6 +186,7 @@
         <a href="navigation_modes.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
         <a href="trajectory.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
         <a href="pid.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_pid">PID</a>
+        <a href="audit.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white">Audit</a>
       </nav>
     </div>
   </header>
@@ -236,6 +238,18 @@
           <span class="min-w-0 flex-1">
             <span class="block font-semibold text-zinc-300 transition group-hover:text-accent" data-i18n="log_mins_link">MINS build &amp; launch instructions</span>
             <span class="mt-0.5 block text-[11px] text-zinc-500" data-i18n="log_mins_hint">Jumps straight to the MINS guide in Appendix D: download, build, install, calibrate, and test, start to finish (printed p.363).</span>
+          </span>
+          <i data-lucide="arrow-up-right" class="h-3.5 w-3.5 shrink-0 text-zinc-600 transition group-hover:text-accent"></i>
+        </a>
+
+        <!-- Audit engineering (2026-08-12) : code-complet vs valide terrain,
+             grille de vérification exigences Hector -->
+        <a href="audit.html"
+           class="mt-2 flex max-w-xl items-center gap-3 rounded-xl border border-white/5 px-4 py-2.5 text-xs text-zinc-400 transition hover:border-accent/30 hover:text-accent group">
+          <i data-lucide="clipboard-check" class="h-4 w-4 shrink-0 text-zinc-500 transition group-hover:text-accent"></i>
+          <span class="min-w-0 flex-1">
+            <span class="block font-semibold text-zinc-300 transition group-hover:text-accent">Engineering audit — Technical Guide readiness</span>
+            <span class="mt-0.5 block text-[11px] text-zinc-500">MINS/VICON relocalization &amp; motion-control PID: what's code-complete vs. field-validated, checked live against the running robot.</span>
           </span>
           <i data-lucide="arrow-up-right" class="h-3.5 w-3.5 shrink-0 text-zinc-600 transition group-hover:text-accent"></i>
         </a>
