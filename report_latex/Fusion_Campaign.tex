@@ -6896,6 +6896,66 @@ and lost it at $89.1\,^\circ$C, with $\sim3\,^\circ$C of usable margin and
 ``no headroom for ambient variation''. That boundary is the correct
 reference for tonight's measurement, taken twice, at opposite ends of load.
 
+\begin{casestudy}{The headline number: up to $30.6\,^\circ$C recovered, and
+the clock never dropped}
+Before active cooling, this exact rover collapsed at $89.1\,^\circ$C
+(\S\ref{sec:july30thermal}): every firmware topic silent, ARM clock pinned at
+its throttle floor of $600$\,MHz. With the two GPIO fans installed, the
+coldest reading taken tonight was $58$--$59\,^\circ$C; the hottest, taken
+under the heaviest simultaneous CPU load this rover has been driven under to
+date (a $31$-node full-stack restart), was $72.5\,^\circ$C. Both are measured
+against the same \code{vcgencmd} instrumentation used throughout this report,
+not extrapolated:
+\begin{center}
+\large $89.1\,^\circ\text{C} \;\longrightarrow\; 58$--$59\,^\circ\text{C}$
+\quad\textbf{(--$30.6\,^\circ$C, light load)} \\[5pt]
+\large $89.1\,^\circ\text{C} \;\longrightarrow\; 72.5\,^\circ\text{C}$
+\quad\textbf{(--$16.6\,^\circ$C, heaviest load ever recorded on this rover)}
+\end{center}
+The ARM clock read $1500$\,MHz, its undivided maximum, on \emph{every} check
+made tonight, light load and heavy alike. Before cooling, this rover had
+never once sustained a full colour-camera load at that clock speed for more
+than a few minutes.
+\end{casestudy}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small]
+  \def\base{50}      % axis starts at 50C, not 0C -- the band that matters
+  \def\k{0.15}        % cm per degree
+  \newcommand{\ytop}[1]{\k*(#1-\base)}
+  % axis
+  \draw[->] (-0.3,0) -- (-0.3,6.6) node[left, font=\scriptsize, align=center] {core\\temp.};
+  \foreach \t in {50,60,70,80,90} {
+    \draw[gray!40] (-0.3,{\k*(\t-\base)}) -- (7.2,{\k*(\t-\base)});
+    \node[font=\scriptsize, anchor=east] at (-0.4,{\k*(\t-\base)}) {$\t\,^\circ$C};
+  }
+  % reference lines: envelope floor (86) and collapse ceiling (89.1)
+  \draw[densely dashed, black!55] (-0.3,{\k*(86-\base)}) -- (7.2,{\k*(86-\base)})
+        node[right, font=\scriptsize, black!55] {$86\,^\circ$C, July 30 stable floor};
+  \draw[densely dashed, alertred] (-0.3,{\k*(89.1-\base)}) -- (7.2,{\k*(89.1-\base)})
+        node[right, font=\scriptsize, alertred] {$89.1\,^\circ$C, July 30 collapse};
+  % bars
+  \fill[alertred!75] (0.6,0) rectangle (2.0,{\k*(89.1-\base)});
+  \node[font=\scriptsize, align=center] at (1.3,-0.35) {July 30\\no cooling};
+  \node[font=\scriptsize, anchor=south, align=center] at (1.3,{\k*(89.1-\base)+0.08}) {$89.1\,^\circ$C\\\scriptsize 600\,MHz};
+
+  \fill[orange!75!black] (3.0,0) rectangle (4.4,{\k*(72.5-\base)});
+  \node[font=\scriptsize, align=center] at (3.7,-0.35) {Aug 11\\heavy load};
+  \node[font=\scriptsize, anchor=south, align=center] at (3.7,{\k*(72.5-\base)+0.08}) {$72.5\,^\circ$C\\\scriptsize 1500\,MHz};
+
+  \fill[accentblue!75] (5.4,0) rectangle (6.8,{\k*(58.5-\base)});
+  \node[font=\scriptsize, align=center] at (6.1,-0.35) {Aug 11\\light load};
+  \node[font=\scriptsize, anchor=south, align=center] at (6.1,{\k*(58.5-\base)+0.08}) {$58$--$59\,^\circ$C\\\scriptsize 1500\,MHz};
+\end{tikzpicture}
+\caption[Thermal result, before and after cooling]{The same rover, same
+instrumentation, before and after the two GPIO fans. Axis starts at
+$50\,^\circ$C to make the band that matters legible; every bar is a real
+reading, not an extrapolation. Both post-cooling bars sit below the July 30
+stable floor, not just below its collapse ceiling.}
+\label{fig:thermalbars}
+\end{figure}
+
 \begin{table}[htbp]
 \centering
 \footnotesize
