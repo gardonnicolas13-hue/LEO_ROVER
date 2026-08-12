@@ -8106,7 +8106,8 @@ live AUTO traverse has yet exercised this boundary
     protocol's third corner is already instrumented for it,
     \S\ref{ap:repro-mins-guide}); drive at least two laps past it in one
     recording; run \code{tag\_drift.py} on the result \\
-40 & \textbf{A live UART checksum storm, unresolved} (\S\ref{sec:aug11mins}).
+40 & \textbf{A live UART checksum storm, unresolved, two more hypotheses
+    now eliminated by measurement} (\S\ref{sec:aug11mins}).
     \code{tools/restart\_stack.sh} ended \code{TIMEOUT init MINS}; a
     re-check found \code{mins\_subscribe} registered but
     \code{/mins/imu/odom} and \code{/firmware/wheel\_states} both silent
@@ -8118,11 +8119,35 @@ live AUTO traverse has yet exercised this boundary
     \S\ref{sec:july22network} (July 22), while the ROS graph wiring itself
     (unlike the July 22 case) was confirmed correct. Both earlier
     occurrences were thermal; the ARM clock stayed at $1500$\,MHz
-    throughout tonight's, ruling that specific mechanism out &
-    repeat the July 30 protocol (Eq.~\ref{eq:missprob}: overrun count
-    against a fixed window) with the rover stationary versus actively
-    driven, to test the session's leading, unproven hypothesis that motion
-    itself, not temperature, is exciting the UART link tonight \\
+    throughout, ruling that specific mechanism out.
+    \textbf{Follow-up, same night:} the storm was confirmed still active
+    with the rover completely stationary (\code{/firmware/wheel\_states}
+    velocity all zero), directly refuting the motion-excitation hypothesis
+    this item previously proposed. A second hypothesis, that the kernel's
+    global real-time budget (\code{sched\_rt\_runtime\_us}, found still at
+    its stock default of $950\,000\,\mu$s$/1\,000\,000\,\mu$s, i.e.\ a
+    mandatory $5\,\%$ idle window every second across \emph{all} SCHED\_FIFO
+    tasks regardless of individual priority) was starving
+    \code{serial\_node} despite its correct \code{rtprio}$=25$, evidenced by
+    one \code{dmesg} line, \code{sched: RT throttling activated}, $271$\,s
+    after boot, was tested directly: a controlled before/after A/B
+    (\code{sysctl -w kernel.sched\_rt\_runtime\_us=-1}, four 15\,s samples
+    against a 15\,s baseline of $38$ checksum errors) gave
+    $28,41,36,26$, well within the baseline's own sample-to-sample noise,
+    not a reduction. The setting was reverted immediately
+    (\code{950\,000}, confirmed). A structural fact was found in passing
+    that narrows the remaining search: IRQ~$14$ (\code{uart-pl011}, the
+    CORE2 link) is a traditional, non-threaded hard interrupt pinned
+    entirely to CPU0 ($\approx550$/s), not a schedulable kernel thread, so
+    neither \code{serial\_node}'s process priority nor the kernel's RT
+    budget setting is the layer where a multi-millisecond gap could
+    actually be introduced; both were plausible and both are now ruled out
+    by measurement, not assumption &
+    instrument interrupt-handling latency directly (e.g.\ the kernel's own
+    \code{irqsoff}/\code{preemptirqsoff} ftrace tracers, or a
+    \code{cyclictest} run against \code{/dev/ttyAMA0}'s IRQ) rather than
+    continuing to test process-level scheduling hypotheses, since two of
+    those have now been eliminated by direct, controlled measurement \\
 \end{longtable}
 \end{center}
 
