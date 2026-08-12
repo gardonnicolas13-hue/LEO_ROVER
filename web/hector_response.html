@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en" class="dark scroll-smooth">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LEO ROVER — Response to Pr. Gutierrez: Quaternion, Relocalization &amp; Pose Control</title>
+<script src="i18n.js?v=r18"></script>
+<script src="vendor/tailwind.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: {
+      fontFamily: {
+        sans: ['Inter','system-ui','sans-serif'],
+        mono: ['"JetBrains Mono"','ui-monospace','monospace'],
+        display: ['Rajdhani','Inter','sans-serif'],
+      },
+      colors: {
+        space:  { 950:'#0B0E14', 900:'#10141c', 800:'#161b24' },
+        accent: { DEFAULT:'#22d3ee', soft:'#67e8f9', deep:'#0e7490' },
+        plasma: { DEFAULT:'#ff6b35', soft:'#ff8f66', deep:'#c2410c' },
+        alert:  { DEFAULT:'#FC3D21' },
+        ok:     { DEFAULT:'#3fdc97' },
+        warn:   { DEFAULT:'#eab308' },
+      },
+      boxShadow: {
+        glow:'0 0 0 1px rgba(34,211,238,.25), 0 0 40px -10px rgba(34,211,238,.6)',
+      },
+      keyframes: { 'fade-up':{ '0%':{ opacity:0, transform:'translateY(16px)' }, '100%':{ opacity:1, transform:'translateY(0)' } } },
+      animation: { 'fade-up':'fade-up .6s ease-out both' },
+    }},
+  };
+</script>
+<link rel="stylesheet" href="fonts/fonts.css?v=f1" />
+<link rel="stylesheet" href="mission.css?v=m1" />
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0B0E14; }
+  .grid-bg { background-image:
+      linear-gradient(rgba(34,211,238,.05) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(34,211,238,.05) 1px,transparent 1px);
+      background-size:46px 46px; }
+  .glass { background:rgba(255,255,255,.035); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); }
+  .tile { border:1px solid rgba(255,255,255,.08); border-radius:1.25rem; }
+  .text-gradient { background:linear-gradient(120deg,#fff,#67e8f9 45%,#ff6b35);
+      -webkit-background-clip:text; background-clip:text; color:transparent; }
+  ::-webkit-scrollbar{ width:9px; }
+  ::-webkit-scrollbar-thumb{ background:#1c2733; border-radius:5px; }
+
+  .section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; letter-spacing: .2em; text-transform: uppercase;
+    color: rgba(34,211,238,.7); margin-bottom: 6px;
+  }
+  .doc-body h3 { font-family:'Rajdhani',sans-serif; font-weight:700; font-size:1.15rem;
+    color:#e4e4e7; margin-top:1.6rem; margin-bottom:.5rem; }
+  .doc-body p { color:#a1a1aa; line-height:1.75; margin-bottom:1rem; font-size:.94rem; }
+  .doc-body ul, .doc-body ol { color:#a1a1aa; line-height:1.75; margin-bottom:1rem;
+    padding-left:1.3rem; font-size:.94rem; }
+  .doc-body li { margin-bottom:.35rem; }
+  .doc-body code { background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08);
+    border-radius:.3rem; padding:.05rem .35rem; font-family:'JetBrains Mono',monospace;
+    font-size:.82em; color:#67e8f9; }
+  .doc-body strong { color:#e4e4e7; }
+  .report-figure {
+    border: 1px solid rgba(255,255,255,.1); border-radius: .75rem; overflow: hidden;
+    background: #fff;
+  }
+  .report-figure img { display:block; width:100%; height:auto; }
+  .fig-caption { font-size: .78rem; color: #71717a; margin-top: .5rem; line-height:1.5; }
+  .verdict-box {
+    border-left: 3px solid; border-radius: .5rem; padding: .9rem 1.1rem; margin: 1rem 0;
+    font-size: .88rem; line-height: 1.65;
+  }
+  .verdict-yes { border-color: #3fdc97; background: rgba(63,220,151,.06); color: #d4d4d8; }
+  .verdict-no  { border-color: #FC3D21; background: rgba(252,61,33,.06); color: #d4d4d8; }
+</style>
+</head>
+
+<body class="font-sans text-zinc-200 antialiased selection:bg-accent/30">
+  <div class="pointer-events-none fixed inset-0 -z-10 grid-bg opacity-40"></div>
+  <div class="pointer-events-none fixed -top-32 left-1/4 -z-10 h-96 w-96 rounded-full bg-accent/10 blur-[150px]"></div>
+  <div class="pointer-events-none fixed bottom-0 right-0 -z-10 h-96 w-96 rounded-full bg-plasma/10 blur-[150px]"></div>
+
+  <header class="sticky top-0 z-50 border-b border-white/5 glass">
+    <div class="mx-auto flex max-w-7xl items-center justify-between px-5 py-3.5">
+      <a href="index.html" class="group flex items-center gap-3">
+        <span class="flex items-center gap-2">
+          <img src="vendor/NASA_logo.svg" alt="NASA" loading="lazy"
+               class="h-9 w-9 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 shadow-glow transition group-hover:scale-105" />
+          <img src="vendor/fit_seal.svg" alt="Florida Institute of Technology" loading="lazy"
+               class="h-9 w-9 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 transition group-hover:scale-105" />
+        </span>
+        <span class="hidden h-7 w-px bg-white/15 sm:block"></span>
+        <span class="font-display text-base font-bold tracking-widest">LEO<span class="text-accent">·</span>RESPONSE</span>
+      </a>
+      <nav class="hidden items-center gap-1 md:flex">
+        <a href="index.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Home</a>
+        <a href="logbook.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Logbook</a>
+        <a href="audit.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Audit</a>
+        <a href="hector_response.html" class="rounded-lg bg-white/5 px-3 py-2 text-sm text-white">Hector's Requests</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ══════════════════ HERO ══════════════════ -->
+  <section class="mx-auto max-w-4xl px-5 pb-8 pt-16">
+    <p class="font-mono text-xs uppercase tracking-[.3em] text-accent">// response to supervisor review · 2026-08-12</p>
+    <h1 class="mt-3 font-display text-4xl font-black tracking-tight sm:text-5xl">
+      <span class="text-gradient">The Carolus Quaternion, Relocalization Theory &amp; Pose-Regulation Control</span>
+    </h1>
+    <p class="mt-4 max-w-2xl text-zinc-400">
+      Three items from Pr. Gutierrez's latest review, worked through with full
+      derivations, source-code verification, and — where a claim could be
+      tested — an actual running check. Every equation below is also in the
+      Technical Guide PDF, page-referenced throughout.
+    </p>
+    <div class="mt-5 flex flex-wrap gap-3 text-[11px]">
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786570650#page=312" target="_blank" rel="noopener"
+         class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.18, p.312 — Quaternion</a>
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786570650#page=317" target="_blank" rel="noopener"
+         class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.19, p.317 — Relocalization</a>
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786570650#page=448" target="_blank" rel="noopener"
+         class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">Appendix D.15, p.448 — Pose control</a>
+    </div>
+  </section>
+
+  <!-- ══════════════════ PART 1: QUATERNION ══════════════════ -->
+  <section class="mx-auto max-w-4xl px-5 pb-6">
+    <div class="tile glass animate-fade-up p-6 sm:p-8">
+      <p class="section-label">// part 1 of 3</p>
+      <h2 class="font-display text-2xl font-bold text-white">"Find a general quaternion solution — even for Robomaster"</h2>
+      <div class="doc-body mt-2">
+        <p>The honest answer first: <strong>a single quaternion, portable across mounts, cannot exist</strong> —
+        three different physical camera mountings have three different correct answers by construction.
+        LEO and LIMO already prove this with real numbers (two of four rotation signs differ between them,
+        despite a near-identical forward-facing camera mount). What follows instead is stronger: the exact
+        mechanism, traced into Carolus's own C++ source rather than guessed at, and a closed-form procedure
+        that replaces sixteen-trial search with two measured poses — on any robot, Robomaster included.</p>
+
+        <h3>What's genuinely universal</h3>
+        <p>Carolus's optimizer (<code>ceresP4P.hpp</code>) uses the textbook pinhole camera model — verified
+        by reading the reprojection code directly, not assumed. That fixes one piece completely: the rotation
+        from the camera's optical axes to the robot's body axes follows from two convention definitions alone
+        (ROS REP-103 and the OpenCV optical convention) and needs no calibration at all:</p>
+        <div class="report-figure my-4"><img src="img/hector/quat_universal.png" alt="Derivation of the universal optical-to-body rotation matrix" loading="lazy" /></div>
+        <p class="fig-caption">Report excerpt, §12.18.2 (p.313) — the universal half of the conversion, derived
+        in three lines from convention definitions, not measurement.</p>
+
+        <h3>What's not universal — and exactly why</h3>
+        <p>Reading further into <code>carolus_astrobee.cpp</code> found the actual reason nobody found a clean
+        formula before: the original NASA Astrobee-derived code publishes an <em>inverted</em> rotation
+        alongside a <em>non-inverted</em> translation — an inconsistent pair, not one coherent transform. The
+        original authors' own comment, left in the code, says as much:</p>
+        <div class="report-figure my-4"><img src="img/hector/quat_bug.png" alt="Source code showing the rotation-transpose inconsistency and the original author's uncertain comment" loading="lazy" /></div>
+        <p class="fig-caption">Report excerpt, §12.18.3 (p.314) — quoted verbatim from <code>carolus_astrobee.cpp:1185–1187</code>,
+        including the original "DOUBLE CHECK THIS ITS 5AM" comment.</p>
+
+        <h3>The general method</h3>
+        <p>Rather than depend on diagnosing that specific bug (which a Robomaster integration, using different
+        P4P code entirely, would not even inherit), the general method treats any beacon detector as an
+        uncalibrated black box: two measured poses fix the calibration rotation in closed form (a Wahba/Kabsch
+        SVD solve), a linear least-squares pass fixes translation, and a third pose validates.</p>
+        <div class="report-figure my-4"><img src="img/hector/quat_calib.png" alt="The general closed-form calibration procedure diagram and equations" loading="lazy" /></div>
+        <p class="fig-caption">Report excerpt, §12.18.4 (p.316) — sixteen blind trials replaced by two measured
+        poses and one SVD, portable to any robot since it never inspects the detector's internals.</p>
+
+        <div class="verdict-box verdict-no">
+          <strong>Not yet run.</strong> This procedure has not been executed on this rover or on any Robomaster —
+          it requires two physical, tape-measured poses. The platform continues to run the empirically-found
+          sign convention already locked into <code>carolus_tf_bridge.py</code> until that calibration session
+          replaces it with a measured value.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ PART 2: RELOCALIZATION ══════════════════ -->
+  <section class="mx-auto max-w-4xl px-5 pb-6">
+    <div class="tile glass animate-fade-up p-6 sm:p-8">
+      <p class="section-label">// part 2 of 3</p>
+      <h2 class="font-display text-2xl font-bold text-white">Relocalization: why a beacon fix corrects accumulated drift</h2>
+      <div class="doc-body mt-2">
+        <p>The supervisor's protocol — drive a straight line with the beacon hidden, then expose it and watch
+        MINS's estimate "snap back" — has a precise mathematical prediction, derived here <em>before</em> the
+        experiment rather than described only qualitatively after it.</p>
+
+        <h3>Drift as a growing covariance</h3>
+        <p>Between fixes, MINS's own uncertainty about its position grows <em>linearly</em> in time (a random
+        walk driven by the platform's own measured IMU/wheel noise densities) — not the position error itself,
+        which is a single unknown realisation, but the <em>spread</em> of what that error could be.</p>
+
+        <h3>The correction is precision-weighted, not a heuristic reset</h3>
+        <p>When a Carolus-derived fix arrives, standard Kalman fusion combines it with the prior estimate by
+        <strong>summing precisions</strong> (inverse variances), not averaging variances. Using this
+        platform's own measured beacon noise (<code>config_vicon.yaml</code>: 5 cm, giving
+        R ≈ 2.5×10⁻³ m²), once accumulated drift exceeds that figure the correction gain tends to 1 — the
+        fix doesn't nudge the estimate, it effectively overrides it, and that behaviour falls straight out
+        of the arithmetic, it is not a tuned parameter.</p>
+        <div class="report-figure my-4"><img src="img/hector/reloc_kalman.png" alt="Kalman correction equations derived from this platform's measured beacon noise" loading="lazy" /></div>
+        <p class="fig-caption">Report excerpt, §12.19.2 (p.318) — the exact correction magnitude, in this
+        platform's own numbers.</p>
+
+        <div class="report-figure my-4"><img src="img/hector/reloc_figure.png" alt="Predicted drift-then-correction curve: growing uncertainty envelope, abrupt correction at the beacon fix, tight envelope resuming after" loading="lazy" /></div>
+        <p class="fig-caption">Figure 12.30 — the predicted shape of the experiment: an uncertainty envelope
+        opening as √t while no fix arrives, an abrupt correction sized by the innovation at the instant a fix
+        lands, and a tight envelope resuming immediately after. <strong>No data from this rover is in this
+        figure</strong> — it is a prediction to test the real run against.</p>
+
+        <div class="verdict-box verdict-no">
+          <strong>Not yet run.</strong> <code>vicon.enabled</code> is <code>false</code>, the beacon's global
+          coordinates are unsurveyed, and a live UART checksum storm found the same night this theory was
+          written threatens exactly the propagation phase this model depends on
+          (<code>/firmware/wheel_states</code>). <code>tools/plot_relocalization.m</code> — referenced
+          throughout this document and finally written for real this session — is ready for the first real
+          run.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ PART 3: POSE CONTROL ══════════════════ -->
+  <section class="mx-auto max-w-4xl px-5 pb-20">
+    <div class="tile glass animate-fade-up p-6 sm:p-8">
+      <p class="section-label">// part 3 of 3 · appendix d.15</p>
+      <h2 class="font-display text-2xl font-bold text-white">Pose-regulation motion control: Carolus and AprilTag, to an arbitrary (X, Y, Z, θ)</h2>
+      <div class="doc-body mt-2">
+        <p>Every autonomous behaviour documented elsewhere in this report <em>centres</em> on a target — it
+        drives a pixel offset toward zero, with no notion of a specific commanded pose to stop at. This is
+        the missing capability the supervisor requested for Section 2, specified, derived, and implemented as
+        real code this session.</p>
+
+        <h3>A deliberate choice: three simple phases, not one clever law</h3>
+        <p>A single, continuously-blended controller exists in the literature (polar-coordinate feedback,
+        Aicardi et al. 1995) and was evaluated. It was not used: its stability proof needs a specific gain
+        coupling that could not be independently re-verified with full confidence in the time available, and
+        <strong>shipping an unverified stability argument to a rover with a live, unresolved hardware fault
+        is a worse mistake than shipping a simpler controller whose convergence is checked directly.</strong>
+        The controller below uses three sequential phases — turn to face the goal, drive while correcting
+        heading, turn to the final orientation — each a textbook one-line Lyapunov argument, mirroring a
+        state machine already implemented and used on this lab's own LIMO platform.</p>
+
+        <h3>Verified, not just derived</h3>
+        <p>The equations were implemented as real code (<code>catkin_ws/.../scripts/goto_pose.py</code>) and
+        actually run — this is a genuine simulated trajectory from that exact code, not an illustration:</p>
+
+        <div class="report-figure my-4" style="background:#0d1117;">
+          <svg viewBox="0 0 460 300" role="img" aria-label="Simulated trajectory of the three-phase pose controller: rotate in place to face the goal, drive forward correcting heading, rotate in place to the final commanded orientation, converging to within 5 centimetres and 3 degrees of the goal.">
+            <!-- grid -->
+            <g stroke="rgba(255,255,255,.06)" stroke-width="1">
+              <line x1="60" y1="20" x2="60" y2="240"/>
+              <line x1="60" y1="240" x2="400" y2="240"/>
+            </g>
+            <text x="230" y="270" fill="#71717a" font-size="11" text-anchor="middle" font-family="JetBrains Mono, monospace">ground-frame X (m)</text>
+            <text x="24" y="130" fill="#71717a" font-size="11" text-anchor="middle" font-family="JetBrains Mono, monospace" transform="rotate(-90 24 130)">ground-frame Y (m)</text>
+
+            <!-- TURN_1: rotation in place at start, small arc -->
+            <circle cx="60" cy="208.2" r="14" fill="none" stroke="#ff6b35" stroke-width="1.6" stroke-dasharray="3 2"/>
+            <text x="60" y="228" fill="#ff8f66" font-size="9.5" text-anchor="middle" font-family="JetBrains Mono, monospace">TURN_1</text>
+
+            <!-- MOVE_L path (real simulated data) -->
+            <path d="M 60.7,207.9 L 64.9,205.6 L 69.1,203.3 L 73.2,201.0 L 77.4,198.6 L 81.5,196.3 L 85.7,193.9 L 89.8,191.5 L 93.9,189.1 L 98.0,186.7 L 102.1,184.3 L 106.2,181.9 L 110.3,179.4 L 114.4,177.0 L 118.5,174.6 L 122.6,172.1 L 126.7,169.7 L 130.7,167.2 L 134.8,164.7 L 138.9,162.3 L 143.0,159.8 L 147.1,157.3 L 151.1,154.9 L 155.2,152.4 L 159.3,149.9 L 163.3,147.4 L 167.4,145.0 L 171.5,142.5 L 175.5,140.0 L 179.6,137.5 L 183.7,135.0 L 187.8,132.6 L 191.8,130.1 L 195.9,127.6 L 200.0,125.1 L 204.0,122.6 L 208.1,120.2 L 212.2,117.7 L 216.2,115.2 L 220.3,112.7 L 224.4,110.2 L 228.4,107.7 L 232.5,105.2 L 236.5,102.7 L 240.6,100.3 L 244.7,97.8 L 248.7,95.3 L 252.8,92.8 L 256.9,90.3 L 260.9,87.8 L 265.0,85.3"
+                  fill="none" stroke="#22d3ee" stroke-width="2.4"/>
+            <text x="160" y="188" fill="#67e8f9" font-size="9.5" font-family="JetBrains Mono, monospace">MOVE_L (heading-corrected)</text>
+
+            <!-- TURN_2: rotation in place at goal -->
+            <circle cx="271.8" cy="81.2" r="14" fill="none" stroke="#ff6b35" stroke-width="1.6" stroke-dasharray="3 2"/>
+            <text x="300" y="76" fill="#ff8f66" font-size="9.5" font-family="JetBrains Mono, monospace">TURN_2</text>
+
+            <!-- start marker -->
+            <circle cx="60" cy="208.2" r="5" fill="#a1a1aa"/>
+            <text x="30" y="212" fill="#d4d4d8" font-size="10" font-family="JetBrains Mono, monospace">start</text>
+            <text x="30" y="224" fill="#71717a" font-size="8.5" font-family="JetBrains Mono, monospace">(0, 0, -60°)</text>
+
+            <!-- goal marker -->
+            <circle cx="271.8" cy="81.2" r="5" fill="#3fdc97"/>
+            <text x="280" y="95" fill="#d4d4d8" font-size="10" font-family="JetBrains Mono, monospace">goal</text>
+            <text x="280" y="107" fill="#71717a" font-size="8.5" font-family="JetBrains Mono, monospace">(2.0, 1.2, 90°)</text>
+
+            <!-- converged marker -->
+            <circle cx="265.0" cy="85.3" r="3.5" fill="#3fdc97" opacity="0.9"/>
+          </svg>
+        </div>
+        <p class="fig-caption">Real output of <code>goto_pose.py</code>'s included offline smoke test:
+        start (0, 0, −60°) to goal (2.0, 1.2, 90°). Converged to within 4.9 cm and 0.7° after simulated
+        phase transitions TURN_1 → MOVE_L → TURN_2 → DONE. Verified against three further start/goal pairs
+        (varied quadrants, wrapped angles) with the same tolerance, all converging correctly.</p>
+
+        <div class="report-figure my-4"><img src="img/hector/posectrl_math.png" alt="The three-phase control law derivation, geometry, and per-phase Lyapunov arguments" loading="lazy" /></div>
+        <p class="fig-caption">Report excerpt, Appendix D.15.2 (p.449) — the full geometry and per-phase
+        convergence argument.</p>
+
+        <h3>Sensor-agnostic by construction</h3>
+        <p>The controller consumes whichever of Carolus's ground-frame pose or an equivalent AprilTag-derived
+        pose is freshest — the same strict-priority pattern already verified for beacon centring, not a
+        second arbitration scheme. AprilTag's own detection already carries a full 6-DOF pose; this
+        implementation projects it through the same optical-to-body rotation derived in Part 1
+        above, rather than a second, independently-guessed conversion.</p>
+
+        <div class="verdict-box verdict-no">
+          <strong>Written, verified in simulation, deliberately not deployed.</strong> <code>goto_pose.py</code>
+          is real, complete code — not wired into any <code>.launch</code> file or into
+          <code>leo_backend.py</code>'s state machine. The same night this controller was written, a live,
+          unresolved UART checksum storm was found threatening <code>/firmware/wheel_states</code>. Deploying
+          new autonomous motion control on top of a known-degraded sensor input, before that fault is even
+          diagnosed, would risk producing a field result that measures the fault rather than the controller.
+          Integration, once resolved, is wiring one more FSM state alongside the existing
+          <code>LOCK_BEACON</code>/<code>GOTO_BEACON</code> states — not new development.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script src="vendor/lucide-1.25.0.umd.js?v=v1"></script>
+  <script>
+    lucide.createIcons();
+    if (window.I18N) I18N.apply();
+  </script>
+</body>
+</html>

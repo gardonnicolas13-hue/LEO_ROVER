@@ -162,6 +162,7 @@
           <a href="trajectory.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
           <a href="pid.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white" data-i18n="nav_pid">PID</a>
         <a href="audit.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Audit</a>
+        <a href="hector_response.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Hector's Requests</a>
       </nav>
       <div class="flex items-center gap-2">
         <div class="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/[.03] p-0.5" title="Language">
@@ -187,6 +188,7 @@
         <a href="trajectory.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
         <a href="pid.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_pid">PID</a>
         <a href="audit.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white">Audit</a>
+        <a href="hector_response.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white">Hector's Requests</a>
       </nav>
     </div>
   </header>
@@ -252,6 +254,18 @@
             <span class="mt-0.5 block text-[11px] text-zinc-500">MINS/VICON relocalization &amp; motion-control PID: what's code-complete vs. field-validated, checked live against the running robot.</span>
           </span>
           <i data-lucide="arrow-up-right" class="h-3.5 w-3.5 shrink-0 text-zinc-600 transition group-hover:text-accent"></i>
+        </a>
+
+        <!-- Réponse aux 3 demandes de Hector (2026-08-12) : quaternion Carolus,
+             théorie de relocalisation, contrôle de pose D.15 -->
+        <a href="hector_response.html"
+           class="mt-2 flex max-w-xl items-center gap-3 rounded-xl border border-plasma/20 bg-plasma/5 px-4 py-2.5 text-xs text-zinc-400 transition hover:border-plasma/40 hover:text-plasma-soft group">
+          <i data-lucide="sigma" class="h-4 w-4 shrink-0 text-plasma transition"></i>
+          <span class="min-w-0 flex-1">
+            <span class="block font-semibold text-zinc-200 transition group-hover:text-white">Response to Pr. Gutierrez's review</span>
+            <span class="mt-0.5 block text-[11px] text-zinc-500">The Carolus quaternion traced to source, relocalization Kalman theory, and a new pose-regulation controller (Appendix D.15) — full derivations and diagrams.</span>
+          </span>
+          <i data-lucide="arrow-up-right" class="h-3.5 w-3.5 shrink-0 text-zinc-600 transition group-hover:text-plasma-soft"></i>
         </a>
       </div>
       <div class="hidden lg:block relative shrink-0 overflow-hidden rounded-2xl ring-1 ring-white/[.07]"
