@@ -6807,6 +6807,416 @@ to exercise the tool, not a field measurement. The first real run belongs in
 this trapbox once it exists, not before.
 \end{trapbox}
 
+\section{Field session, August 11: active cooling installed, item 11 recurs
+a second time, and a live serial desync caught mid-session}
+\label{sec:aug11}
+
+Two threads ran through this session, one physical and one architectural,
+and they turn out to be the same argument made twice. The physical thread
+closes item 38 (\S\ref{sec:july30thermal}): active cooling was installed and
+the thermal envelope re-measured against the exact $86$--$89.1\,^\circ$C
+boundary characterised on July 30. The architectural thread is that three
+independent PC-side processes were found, on the same evening, holding a
+ROS-graph state that predated the robot's current boot while still looking
+alive to every presence check --- the identical defect item 11 already named
+in a narrower form, recurring for the second time in exactly the pattern
+item 10 established in \S\ref{sec:july22network}: not a new bug, a
+prediction the registry had already made, confirmed by evidence collected
+independently of it. A fourth, unrelated fault, a live UART checksum storm,
+surfaced while re-verifying MINS for this very section and is reported
+mid-diagnosis, unresolved, rather than held back for a tidier write-up.
+
+\subsection{Active cooling: installation}
+\label{sec:aug11fans}
+
+Two 5\,V fans were wired directly to the Raspberry Pi's GPIO header, in
+parallel, each with its own independent point-to-point connection rather
+than a shared spliced junction: four wires, four pins, no solder joint
+between them. Pins 2 and 4 are both unregulated taps off the Pi's main
+5\,V rail (unlike the logic GPIO pins, which are current-limited and
+unsuitable for a motor load), and pins 6 and 9 are both ground. Pin 8,
+physically adjacent to pin 6 on the same row, was deliberately avoided: it
+carries UART TXD, not ground, and is the one wiring mistake the layout makes
+easy.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex]
+  \def\dy{0.85}
+  \tikzset{pin/.style={circle, draw, minimum size=6mm, inner sep=0pt, font=\scriptsize}}
+  % header, rows 1-5 (pins 1-10) of the 40-pin header. Left column = odd
+  % pins (1,3,5,7,9), right column = even pins (2,4,6,8,10), row $k$ holds
+  % pins $2k-1$ (left) and $2k$ (right), $k=1,\dots,5$.
+  \node[pin, fill=black!4] (L1) at (0,0)          {1};
+  \node[pin, fill=red!25, draw=alertred] (R1) at (0.85,0)          {2};
+  \node[pin, fill=black!4] (L2) at (0,-1*\dy)      {3};
+  \node[pin, fill=red!25, draw=alertred] (R2) at (0.85,-1*\dy)      {4};
+  \node[pin, fill=black!4] (L3) at (0,-2*\dy)      {5};
+  \node[pin, fill=black!25]              (R3) at (0.85,-2*\dy)      {6};
+  \node[pin, fill=black!4] (L4) at (0,-3*\dy)      {7};
+  \node[pin, fill=orange!35, draw=orange!70!black] (R4) at (0.85,-3*\dy) {8};
+  \node[pin, fill=black!25] (L5) at (0,-4*\dy)      {9};
+  \node[pin, fill=black!4]              (R5) at (0.85,-4*\dy)      {10};
+  \node[font=\scriptsize, anchor=west, align=left] at (2.0,0)
+        {\textcolor{alertred}{\textbf{+5V}} --- fan 1 red};
+  \node[font=\scriptsize, anchor=west, align=left] at (2.0,-1*\dy)
+        {\textcolor{alertred}{\textbf{+5V}} --- fan 2 red};
+  \node[font=\scriptsize, anchor=west, align=left] at (2.0,-2*\dy)
+        {\textbf{GND} --- fan 1 black};
+  \node[font=\scriptsize, anchor=west, align=left] at (2.0,-3*\dy)
+        {\textcolor{orange!70!black}{\textbf{not GND}} --- UART TXD, avoid};
+  \node[font=\scriptsize, anchor=west, align=left] at (2.0,-4*\dy)
+        {\textbf{GND} --- fan 2 black};
+  \node[font=\scriptsize, anchor=east] at (-0.5,0) {top edge, pin 1};
+\end{tikzpicture}
+\caption[GPIO fan wiring]{The four direct connections used: pins 2 and 4
+(+5\,V) to each fan's red lead, pins 6 and 9 (GND) to each fan's black
+lead, independently, no shared junction. Pin 8 (right column, one row below
+pin 6) carries UART TXD, not ground --- the adjacent trap the layout
+invites; pin 9 (left column) is the one connection that changes side.}
+\label{fig:fanwiring}
+\end{figure}
+
+The two fans' current draw was not measured against a datasheet, and is
+recorded here as an open quantity rather than assumed benign: the indirect
+evidence is that \code{vcgencmd get\_throttled} read \code{0x0} on every
+check made after power-on, under both the light and heavy loads of
+\S\ref{sec:aug11thermal}, and bit 0 of that register (under-voltage
+\emph{now}) together with bit 16 (under-voltage \emph{since boot}) are both
+part of that word and both clear throughout. That is evidence the added load
+has not collapsed the 5\,V rail, not a substitute for a measured current
+budget.
+
+\subsection{Thermal verification against the July 30 envelope}
+\label{sec:aug11thermal}
+
+\S\ref{sec:july30thermal} established a boundary, not a single number: the
+scheduling fix held the serial link at $86\,^\circ$C under full colour load
+and lost it at $89.1\,^\circ$C, with $\sim3\,^\circ$C of usable margin and
+``no headroom for ambient variation''. That boundary is the correct
+reference for tonight's measurement, taken twice, at opposite ends of load.
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\caption{Thermal state with active cooling, at two operating points, against
+the July 30 no-cooling collapse (Table~\ref{tab:july30thermal}).}
+\label{tab:aug11thermal}
+\begin{tabular}{@{}p{2.4cm}p{2.3cm}p{3.6cm}p{3.6cm}@{}}
+\toprule
+Quantity & July 30, no cooling & Aug 11, light load & Aug 11, heavy load \\
+\midrule
+Core temperature         & $89.1\,^\circ$C   & $58$--$59\,^\circ$C & $72.5\,^\circ$C \\
+\code{get\_throttled}    & \code{0xe0006}    & \code{0x0}           & \code{0x0} \\
+ARM clock                & $600$\,MHz        & $1500$\,MHz          & $1500.3$\,MHz \\
+Load average (4 cores)   & $8.85$            & not logged           & $6.84$ \\
+Oversubscription $\lambda/4$ & $2.21\times$   & --                   & $1.71\times$ \\
+Observed load             & $185\,\%$ colour nodelet alone & \code{realsense2\_camera\_manager} at $111\,\%$, $30/33$ nodes, $2$\,min window & full-stack restart: $31$ ROS nodes, MINS + openVINS + camera initialising together \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Why the frequency term drops out, not just the number.}
+\S\ref{sec:july30thermal} decomposed the UART service latency as
+\begin{equation}
+L \;=\; L_{\mathrm{preempt}} \;+\; \frac{f_{\max}}{f}\,C
+\tag{\ref{eq:latencysplit} revisited}
+\end{equation}
+and identified the second term, inflated by throttling to
+$f_{\max}/f = 1500/600 = 2.5$ (Eq.~\ref{eq:freqpenalty}), as the mechanism
+the July 28 scheduling fix could not touch. With the clock now reading
+$f = 1500$\,MHz on every check made tonight, under load as well as at rest,
+\begin{equation}
+\frac{f_{\max}}{f} \;=\; \frac{1500}{1500} \;=\; 1,
+\label{eq:aug11nopenalty}
+\end{equation}
+which is not a smaller penalty than the $2.5\times$ figure that produced the
+July 30 collapse: it is the term's identity element, no penalty at all. Every
+scheduling-side margin the July 28 fix bought is now spent against $C$ alone,
+never inflated by clock throttling, which is the specific mechanism the fans
+were installed to remove, not merely a coincidental temperature drop.
+
+\noindent\textbf{Margin, stated in the July 30 units.} Writing $M_{86}$ and
+$M_{89.1}$ for the remaining margin to the envelope's stable floor and
+collapse ceiling respectively,
+\begin{align}
+M_{86}(T)   &= 86.0 - T, &
+M_{89.1}(T) &= 89.1 - T,
+\label{eq:thermalmargin}
+\end{align}
+the light-load reading gives $M_{86} \approx 27$--$28\,^\circ$C and
+$M_{89.1} \approx 30$--$31\,^\circ$C; the heavy-load reading, the highest
+simultaneous CPU demand observed on this rover to date, gives
+$M_{86} = 13.5\,^\circ$C and $M_{89.1} = 16.6\,^\circ$C. Even at that peak,
+the margin to the point where the July 30 session lost every firmware topic
+is more than five times the width of the envelope that was previously
+found to separate a stable rover from one that answers no command at all.
+
+\begin{trapbox}{The matched-load A/B item 38 actually asked for has not been run}
+Item 38's required action was explicit: ``re-measure the envelope after
+cooling; the correct A/B experiment is overrun rate at fixed load, not
+temperature alone.'' Tonight's heavy-load figure is a different profile
+(a $31$-node simultaneous stack restart) from July 30's ($185\,\%$ on a
+single colour nodelet, sustained), so the two oversubscription figures in
+Table~\ref{tab:aug11thermal} are informative but not the controlled
+comparison the item calls for. The correct remaining experiment is to
+restore the exact July 30 load, colour stream enabled, nothing else changed,
+and compare the UART overrun counter (Eq.~\ref{eq:missprob}'s
+$3.07\,\mathrm{s}^{-1}$ figure) against the same window with cooling
+installed. Every reading above is real and was taken, not assumed; what has
+not happened is holding the one variable item 38 asked to isolate.
+\end{trapbox}
+
+\subsection{A reboot-survival ghost, three times over: a formal staleness test}
+\label{sec:aug11stale}
+
+Restoring the robot's connectivity after tonight's reboot surfaced the same
+failure shape three separate times, in three unrelated processes, before it
+was recognised as one mechanism rather than three incidents. Each time, an
+operator-visible symptom (missing telemetry, an unresponsive cockpit switch,
+a manual-drive command that never arrived) was traced not to a crashed
+process but to a live one: a PC-side ROS node whose OS process had never
+exited, and whose ROS-graph registration, publisher handles and topic
+subscriptions were therefore still those it held against the \emph{previous}
+robot boot. Every presence-only liveness check, \code{pgrep}, \code{rosnode
+list}, a bound TCP port, reports such a process as healthy, because by every
+test those checks make it is.
+
+\paragraph{A criterion that needs no tuning.} Let $t$ be the instant of a
+check, $U(t)$ the robot's own uptime read at $t$ (\code{cat
+/proc/uptime} over SSH), and $E_P(t)$ the elapsed time since a PC-side
+process $P$ started (\code{ps -o etimes}). Any ROS-graph state $P$ holds was
+necessarily established no earlier than the last time the robot's own
+\code{rosmaster} came up, so
+\begin{equation}
+E_P(t) \;>\; U(t) \quad\Longrightarrow\quad P \text{ is stale relative to the
+current robot session.}
+\label{eq:staleness}
+\end{equation}
+The implication runs one way only, deliberately: $E_P(t) \le U(t)$ does not
+certify $P$ healthy, it only fails to convict it by this test, since a
+process can start fresh after a reboot and still fail for an unrelated
+reason. Eq.~\ref{eq:staleness} is exactly the ad hoc comparison made three
+times below, generalised into a check with no free parameter, in contrast to
+item 11's original recommendation of an unspecified ``maximum grace
+duration'' to tune.
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\caption{Three processes found stale by Eq.~\ref{eq:staleness} on the same
+evening, none of them crashed.}
+\label{tab:staleness}
+\begin{tabular}{@{}p{2.5cm}p{2.3cm}p{1.5cm}p{6.4cm}@{}}
+\toprule
+Process & $E_P$ & $U$ (at check) & Resolution \\
+\midrule
+\code{leo\_backend.py} & $922$\,s & a few minutes &
+  killed and relaunched; survived a duplicate-registration race
+  (\code{shutdown request: [/leo\_backend] Reason: new node registered with
+  same name} on the losing instance), surviving instance confirmed publishing
+  \code{/mission/telemetry} at $9.985$\,Hz \\
+\code{pose\_selector} & absent from \code{rosnode list} entirely, not merely stale & $\approx4$\,min &
+  \code{tools/restart\_stack.sh} \\
+\code{mins\_subscribe} & $1085$\,s & $\approx4$\,min &
+  \code{tools/restart\_stack.sh}; ended \code{TIMEOUT init MINS}, item 40 \\
+\code{rosbridge\_server} (\code{:9090}, LAN) & $11\,051$\,s ($\approx3$h$04$) & $28$\,min &
+  \code{kill -9}, relaunched via \code{start\_web.sh}; verified with a real
+  \code{HTTP/1.1 101 Switching Protocols} handshake afterward, not just a
+  bound port \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[font=\small, >=Latex]
+  \draw[->] (0,0) -- (11.4,0) node[right, font=\scriptsize] {$t$};
+  \draw[thick, densely dashed] (4.2,1.7) -- (4.2,-3.6);
+  \node[anchor=south, font=\scriptsize, align=center] at (4.2,1.8) {robot\\reboot};
+
+  % rosbridge_server: starts far left, long before reboot, survives it
+  \draw[very thick, alertred] (0.2,0.9) -- (9.9,0.9);
+  \node[font=\scriptsize, anchor=east] at (0.0,0.9) {\code{rosbridge\_server}};
+  \draw[alertred, very thick] (9.75,0.75) -- (10.05,1.05);
+  \draw[alertred, very thick] (9.75,1.05) -- (10.05,0.75);
+  \node[font=\scriptsize, anchor=west, align=left] at (10.2,0.9)
+       {$E_P\!=\!11\,051$s $>$ $U\!=\!28$min};
+
+  % mins_subscribe: starts a bit before reboot
+  \draw[very thick, alertred] (3.0,-0.3) -- (9.9,-0.3);
+  \node[font=\scriptsize, anchor=east] at (0.0,-0.3) {\code{mins\_subscribe}};
+  \draw[alertred, very thick] (9.75,-0.45) -- (10.05,-0.15);
+  \draw[alertred, very thick] (9.75,-0.15) -- (10.05,-0.45);
+  \node[font=\scriptsize, anchor=west, align=left] at (10.2,-0.3)
+       {$E_P\!=\!1085$s $>$ $U\!\approx\!4$min};
+
+  % leo_backend
+  \draw[very thick, alertred] (3.5,-1.5) -- (9.9,-1.5);
+  \node[font=\scriptsize, anchor=east] at (0.0,-1.5) {\code{leo\_backend.py}};
+  \draw[alertred, very thick] (9.75,-1.65) -- (10.05,-1.35);
+  \draw[alertred, very thick] (9.75,-1.35) -- (10.05,-1.65);
+  \node[font=\scriptsize, anchor=west, align=left] at (10.2,-1.5)
+       {$E_P\!=\!922$s $>$ $U\!\approx$ few min};
+
+  % a fresh, non-stale process for contrast: firmware_message_converter, started after reboot
+  \draw[very thick, accentblue] (4.5,-2.7) -- (9.9,-2.7);
+  \node[font=\scriptsize, anchor=east] at (0.0,-2.7) {\code{firmware\_message\_converter}};
+  \fill[accentblue] (9.9,-2.7) circle (2.2pt);
+  \node[font=\scriptsize, anchor=west, align=left] at (10.2,-2.7)
+       {$E_P\!=\!1963$s $<$ $U\!=\!3142$s: not stale};
+
+  \node[font=\scriptsize, anchor=north west, align=left, text width=13.5cm] at (0,-3.3)
+      {Checks all made at the same instant (right edge). Three lifelines
+       cross the reboot; a fourth, drawn for contrast, starts after it and
+       fails Eq.~\ref{eq:staleness}.};
+\end{tikzpicture}%
+}
+\caption[Reboot-survival ghosts]{Elapsed time since process start
+($E_P$, horizontal bars) against the robot's own uptime at the moment of
+each check ($U$). A bar that starts before the reboot line and is still
+being read afterward satisfies Eq.~\ref{eq:staleness}: it is provably
+stale, independent of whether it still responds to a presence check.}
+\label{fig:staleness}
+\end{figure}
+
+\noindent\textbf{Item 11, recurring for the second time.} Item 11 already
+named this defect, narrower: ``a stuck rosbridge TLS process was left alone
+for hours because idempotency has no time ceiling'' (\S\ref{sec:july21}),
+found on the TLS bridge, port 9443. Tonight's \code{rosbridge\_server}
+ghost is the identical defect on the sibling plain bridge, port 9090:
+\code{start\_web.sh}'s own guard, \code{pgrep -f "\_\_name:=rosbridge\_server"},
+matched the three-hour-old process and printed ``\code{en cours de
+d\'{e}marrage --- patience}'' on every one-minute \code{leo\_watchdog.sh}
+cron tick, exactly the unbounded grace period item 11 already flagged, on
+the other bridge. Following the precedent set in \S\ref{sec:july22network}
+when item 10 recurred, this is recorded as an update to item 11 rather than
+a new item: the same blind spot, confirmed a second time, independently, on
+the bridge item 11's own fix had not yet reached.
+
+\subsection{A live misdiagnosis, corrected before it reached the code}
+\label{sec:aug11rosbridge}
+
+Restoring the manual-drive path surfaced a second rosbridge subtlety, and it
+is recorded here including the wrong turn, in keeping with this report's
+practice of stating a correction rather than silently replacing it
+(cf.\ the July 30 colour-stream correction, \S\ref{sec:july30thermal}). The
+cockpit is reachable two ways, shown in Figure~\ref{fig:rosbridgearch}: a LAN
+client hits the plain bridge on port 9090 directly, while the public
+Cloudflare domain proxies to a TLS bridge on port 9443. Both are the same
+\code{rosbridge\_server} code; both are launched with a
+\code{websocket\_external\_port} parameter that autobahn uses to validate
+the incoming HTTP \code{Host} header's port before completing the WebSocket
+handshake.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[font=\small, >=Latex,
+  box/.style={rectangle, draw, rounded corners=2pt, align=center,
+              minimum height=0.9cm, fill=black!3, inner sep=4pt}]
+  \node[box, minimum width=3.0cm] (lan) at (0,2.6) {browser, LAN\\\scriptsize\code{ws://host:9090}};
+  \node[box, minimum width=3.0cm] (pub) at (0,0) {browser, public\\\scriptsize\code{wss://cockpit.../rosbridge}};
+  \node[box, minimum width=3.2cm] (b9090) at (5.2,2.6) {\code{rosbridge\_server}\\\scriptsize\code{:9090}, \code{external\_port=9090}};
+  \node[box, minimum width=2.6cm, fill=blue!6, draw=accentblue] (cf) at (5.2,0) {cloudflared\\\scriptsize \code{Host: 127.0.0.1:9443}};
+  \node[box, minimum width=3.4cm, fill=blue!6, draw=accentblue] (b9443) at (12.0,0) {\code{rosbridge\_websocket\_tunnel}\\\scriptsize\code{:9443}, \code{external\_port=443}};
+  \node[box, minimum width=2.6cm, minimum height=2.2cm] (graph) at (15.8,1.3) {ROS graph\\\code{leo\_backend}\\$\downarrow$\\\code{/cmd\_vel}\\$\downarrow$\\\code{serial\_node}};
+
+  \draw[->] (lan) -- (b9090);
+  \draw[->] (pub) -- (cf);
+  \draw[->] (cf) -- node[above, font=\scriptsize] {\code{Host} rewritten} (b9443);
+  \draw[->] (b9090) -- (graph.north west);
+  \draw[->] (b9443) -- (graph.south west);
+\end{tikzpicture}%
+}
+\caption[Dual rosbridge entry points]{Two independent bridges reach the same
+ROS graph. \code{cloudflared} does not preserve the browser's public
+\code{Host} header for this ingress rule; it rewrites it to the literal
+origin address it dials (\code{127.0.0.1:9443}), which is why the TLS
+bridge's \code{external\_port} is set to $443$ --- the public port implied
+when a real browser's \code{Host} header carries no port at all --- and not
+to $9443$.}
+\label{fig:rosbridgearch}
+\end{figure}
+
+The live symptom, \code{failing WebSocket opening handshake ('port 9443 in
+HTTP Host header ... does not match server listening port 443')}, appeared
+in the tunnel's log at almost exactly one-minute intervals. The first
+hypothesis was that this was real, tunnelled browser traffic being rejected,
+and the corrective action taken was to relaunch the tunnel \emph{without}
+\code{external\_port}. That was wrong, and \code{start\_web.sh}'s own
+comment at the launch site says why: \code{cloudflared} forwards this
+ingress rule's browser requests with \code{Host: cockpit.leo-rover-...}
+(no port, $443$ implied), so removing the parameter would have broken real
+traffic to fix a false signal. The true source of the one-minute-interval
+log lines was \code{leo\_watchdog.sh}'s own liveness probe
+(\S\ref{sec:july21}), which deliberately sends \code{Host: 127.0.0.1:\%d}
+and, by its own long-standing comment, treats the resulting rejection as
+proof of life (``\code{Un 400 suffit}''). The mistaken fix was reverted
+before being left in place, and the true fault (\S\ref{sec:aug11stale}'s
+\code{rosbridge\_server} ghost) was found afterward by the same
+elapsed-time-versus-uptime comparison used throughout this section. A
+realistic handshake, \code{Host} header without a port, TLS, against the
+live port, was then used to confirm the fix directly rather than inferring
+it from the absence of further log lines:
+\begin{center}
+\code{HTTP/1.1 101 Switching Protocols} \quad (both bridges, re-tested independently)
+\end{center}
+
+\subsection{An unresolved fault, caught mid-verification}
+\label{sec:aug11mins}
+
+\code{tools/restart\_stack.sh} completed with \code{TIMEOUT init MINS}
+(item 40, below), and a first check afterward found \code{mins\_subscribe}
+registered but \code{/mins/imu/odom} silent for a $10$\,s window while
+\code{pose\_selector} continued reporting \code{pose\_source: "MINS"}, i.e.\
+the estimator currently selected for pose fusion was not producing pose.
+Re-checked directly while writing this section, the picture sharpened:
+\code{/firmware/wheel\_states} was also silent for a $10$\,s window, yet
+\code{rosnode info /firmware\_message\_converter} showed it correctly
+subscribed to \code{/firmware/wheel\_states}, \code{/firmware/wheel\_odom}
+and \code{/firmware/imu}, all three inbound from \code{/serial\_node}, unlike
+the July 22 recurrence of item 10 where the subscription itself was missing.
+This is a different failure shape from that one: the graph wiring is
+correct and the data is simply not arriving. A single \code{wheel\_states}
+message \emph{did} arrive on a longer window, carrying non-zero wheel
+positions, evidence the robot has driven some distance tonight and that the
+link is not fully dead, only degraded. \code{journalctl -u leo} for the
+preceding five minutes was, at the moment of writing, filling with
+\begin{center}
+\code{/serial\_node: [SerialClient.run]: wrong checksum for topic id and msg}
+\end{center}
+in a sustained burst, the same signature Eq.~\ref{eq:missprob} quantified on
+July 30 and the same one \S\ref{sec:july22network} traced to a UART desync.
+Both of those earlier occurrences were tied to thermal throttling
+starving \code{serial\_node} of scheduling time; tonight's core temperature
+and ARM clock (Table~\ref{tab:aug11thermal}) rule that specific mechanism
+out directly, since the clock has not left $1500$\,MHz. A second candidate,
+not established here, is physical: the checksum storm was first observed
+while the rover was actively being driven, and the UART link runs over a
+board-to-board connector that a stationary rover's earlier characterisation
+would not have exercised. This is recorded as a hypothesis, not a finding;
+distinguishing it from a third, unidentified cause requires repeating the
+July 30 protocol, overrun count against a fixed load, this time with motion
+as the controlled variable instead of temperature.
+
+\subsection*{What this session establishes}
+Active cooling closes the mechanism, not just the number: with the ARM
+clock pinned at $1500$\,MHz under every load tested so far, the frequency
+term that made the July 28 scheduling fix fail above $86\,^\circ$C
+(Eq.~\ref{eq:aug11nopenalty}) cannot recur, though the exact matched-load
+overrun comparison item 38 specified remains to be run. Independently, three
+processes surviving a robot reboot while presence checks called them healthy
+is now a named, reusable defect with a tuning-free test (Eq.~\ref{eq:staleness}),
+confirmed a second time on a bridge item 11 had not yet reached, in the same
+pattern item 10 established a precedent for in \S\ref{sec:july22network}. A
+diagnostic habit produced a genuine cost tonight, a real misdiagnosis
+mid-session, and also caught it before it reached the running system, which
+is the outcome the habit is for. What remains open, honestly: item 38's
+controlled A/B, and a live checksum storm whose cause is a hypothesis, not
+yet a finding.
+
 \section{Open items registry}
 \label{sec:openitems}
 \small
@@ -6883,9 +7293,17 @@ this trapbox once it exists, not before.
     cost \\
 11 & Unbounded ``still starting'' grace period in the web healer
     (\S\ref{sec:july21}): a stuck rosbridge TLS process was left alone for
-    hours because idempotency has no time ceiling &
-    add a maximum grace duration, past which an unbound port is treated as
-    failed rather than starting, and the process is killed and relaunched \\
+    hours because idempotency has no time ceiling. \textbf{Recurred
+    August 11} (\S\ref{sec:aug11stale}), same defect, on the sibling plain
+    bridge (\code{:9090}) this time: found $\approx3$h$04$ old against a
+    $28$-minute-old robot boot, masked for over three hours by the exact
+    presence-only \code{pgrep} guard this item already named &
+    replace the ``maximum grace duration'' idea (a threshold to tune) with
+    the tuning-free test derived from the August 11 recurrence,
+    $E_P(t) > U(t)$ (Eq.~\ref{eq:staleness}): any PC-side ROS process whose
+    own elapsed time exceeds the robot's current uptime is provably stale
+    and should be killed and relaunched by the same watchdog cycle that
+    already reads both quantities \\
 12 & WireGuard tunnel failure that outlived every restart tried
     (\S\ref{sec:wgroam}): endpoint roaming (Eq.~\ref{eq:roam}) explained and
     fixed the first occurrence, but a second, unrelated failure resisted
@@ -7150,19 +7568,23 @@ this trapbox once it exists, not before.
     once item 36 is cleared, record a driven run with both topics in the
     bag and report their instantaneous difference; this is the measurement
     the whole comparison programme has been building toward \\
-38 & \textbf{Thermal envelope is three degrees wide}
-    (\S\ref{sec:july30thermal}). The July 28 scheduling fix holds the
-    serial link at $86\,^\circ$C under full colour load ($19.7$\,Hz wheel
-    odometry, $82.8$\,Hz IMU) and does not hold it at $89.1\,^\circ$C,
-    where the chain collapses entirely ($676\,751$ UART overruns, load
-    $8.85$, all firmware topics at $0$\,Hz). A targeted \code{rosmon}
-    cycle recovers it, but the overrun counter resumes climbing at once
-    ($+553$ in three minutes) &
-    install active cooling; the colour nodelet's measured $185\,\%$ CPU is
-    the dominant thermal term, so the alternative is to give up colour and
-    with it the working-distance beacon detection. Re-measure the envelope
-    after cooling: the correct A/B experiment is overrun rate at fixed
-    load, not temperature alone \\
+38 & \textbf{Thermal envelope is three degrees wide} --- \textbf{active
+    cooling installed August 11, partially re-measured}
+    (\S\ref{sec:july30thermal}, \S\ref{sec:aug11thermal}). The July 28
+    scheduling fix holds the serial link at $86\,^\circ$C under full colour
+    load ($19.7$\,Hz wheel odometry, $82.8$\,Hz IMU) and does not hold it at
+    $89.1\,^\circ$C, where the chain collapses entirely ($676\,751$ UART
+    overruns, load $8.85$, all firmware topics at $0$\,Hz). Two GPIO fans
+    now hold the ARM clock at $1500$\,MHz (no throttling, $89.1\,^\circ$C
+    never approached) at both a light load ($58$--$59\,^\circ$C) and the
+    heaviest load observed to date, a $31$-node stack restart
+    ($72.5\,^\circ$C, margin $M_{89.1}=16.6\,^\circ$C by
+    Eq.~\ref{eq:thermalmargin}) &
+    the matched-load A/B this item originally specified, overrun rate at
+    the exact July 30 profile ($185\,\%$ colour nodelet, sustained,
+    cooling installed), has still not been run; tonight's heavy-load figure
+    is a different, heavier-but-not-equivalent profile and is suggestive,
+    not the controlled comparison \\
 39 & \textbf{Second absolute-error method: implemented, never measured}
     (\S\ref{sec:aug05beacon}). Item~37's beacon bridge is gated on
     item~36; this session added a complementary method on already-
@@ -7177,6 +7599,23 @@ this trapbox once it exists, not before.
     protocol's third corner is already instrumented for it,
     \S\ref{ap:repro-mins-guide}); drive at least two laps past it in one
     recording; run \code{tag\_drift.py} on the result \\
+40 & \textbf{A live UART checksum storm, unresolved} (\S\ref{sec:aug11mins}).
+    \code{tools/restart\_stack.sh} ended \code{TIMEOUT init MINS}; a
+    re-check found \code{mins\_subscribe} registered but
+    \code{/mins/imu/odom} and \code{/firmware/wheel\_states} both silent
+    over a $10$\,s window, \code{pose\_selector} still reporting
+    \code{pose\_source: "MINS"} regardless, and
+    \code{/serial\_node} filling \code{journalctl} with sustained
+    \code{wrong checksum for topic id and msg} entries, the same
+    signature as Eq.~\ref{eq:missprob} (July 30) and
+    \S\ref{sec:july22network} (July 22), while the ROS graph wiring itself
+    (unlike the July 22 case) was confirmed correct. Both earlier
+    occurrences were thermal; the ARM clock stayed at $1500$\,MHz
+    throughout tonight's, ruling that specific mechanism out &
+    repeat the July 30 protocol (Eq.~\ref{eq:missprob}: overrun count
+    against a fixed window) with the rover stationary versus actively
+    driven, to test the session's leading, unproven hypothesis that motion
+    itself, not temperature, is exciting the UART link tonight \\
 \end{longtable}
 \end{center}
 
