@@ -34,8 +34,14 @@
   header .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   header h1 { font-size: 13px; font-weight: 600; letter-spacing: .18em; }
   header .sub { color: var(--dim); font-size: 11px; letter-spacing: .1em; }
-  header a { color: var(--dim); text-decoration: none; font-size: 11px; margin-left: auto; }
-  header a:hover { color: var(--txt); }
+  /* Les liens vivent dans un conteneur pousse a droite : `margin-left:auto`
+     sur CHAQUE <a> (etat anterieur) empilait mal des qu'on depassait deux
+     liens — corrige 2026-08-12 avec l'harmonisation de la nav du site. */
+  header nav { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  header nav a { color: var(--dim); text-decoration: none; font-size: 11px;
+                 letter-spacing: .06em; white-space: nowrap; }
+  header nav a:hover { color: var(--txt); }
+  header nav a.on { color: var(--txt); }
   /* ── Grille principale : HUD | carte | HUD ───────────────────────────────── */
   main { display: grid; grid-template-columns: 220px 1fr 220px; min-height: 0; }
   .hud { border-right: 1px solid var(--line); padding: 12px; overflow-y: auto;
@@ -151,8 +157,17 @@
   <span class="dot" id="wsdot"></span>
   <h1>LEO ROVER · TRAJECTORY</h1>
   <span class="sub" id="wsstate">CONNECTING</span>
-  <a href="robot_description.html">ROBOT</a>
-  <a href="ops.html">← OPERATIONS</a>
+  <nav>
+    <a href="index.html">HOME</a>
+    <a href="ops.html">OPERATIONS</a>
+    <a href="logbook.html">LOGBOOK</a>
+    <a href="robot_description.html">ROBOT</a>
+    <a href="navigation_modes.html">NAV MODES</a>
+    <a href="trajectory.html" class="on">TRAJECTORY</a>
+    <a href="pid.html">PID</a>
+    <a href="audit.html">AUDIT</a>
+    <a href="hector_response.html">DERIVATIONS</a>
+  </nav>
 </header>
 <main>
   <!-- ── HUD gauche : navigation ─────────────────────────────────────────── -->

@@ -38,6 +38,12 @@
             text-transform:uppercase}
   .dot{width:9px;height:9px;border-radius:50%;background:var(--dim)}
   .dot.on{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+  /* Liens de retour : cette page n'en avait AUCUN (cul-de-sac) — ajoutes
+     2026-08-12 avec l'harmonisation de la nav du site. */
+  header nav{margin-left:auto;display:flex;align-items:center;gap:14px}
+  header nav a{color:var(--dim);text-decoration:none;font-size:11px;
+               letter-spacing:.06em;white-space:nowrap}
+  header nav a:hover{color:var(--txt)}
   main{flex:1;display:grid;grid-template-columns:1fr 340px;min-height:0}
   #plotWrap{position:relative;min-width:0}
   canvas{display:block;width:100%;height:100%}
@@ -67,8 +73,13 @@
 <header>
   <span class="dot" id="dot"></span>
   <h1>LEO Rover · Trajectoire en repère balise</h1>
-  <span style="margin-left:auto;font-size:11px;color:var(--dim)"
-        id="hdrInfo">—</span>
+  <span style="font-size:11px;color:var(--dim)" id="hdrInfo">—</span>
+  <nav>
+    <a href="index.html">HOME</a>
+    <a href="ops.html">OPERATIONS</a>
+    <a href="trajectory.html">TRAJECTORY</a>
+    <a href="logbook.html">LOGBOOK</a>
+  </nav>
 </header>
 
 <main>

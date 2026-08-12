@@ -32,6 +32,8 @@
       nav_navmodes:      'Nav Modes',
       nav_trajectory:       'Trajectory',
       nav_pid:              'PID',
+      nav_audit:            'Audit',
+      nav_deriv:            'Derivations',
       nav_cockpit:       'Cockpit',
 
       /* ── Connection states ─────────────────────────────────────────────── */
@@ -623,6 +625,8 @@
       nav_navmodes:      'Modes Nav',
       nav_trajectory:       'Trajectory',
       nav_pid:              'PID',
+      nav_audit:            'Audit',
+      nav_deriv:            'Démonstrations',
       nav_cockpit:       'Cockpit',
 
       /* ── États de connexion ─────────────────────────────────────────────── */

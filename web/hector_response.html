@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>LEO ROVER — Response to Pr. Gutierrez: Quaternion, Relocalization &amp; Pose Control</title>
-<script src="i18n.js?v=r18"></script>
+<script src="i18n.js?v=r19"></script>
 <script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
@@ -94,11 +94,46 @@
         <span class="hidden h-7 w-px bg-white/15 sm:block"></span>
         <span class="font-display text-base font-bold tracking-widest">LEO<span class="text-accent">·</span>RESPONSE</span>
       </a>
-      <nav class="hidden items-center gap-1 md:flex">
-        <a href="index.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Home</a>
-        <a href="logbook.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Logbook</a>
-        <a href="audit.html" class="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:text-white">Audit</a>
-        <a href="hector_response.html" class="rounded-lg bg-white/5 px-3 py-2 text-sm text-white">Hector's Requests</a>
+      <nav class="hidden items-center gap-0.5 xl:flex">
+        <a href="index.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
+        <a href="ops.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_ops">Operations</a>
+        <a href="logbook.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf" target="_blank" rel="noopener"
+           class="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
+        <a href="robot_description.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
+        <a href="navigation_modes.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
+        <a href="trajectory.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+        <a href="pid.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_pid">PID</a>
+        <a href="audit.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_audit">Audit</a>
+        <a href="hector_response.html" class="rounded-lg bg-white/5 px-2.5 py-2 text-[13px] text-white" data-i18n="nav_deriv">Derivations</a>
+      </nav>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/[.03] p-0.5" title="Language">
+          <button type="button" class="lang-btn" data-lang="fr" onclick="if(window.I18N)I18N.set('fr')">FR</button>
+          <button type="button" class="lang-btn" data-lang="en" onclick="if(window.I18N)I18N.set('en')">EN</button>
+        </div>
+        <!-- Bouton menu mobile - la nav du haut est masquee sous lg -->
+        <button type="button" id="mobileMenuBtn" aria-label="Menu"
+                class="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/[.03] text-zinc-300 transition hover:bg-white/10 xl:hidden"
+                onclick="document.getElementById('mobileMenu').classList.toggle('hidden')">
+          <i data-lucide="menu" class="h-4 w-4"></i>
+        </button>
+      </div>
+    </div>
+      <!-- Panneau nav mobile -->
+    <div id="mobileMenu" class="hidden border-t border-white/5 bg-space-950/95 xl:hidden">
+      <nav class="mx-auto flex max-w-7xl flex-col gap-1 px-5 py-3">
+        <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
+        <a href="ops.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_ops">Operations</a>
+        <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf" target="_blank" rel="noopener"
+           class="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
+        <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
+        <a href="navigation_modes.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
+        <a href="trajectory.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+        <a href="pid.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_pid">PID</a>
+        <a href="audit.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_audit">Audit</a>
+        <a href="hector_response.html" class="rounded-lg bg-white/5 px-3 py-2.5 text-sm text-white" data-i18n="nav_deriv">Derivations</a>
       </nav>
     </div>
   </header>
