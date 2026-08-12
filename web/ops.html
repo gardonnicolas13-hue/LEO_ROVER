@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>LEO ROVER — Operations Cockpit</title>
-<script src="i18n.js?v=r19"></script>
+<script src="i18n.js?v=r20"></script>
 <script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
@@ -466,6 +466,48 @@
             <i data-lucide="info" class="h-3 w-3"></i>
             <span data-i18n="ops_pose_source_learn_more">What's the difference between VINS and MINS?</span>
           </a>
+
+          <!-- Jeu de roues monté (2026-08-12) — DÉCLARATIF.
+               Ce sélecteur ne change RIEN au comportement du robot : il
+               n'écrit pas /firmware/diff_drive/* (lecture seule délibérée,
+               cf. _load_drive_params dans leo_backend.py — écrire impose
+               d'éditer /etc/ros/param.yaml SUR le robot puis de redémarrer
+               le service, ce qui coupe le pilotage).
+               Ce qu'il change : les données enregistrées disent enfin sur
+               QUELLES ROUES elles ont été prises, et le backend confronte la
+               déclaration au rayon réellement actif dans le firmware. -->
+          <div class="mt-3 flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+            <i data-lucide="circle-dot" class="h-3.5 w-3.5"></i>
+            <span data-i18n="ops_wheels_title">Mounted wheels</span>
+          </div>
+          <div class="mt-1 grid grid-cols-2 gap-2">
+            <button type="button" id="wheelBtnSTANDARD" data-cmd="wheel_type" data-wheel="STANDARD"
+                    data-i18n-title="ops_wheels_tip"
+                    class="flex flex-col items-center justify-center gap-0.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-semibold text-zinc-400 transition hover:bg-white/10">
+              <span class="flex items-center gap-1.5">
+                <span id="wheelDotSTANDARD" class="block h-2 w-2 shrink-0 rounded-full bg-zinc-600"></span>
+                <span data-i18n="ops_wheels_standard">Standard</span>
+              </span>
+              <span class="text-[10px] font-normal normal-case tracking-normal opacity-70">r 62.5 mm</span>
+            </button>
+            <button type="button" id="wheelBtnMECANUM" data-cmd="wheel_type" data-wheel="MECANUM"
+                    data-i18n-title="ops_wheels_tip"
+                    class="flex flex-col items-center justify-center gap-0.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-semibold text-zinc-400 transition hover:bg-white/10">
+              <span class="flex items-center gap-1.5">
+                <span id="wheelDotMECANUM" class="block h-2 w-2 shrink-0 rounded-full bg-zinc-600"></span>
+                <span data-i18n="ops_wheels_mecanum">Mecanum</span>
+              </span>
+              <span class="text-[10px] font-normal normal-case tracking-normal opacity-70">r 62.2 mm</span>
+            </button>
+          </div>
+          <!-- Bandeau d'écart : masqué tant que déclaration et firmware
+               concordent. Au 12/08 il s'allume (Mecanum montées, firmware
+               resté au rayon stock 0,0625) — c'est l'item 1 du registre des
+               points ouverts du rapport, rendu visible en continu. -->
+          <div id="wheelMismatch" class="mt-1.5 hidden items-start gap-1.5 rounded-lg border border-warn/30 bg-warn/10 px-2.5 py-1.5 text-[10.5px] leading-snug text-warn">
+            <i data-lucide="triangle-alert" class="mt-0.5 h-3 w-3 shrink-0"></i>
+            <span id="wheelMismatchTxt"></span>
+          </div>
 
           <!-- Goto Beacon -->
           <div class="mt-3 flex gap-2">
@@ -1109,7 +1151,7 @@
   <script src="vendor/lucide-1.25.0.umd.js?v=v1"></script>
   <script>lucide.createIcons(); if (window.I18N) I18N.apply();</script>
   <script src="audio_manager.js?v=r8b"></script>
-  <script src="app.js?v=r37"></script>
+  <script src="app.js?v=r38"></script>
   <script src="vendor/three.min.js"></script>
   <script src="vendor/gsap.min.js"></script>
   <script src="vendor/ScrollTrigger.min.js"></script>

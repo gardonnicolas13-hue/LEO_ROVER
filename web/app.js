@@ -868,6 +868,53 @@
       });
     }
 
+    /* ── Jeu de roues monté (2026-08-12) ────────────────────────────────────
+       DÉCLARATIF : ce sélecteur n'écrit pas la cinématique du firmware (voir
+       le commentaire dans ops.html et _load_drive_params côté backend). Il
+       enregistre ce qui est physiquement monté, pour que les données relues
+       plus tard sachent sur quelles roues elles ont été prises, et il affiche
+       l'écart quand le rayon actif du firmware contredit la déclaration. */
+    const WHEEL_STYLE = {
+      STANDARD: { active: ['border-accent/40', 'bg-accent/15', 'text-accent'], dot: 'bg-accent' },
+      MECANUM:  { active: ['border-plasma/40', 'bg-plasma/15', 'text-plasma'], dot: 'bg-plasma' },
+    };
+    const WHEEL_IDLE = ['border-white/10', 'bg-white/5', 'text-zinc-400'];
+
+    function updateWheelBtn(cfg) {
+      const box = $('wheelMismatch'), txt = $('wheelMismatchTxt');
+      if (!cfg) { if (box) box.classList.add('hidden'); return; }
+
+      ['STANDARD', 'MECANUM'].forEach(w => {
+        const btn = $('wheelBtn' + w), dot = $('wheelDot' + w), st = WHEEL_STYLE[w];
+        if (!btn || !dot) return;
+        const active = cfg.type === w;
+        // Retirer TOUS les jeux avant d'appliquer : la fonction tourne à
+        // chaque tick de télémétrie, pas d'accumulation de classes.
+        WHEEL_IDLE.forEach(c => btn.classList.remove(c));
+        st.active.forEach(c => btn.classList.remove(c));
+        (active ? st.active : WHEEL_IDLE).forEach(c => btn.classList.add(c));
+        dot.className = 'block h-2 w-2 shrink-0 rounded-full ' +
+          (active ? st.dot : 'bg-zinc-600');
+      });
+
+      if (!box || !txt) return;
+      // mismatch === null => firmware injoignable : on ne dit RIEN plutôt que
+      // d'affirmer un accord qu'on n'a pas vérifié.
+      if (cfg.mismatch === true) {
+        const fw = (cfg.r_firmware === null || cfg.r_firmware === undefined)
+          ? '?' : (cfg.r_firmware * 1000).toFixed(1);
+        const ex = (cfg.r_expected === null || cfg.r_expected === undefined)
+          ? '?' : (cfg.r_expected * 1000).toFixed(1);
+        txt.textContent = T('ops_wheels_mismatch')
+          .replace('{fw}', fw).replace('{exp}', ex).replace('{type}', cfg.label || cfg.type);
+        box.classList.remove('hidden');
+        box.classList.add('flex');
+      } else {
+        box.classList.add('hidden');
+        box.classList.remove('flex');
+      }
+    }
+
     function sendCommand(obj) {
       if (!connected || !topics.command) {
         if (obj.action === 'stop' || obj.action === 'park') _stopPending = true;
@@ -990,6 +1037,7 @@
       setTxt('hudMode', d.mode + (d.mode === 'AUTO' ? '·' + d.auto_state : ''));
       setTxt('modeBtnLabel', d.mode + ' → ' + (modeOrder[d.mode] || 'AUTO'));
       updatePoseSourceBtn(d.pose_source, d.pose_source_available, d.pose_source_pending);
+      updateWheelBtn(d.wheels_cfg);
       /* Beacon LED reset / trajectory-export panels (2026-07-27) */
       updateLedCross(d.detection);
       updateRobotPoseInBeaconPanel(d);
@@ -2510,6 +2558,14 @@
         const next = btn.dataset.source;
         sendCommand({ action: 'set_pose_source', source: next });
         logLine('[NAV] pose source: requested ' + next + '…', 'text-violet-400');
+      }
+      else if (c === 'wheel_type') {
+        // Déclaration de matériel, pas une commande de pilotage : le robot ne
+        // change PAS de comportement. Le log le dit explicitement pour qu'on
+        // ne croie pas avoir reconfiguré la cinématique en cliquant.
+        const w = btn.dataset.wheel;
+        sendCommand({ action: 'set_wheel_type', wheel_type: w });
+        logLine('[HW] ' + T('ops_wheels_logged').replace('{type}', w), 'text-amber-400');
       }
       else if (c === 'export_matlab') {
         // Si MATLAB est présent sur le PC : OUVRIR l'application directement

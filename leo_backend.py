@@ -123,6 +123,53 @@ BEACON_DEPENDENT_STATES = ("LOCK", "GOTO_BEACON", "WAIT")
 # payees au metre ruban. Perdu une premiere fois le 29/07.
 CALIB_STATE_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                  "logs", "calib_terrain.json")
+
+# ─── Jeu de roues monté (2026-08-12) ──────────────────────────────────────────
+# DECLARATIF, PAS UNE ECRITURE FIRMWARE. Ce sélecteur enregistre quelles roues
+# sont PHYSIQUEMENT montées ; il n'écrit JAMAIS /firmware/diff_drive/* — cf.
+# _load_drive_params(), lecture seule délibérée (écrire impose d'éditer
+# /etc/ros/param.yaml SUR LE ROBOT puis `systemctl restart leo`, ce qui coupe
+# le pilotage : ce doit rester une action humaine décidée).
+#
+# A quoi ça sert alors : (a) le type de roues conditionne l'interprétation de
+# TOUTE mesure ultérieure (rayon effectif, autorité de lacet, patinage) et il
+# n'était jusqu'ici écrit nulle part dans les données — un bag relu dans six
+# mois ne disait pas sur quelles roues il avait été pris ; (b) le backend peut
+# CONFRONTER la déclaration au rayon réellement actif dans le firmware et
+# signaler l'écart au lieu de le laisser passer silencieusement.
+#
+# Valeurs :
+#   STANDARD — spec constructeur (pneu Ø ~125 mm -> r = 62,5 mm ; voie 354 mm)
+#              https://docs.fictionlab.pl/leo-rover/documentation/specification
+#   MECANUM  — r_eff = 62,2 mm MESURE SUR CE ROBOT (Ø 128,8 mm géométrique,
+#              soit 3,4 % de compression des rouleaux polyuréthane 45°),
+#              `intrinsics: [0.0622, 0.0622, 0.358]` de config_wheel.yaml.
+#              Le constructeur ne publie pas de rayon effectif pour ce jeu ;
+#              la valeur ci-dessous est donc la nôtre, pas la sienne.
+WHEEL_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "logs", "wheel_type.json")
+WHEEL_PRESETS = {
+    "STANDARD": {
+        "label":      "Standard",
+        "r_expected": 0.0625,   # m — spec constructeur, pneu caoutchouc Ø ~125 mm
+        "track":      0.354,    # m — spec constructeur
+        "strafe":     False,
+        "source":     "constructeur",
+    },
+    "MECANUM": {
+        "label":      "Mecanum",
+        "r_expected": 0.0622,   # m — MESURE sur ce robot (rouleaux comprimés)
+        "track":      0.358,    # m — valeur retenue dans config_wheel.yaml
+        "strafe":     True,     # capable en théorie ; PAS implémenté ici, voir
+                                # ci-dessous WHEEL_STRAFE_NOTE
+        "source":     "mesuré sur ce robot",
+    },
+}
+DEFAULT_WHEEL_TYPE = "MECANUM"   # état réel du robot au 2026-08-12
+# Ecart toléré entre le rayon déclaré et le rayon actif du firmware. Ce sont
+# deux PARAMETRES (pas des mesures bruitées) : la tolérance ne sert qu'à
+# absorber les flottants, pas une incertitude physique.
+WHEEL_RADIUS_EPS = 1e-4
 CMD_TOPIC         = "/cmd_vel"
 
 TELEMETRY_TOPIC   = "/mission/telemetry"
@@ -1530,6 +1577,11 @@ class LeoBackend:
         # puis re-tente si le robot n'etait pas encore la (voir _build_telemetry).
         self._drive_params = {"wheel_radius": None, "wheel_separation": None,
                               "angular_velocity_multiplier": None}
+        # Valeur de repli AVANT _wheel_load() (appele depuis run()) : la boucle
+        # de telemetrie ne doit jamais pouvoir lever un AttributeError sur un
+        # attribut que seule run() initialise — meme piege que _drive_params
+        # juste au-dessus. _wheel_load() ecrasera par la valeur persistee.
+        self.wheel_type = DEFAULT_WHEEL_TYPE
 
         _script_dir = os.path.dirname(os.path.abspath(__file__))
         self._autolog = AutoLogbook(os.path.join(_script_dir, 'web', 'auto_entries.json'))
@@ -1683,6 +1735,7 @@ class LeoBackend:
         except Exception as _e:
             self._log(f"Fix Carolus indisponible : {_e}")
         self._calib_load()
+        self._wheel_load()
         # Ancre la serie courante dans sets des le demarrage, pour que la
         # toute premiere passe soit publiee et sauvegardee comme les autres.
         self._calib["passes"] = self._calib["sets"].setdefault(
@@ -4517,6 +4570,96 @@ class LeoBackend:
     #  depuis un téléphone à côté du robot.                                  #
     # ══════════════════════════════════════════════════════════════════════ #
 
+    # ── Jeu de roues monté (déclaratif) ──────────────────────────────────────
+    def _wheel_load(self):
+        """Relit le jeu de roues déclaré. Persisté sur disque parce qu'il décrit
+        un état PHYSIQUE du robot : il ne change pas parce que le backend a
+        redémarré, et repartir sur une valeur par défaut après chaque respawn
+        ferait mentir la télémétrie sur du matériel qui, lui, n'a pas bougé."""
+        try:
+            with open(WHEEL_STATE_FILE, encoding="utf-8") as f:
+                t = (json.load(f).get("wheel_type") or "").upper()
+            if t in WHEEL_PRESETS:
+                self.wheel_type = t
+                return
+        except Exception:
+            pass
+        self.wheel_type = DEFAULT_WHEEL_TYPE
+
+    def _wheel_save(self):
+        """Ecriture atomique (tmp + rename), même motif que _calib_save."""
+        try:
+            os.makedirs(os.path.dirname(WHEEL_STATE_FILE), exist_ok=True)
+            tmp = WHEEL_STATE_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"wheel_type": self.wheel_type, "t": time.time()}, f)
+            os.replace(tmp, WHEEL_STATE_FILE)
+        except Exception as e:
+            self._log(f"Jeu de roues : sauvegarde impossible ({e})")
+
+    def _wheel_block(self):
+        """Bloc télémétrie : ce qui est déclaré, ce que le firmware applique
+        RÉELLEMENT, et si les deux sont d'accord.
+
+        Le désaccord n'est pas hypothétique : au 2026-08-12 le robot roule en
+        Mecanum (r_eff mesuré 0,0622) alors que le firmware est resté au rayon
+        stock 0,0625 — c'est l'item 1 du registre des points ouverts du
+        rapport. Ce bloc rend cet écart visible en continu au lieu de le
+        laisser dormir dans un fichier de config."""
+        preset = WHEEL_PRESETS.get(self.wheel_type, {})
+        dp = self._drive_params or {}
+        r_fw = dp.get("wheel_radius")
+        r_exp = preset.get("r_expected")
+        mismatch = None                      # None = indéterminable, pas False
+        if isinstance(r_fw, (int, float)) and isinstance(r_exp, (int, float)):
+            mismatch = abs(float(r_fw) - float(r_exp)) > WHEEL_RADIUS_EPS
+        return {
+            "type":       self.wheel_type,
+            "label":      preset.get("label", self.wheel_type),
+            "r_expected": r_exp,
+            "r_firmware": r_fw,
+            "track":      preset.get("track"),
+            "strafe":     bool(preset.get("strafe")),
+            "source":     preset.get("source"),
+            "mismatch":   mismatch,
+        }
+
+    def set_wheel_type(self, wheel_type):
+        """Déclare le jeu de roues physiquement monté.
+
+        N'écrit RIEN dans le firmware (voir WHEEL_PRESETS) : le robot ne change
+        pas de comportement en cliquant ici. Ce qui change, c'est ce que les
+        données enregistrées disent d'elles-mêmes."""
+        t = (wheel_type or "").upper()
+        if t not in WHEEL_PRESETS:
+            self._log(f"Jeu de roues ignoré (inconnu : {wheel_type})")
+            return
+        if t == self.wheel_type:
+            return
+        old = self.wheel_type
+        self.wheel_type = t
+        self._wheel_save()
+        blk = self._wheel_block()
+        self._log(f"Jeu de roues déclaré : {old} -> {t} "
+                  f"(r attendu {blk['r_expected']} m, firmware {blk['r_firmware']} m)")
+        if blk["mismatch"]:
+            self._log("ATTENTION : le rayon du firmware ne correspond PAS au jeu "
+                      "déclaré. La cinématique appliquée reste celle du firmware ; "
+                      "corriger /etc/ros/param.yaml sur le robot (puis "
+                      "`systemctl restart leo`) pour aligner les deux.")
+        # Un changement de roues invalide la comparabilité de tout ce qui a été
+        # mesuré avant : ça mérite une entrée de journal, pas juste une ligne
+        # de log volatile.
+        self._autolog.add(
+            "WHEEL_CHANGE",
+            f"Jeu de roues déclaré : {WHEEL_PRESETS[t]['label']}",
+            f"{old} -> {t}. Rayon attendu {blk['r_expected']} m "
+            f"({blk['source']}), rayon actif dans le firmware "
+            f"{blk['r_firmware']} m."
+            + ("  ECART DETECTE : la cinématique appliquée ne correspond pas au "
+               "jeu déclaré." if blk["mismatch"] else ""),
+            tags=["hardware", "wheels"])
+
     def _calib_save(self):
         """Ecrit la campagne apres CHAQUE modification. Fichier minuscule,
         ecriture atomique (fichier temporaire + rename) pour qu'une coupure
@@ -4968,6 +5111,10 @@ class LeoBackend:
             # auquel cas le premier essai renvoie None sans que rien ne soit
             # casse — il suffit d'attendre que le master publie les params.
             "drive_params": self._drive_params_or_retry(),
+            # Jeu de roues DECLARE + confrontation au rayon firmique actif.
+            # `_drive_params_or_retry()` ci-dessus a deja rafraichi
+            # self._drive_params, donc _wheel_block() lit une valeur a jour.
+            "wheels_cfg": self._wheel_block(),
             "fsm_state": self._fsm_state(now),
             "target_beacon_id": self._target_beacon_id,
             "vision_mode": self._vision_mode,
@@ -5105,6 +5252,8 @@ class LeoBackend:
                     self._goto_beacon(int(bid))
             elif action == "set_pose_source":
                 self.set_pose_source(cmd.get("source", ""))
+            elif action == "set_wheel_type":
+                self.set_wheel_type(cmd.get("wheel_type", ""))
             elif action == "export_matlab":
                 self._export_matlab(open_matlab=bool(cmd.get("open_matlab", False)))
             elif action == "plot_matlab":

@@ -243,6 +243,12 @@
       ops_js_openmatlab:      '[DATA] exporting + opening MATLAB on the plot (~30 s)…',
       ops_js_trajreset:       '[DATA] trajectory buffers cleared (new run)',
       ops_pose_source_learn_more: 'What\'s the difference between VINS and MINS?',
+      ops_wheels_title:     'Mounted wheels',
+      ops_wheels_standard:  'Standard',
+      ops_wheels_mecanum:   'Mecanum',
+      ops_wheels_tip:       'Declares which wheel set is physically fitted. This does NOT reconfigure the firmware kinematics — it records the hardware so later measurements can be interpreted, and flags any disagreement with the radius the firmware is actually using.',
+      ops_wheels_logged:    'wheel set declared: {type} (recorded only — firmware kinematics unchanged)',
+      ops_wheels_mismatch:  'Firmware is driving with r = {fw} mm, but {type} wheels imply {exp} mm. The applied kinematics is the firmware\'s: fix /etc/ros/param.yaml on the robot, then restart the leo service.',
 
       /* ── ops.html · Video canvas overlay ───────────────────────────────── */
       ops_bbox_valid:    'BEACON ACQUIRED',
@@ -835,6 +841,12 @@
       ops_js_openmatlab:      '[DATA] export + ouverture de MATLAB sur le tracé (~30 s)…',
       ops_js_trajreset:       '[DATA] buffers de trajectoire vidés (nouveau run)',
       ops_pose_source_learn_more: 'Quelle différence entre VINS et MINS ?',
+      ops_wheels_title:     'Roues montées',
+      ops_wheels_standard:  'Standard',
+      ops_wheels_mecanum:   'Mecanum',
+      ops_wheels_tip:       'Déclare le jeu de roues physiquement monté. Ne reconfigure PAS la cinématique du firmware : sert à enregistrer le matériel pour interpréter les mesures ultérieures, et signale tout désaccord avec le rayon réellement utilisé par le firmware.',
+      ops_wheels_logged:    'jeu de roues déclaré : {type} (enregistré seulement — cinématique firmware inchangée)',
+      ops_wheels_mismatch:  'Le firmware roule avec r = {fw} mm, alors que des roues {type} impliquent {exp} mm. La cinématique appliquée reste celle du firmware : corriger /etc/ros/param.yaml sur le robot, puis redémarrer le service leo.',
 
       /* ── ops.html · Overlay vidéo ──────────────────────────────────────── */
       ops_bbox_valid:    'BALISE ACQUISE',
