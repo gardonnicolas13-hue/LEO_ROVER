@@ -7518,8 +7518,28 @@ after cannot separate a real effect from ordinary time-varying load ---
 exactly the discipline item 38's own matched-load protocol
 (\S\ref{sec:aug13ab}) was built to enforce, and a single quick test here
 did not. Configuration fully restored (\code{0-3} on all three,
-confirmed) before moving on. The one candidate not attempted tonight,
-the SD-card driver's \code{udelay} busy-waits, remains open.
+confirmed) before moving on.
+
+\paragraph{SD-card \code{udelay}: no runtime knob exists.} The third
+candidate, checked last: \code{bcm2835\_mmc} (the driver bound to
+\code{mmc0}, the eMMC2 controller carrying this Pi's SD card and root
+filesystem, confirmed via \code{/sys/bus/mmc/devices/} and matching
+\code{bcm2835\_mmc\_irq} in \S\ref{sec:aug13irqsoff}'s trace) exposes
+exactly two module parameters, both read as $0$:
+\code{/sys/module/bcm2835\_mmc/parameters/\{mmc\_debug,mmc\_debug2\}}
+--- debug-logging verbosity flags by every naming convention in the
+kernel, not timing controls. Nothing in this driver's exposed surface
+lets the busy-wait be reduced or disabled without patching and
+rebuilding the module itself, which was not attempted: this Pi's SD
+card is also its boot device, and testing a rebuilt storage driver on
+the only one this robot has, live, was judged the wrong trade for
+tonight. All three candidates this item named are now checked, not
+guessed at: one ruled out, one hard-blocked by the kernel, one with no
+accessible knob. What remains, if this is pursued further, is a kernel
+patch (out of scope here) or accepting the mechanism as a platform
+limit and mitigating elsewhere: MMC's affinity move, re-tested properly
+against a matched load next time, is the one candidate this evening
+left genuinely open rather than closed.
 
 \section{sqrtVINS on the Raspberry Pi: installed, debugged, and diverged
 --- a complete answer to a new request}
@@ -8985,12 +9005,14 @@ on every telemetry tick.
     xHCI refused outright by the kernel (\code{I/O error}, this MSI
     controller does not support runtime re-steering), MMC's move gave an
     inconclusive result against a load that drifted on its own across the
-    test window &
-    audit the SD-card driver's \code{udelay} busy-waits inside its IRQ
-    handler --- the one candidate not yet attempted; re-test IRQ~$27$'s
-    move with a matched-load protocol (\S\ref{sec:aug13ab}-style, not a
-    single before/after sample) to separate a real effect from the
-    drift observed tonight \\
+    test window. Third candidate also closed: \code{bcm2835\_mmc} exposes
+    only two module parameters, both debug-logging flags, no timing
+    control &
+    a kernel patch to \code{bcm2835\_mmc} is the only route left to the
+    \code{udelay} busy-waits, not attempted (this Pi's SD card is also
+    its boot device); re-test IRQ~$27$'s move with a matched-load
+    protocol (\S\ref{sec:aug13ab}-style, not a single before/after
+    sample) --- the one candidate this evening left genuinely open \\
 41 & \textbf{$\sqrt{\text{VINS}}$ on the Pi: installed and running, diverges
     on a real driven lap} (\S\ref{sec:sqrtvins}). Builds and runs at
     $30$--$70\,\mathrm{Hz}$ on live sensor data, two real defects found
