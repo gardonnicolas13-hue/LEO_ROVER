@@ -7398,6 +7398,90 @@ installed) to see whether the residual $2.07\,\mathrm{s}^{-1}$ traces to
 $L_{\mathrm{preempt}}$ directly rather than staying a subtraction.
 \end{trapbox}
 
+\section{IRQ 14 starvation, caught directly: the MMC/USB chain that blocks
+the UART}
+\label{sec:aug13irqsoff}
+
+The trapbox above named the next step; it was run the same evening.
+\code{ftrace}'s \code{irqsoff} tracer records the single longest span in
+which hardware interrupts were disabled, with a full function-call trace of
+what the CPU was doing throughout. Two independent captures, buffer
+widened to $2$\,MB/core first, tracer reset to \code{nop} and the buffer
+size restored to its default afterward in both cases:
+
+\begin{casestudy}{Both captures exceed the FIFO deadline by more than
+double, and neither implicates the UART}
+\textbf{Capture 1} ($90$\,s window, no load applied beyond the robot's own
+idle state): \code{tracing\_max\_latency} $=2829\,\mu$s. The trace is a
+single MSI interrupt, \code{xhci\_irq}, entering at $t{=}22\,\mu$s and not
+releasing interrupts until $t{=}2829\,\mu$s: \emph{seventy-six} separate
+\code{swiotlb\_bounce} calls, each preceded by
+\code{dma\_direct\_sync\_single\_for\_cpu}/\code{dma\_direct\_unmap\_page},
+draining a burst of completed USB transfer descriptors
+(\code{handle\_tx\_event} $\to$ \code{finish\_td}) one at a time. Not one
+line of this capture mentions \code{pl011} or \code{uart}.
+
+\textbf{Capture 2} ($45$\,s window): $3064\,\mu$s, worse than capture 1.
+This one brackets the UART directly. \code{pl011\_int} fires at
+$t{=}10\,\mu$s (a normal service, draining its FIFO via
+\code{pl011\_fifo\_to\_tty}); at $t{=}131\,\mu$s and again at
+$t{=}183\,\mu$s, \code{bcm2835\_mmc\_irq} (the Pi's own SD-card
+controller) runs, each invocation spinning on \code{\_\_udelay} inside the
+handler; at $t{=}240\,\mu$s \code{xhci\_irq} begins the same
+\code{swiotlb}-bound descriptor drain as capture 1 (this time $380$
+\code{swiotlb} occurrences across the whole trace). \code{pl011\_int} does
+not fire again until $t{=}2889\,\mu$s.
+\end{casestudy}
+
+\noindent\textbf{What capture 2's bracket means, in the deadline model's
+own units.} The gap between the two \code{pl011\_int} services is
+\begin{equation}
+\Delta t_{\mathrm{pl011}} = 2889 - 10 = 2879\,\mu\text{s},
+\label{eq:pl011gap}
+\end{equation}
+against $T_{\mathrm{dl}} = 1.28$\,ms (Eq.~\ref{eq:fifodeadline}), a factor
+of $2.25\times$. At the byte arrival rate of Eq.~\ref{eq:fillrate}
+($\tau_b = 40\,\mu$s), that gap spans
+\begin{equation}
+\frac{\Delta t_{\mathrm{pl011}}}{\tau_b} = \frac{2879}{40} \approx 72
+\end{equation}
+byte-arrival opportunities against a $32$-entry FIFO: not a near miss, a
+gap wide enough for roughly $40$ bytes to have nowhere to go, in this one
+occurrence alone. Both captures' worst-case latency exceeds
+$T_{\mathrm{dl}}$ by a comparable margin ($2.21\times$ and $2.39\times$),
+which is the first time this report has a single, named, directly-observed
+mechanism wide enough to miss the deadline on its own, rather than an
+inferred one.
+
+\begin{trapbox}{What this does and does not establish}
+Both captures name the same class of culprit --- \code{swiotlb}-bound
+xHCI descriptor draining, in one case preceded by SD-card interrupt
+handling that itself busy-waits with \code{\_\_udelay} --- and both are
+consistent with the checksum storm's known properties: present with the
+rover stationary (\S\ref{sec:aug11mins}), unaffected by
+\code{serial\_node}'s scheduling priority or the kernel's RT budget
+(item 40's ruled-out hypotheses), and only partially remedied by removing
+thermal throttling (item 38, \S\ref{sec:aug13ab}) since a faster clock
+drains the same $76$--$380$ \code{swiotlb} calls faster but does not
+remove them. What two captures do not establish: that this is the
+\emph{only} mechanism (a longer or repeated capture could surface a
+different worst case), or that the task context shown in both traces'
+header (\code{python3-43371}, \code{rt\_prio:25} --- almost certainly
+\code{serial\_node} itself, the only userspace process at that priority)
+means \code{serial\_node} is implicated in causing the delay, rather than
+simply being whichever process the CPU happened to be running when a
+hardware interrupt --- necessarily non-preemptible, regardless of which
+process it interrupts --- arrived. Candidate next steps, none attempted
+tonight: check whether the xHCI controller's DMA mask forces
+\code{swiotlb} unnecessarily (a $64$-bit-capable mask would skip the bounce
+buffer entirely); reduce the SD-card driver's use of busy-wait \code{udelay}
+inside its IRQ handler if a kernel or DTS option controls it; check
+\code{/proc/irq/*/smp\_affinity} for whether the xHCI and MMC interrupts
+(MSI-based, unlike IRQ~$14$'s fixed GIC line) can be pinned away from
+CPU0 entirely, which would remove the contention without touching the UART
+side at all.
+\end{trapbox}
+
 \section{The Carolus quaternion, traced to source: why sixteen trials were
 never going to converge on a general answer}
 \label{sec:quaternion}
@@ -8637,26 +8721,26 @@ on every telemetry tick.
     protocol's third corner is already instrumented for it,
     \S\ref{ap:repro-mins-guide}); drive at least two laps past it in one
     recording; run \code{tag\_drift.py} on the result \\
-40 & \textbf{A live UART checksum storm, thermal explanation now ruled
-    insufficient} (\S\ref{sec:aug11mins}, \S\ref{sec:aug13ab}). Discovered
-    mid-verification: sustained \code{wrong checksum} errors, same
-    signature as Eq.~\ref{eq:missprob} (July 30), ROS graph wiring itself
-    confirmed correct (unlike item 10/July 22). Three explanations tested,
-    all narrowed by direct measurement rather than argued: motion
-    excitation, refuted (storm persisted with the rover fully stationary);
-    the kernel's RT budget starving \code{serial\_node}, refuted by a
-    controlled A/B ($28,41,36,26$ against a $38$ baseline, within noise,
-    setting reverted); temperature, ruled insufficient by item 38's
-    matched-load A/B ($2.074\,\mathrm{s}^{-1}$ at zero throttling, two
-    thirds of the July 30 rate). IRQ~$14$ (\code{uart-pl011}) is a
-    non-threaded hard interrupt pinned to CPU0, not a schedulable thread
-    --- the layer the first two hypotheses needed to act through, and
-    where both were disproven &
-    instrument interrupt latency directly on IRQ~$14$ (\code{ftrace}'s
-    \code{irqsoff} tracer, confirmed available with no install needed;
-    \code{cyclictest} would need \code{rt-tests} first), since three of
-    this item's four candidate explanations are now eliminated or bounded
-    by direct measurement, not argument \\
+40 & \textbf{A live UART checksum storm --- root mechanism caught directly
+    by \code{ftrace}} (\S\ref{sec:aug11mins}, \S\ref{sec:aug13ab},
+    \S\ref{sec:aug13irqsoff}). Motion excitation and the kernel's RT budget
+    both refuted by controlled measurement; temperature ruled insufficient
+    (item 38: two thirds of the July 30 rate survives zero throttling).
+    \code{irqsoff} tracing on IRQ~$14$ then found the mechanism directly:
+    two independent captures, $2829$ and $3064\,\mu$s of interrupts
+    disabled, both $>\!2.2\times$ the $1.28$\,ms FIFO deadline
+    (Eq.~\ref{eq:fifodeadline}), both a \code{swiotlb}-bound USB (xHCI)
+    descriptor drain, one preceded by SD-card interrupt handling. Capture 2
+    brackets the UART directly: serviced at $t{=}10\,\mu$s, not again until
+    $t{=}2889\,\mu$s (Eq.~\ref{eq:pl011gap}) --- a gap wide enough for
+    $\sim\!40$ bytes to overflow the FIFO in one occurrence &
+    check whether the xHCI controller's DMA mask forces unnecessary
+    \code{swiotlb} bouncing; audit the SD-card driver's \code{udelay}
+    busy-waits inside its IRQ handler; check
+    \code{/proc/irq/*/smp\_affinity} for moving the MSI-based xHCI/MMC
+    interrupts off CPU0, away from IRQ~$14$'s fixed line, without touching
+    the UART side at all --- all three candidate explanations remaining
+    after tonight are now measurement-driven, not argued \\
 \end{longtable}
 \end{center}
 
