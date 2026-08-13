@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en" class="dark scroll-smooth">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LEO ROVER — System &amp; Vocabulary</title>
+<script src="i18n.js?v=r22"></script>
+<script src="vendor/tailwind.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: {
+      fontFamily: {
+        sans: ['Inter','system-ui','sans-serif'],
+        mono: ['"JetBrains Mono"','ui-monospace','monospace'],
+        display: ['Rajdhani','Inter','sans-serif'],
+      },
+      colors: {
+        space:  { 950:'#0B0E14', 900:'#10141c', 800:'#161b24' },
+        accent: { DEFAULT:'#22d3ee', soft:'#67e8f9', deep:'#0e7490' },
+        plasma: { DEFAULT:'#ff6b35', soft:'#ff8f66', deep:'#c2410c' },
+        alert:  { DEFAULT:'#FC3D21' },
+        ok:     { DEFAULT:'#3fdc97' },
+        warn:   { DEFAULT:'#eab308' },
+      },
+      boxShadow: {
+        glow:'0 0 0 1px rgba(34,211,238,.25), 0 0 40px -10px rgba(34,211,238,.6)',
+      },
+      keyframes: { 'fade-up':{ '0%':{ opacity:0, transform:'translateY(16px)' }, '100%':{ opacity:1, transform:'translateY(0)' } } },
+      animation: { 'fade-up':'fade-up .6s ease-out both' },
+    }},
+  };
+</script>
+<link rel="stylesheet" href="fonts/fonts.css?v=f1" />
+<link rel="stylesheet" href="mission.css?v=m2" />
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0B0E14; }
+  .grid-bg { background-image:
+      linear-gradient(rgba(34,211,238,.05) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(34,211,238,.05) 1px,transparent 1px);
+      background-size:46px 46px; }
+  .glass { background:rgba(255,255,255,.035); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); }
+  .tile { border:1px solid rgba(255,255,255,.08); border-radius:1.25rem; }
+  .text-gradient { background:linear-gradient(120deg,#fff,#67e8f9 45%,#ff6b35);
+      -webkit-background-clip:text; background-clip:text; color:transparent; }
+  ::-webkit-scrollbar{ width:9px; }
+  ::-webkit-scrollbar-thumb{ background:#1c2733; border-radius:5px; }
+  .lang-btn { padding:.3rem .55rem; border-radius:.5rem; font-size:.7rem; font-weight:600;
+      color:#71717a; letter-spacing:.05em; transition:.15s; }
+  .lang-btn:hover { color:#fff; }
+  .lang-btn.active { background:rgba(34,211,238,.18); color:#67e8f9; }
+
+  .kicker { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.3em;
+      text-transform:uppercase; color:rgba(34,211,238,.75); }
+  .prose-p { color:#a1a1aa; line-height:1.75; font-size:.94rem; }
+  .prose-p code, .tbl code { background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.08); border-radius:.25rem; padding:.05rem .3rem;
+      font-family:'JetBrains Mono',monospace; font-size:.82em; color:#67e8f9; }
+
+  /* Figures : défilement horizontal propre sur mobile, jamais la page entière */
+  .figwrap { overflow-x:auto; -webkit-overflow-scrolling:touch;
+      border:1px solid rgba(255,255,255,.08); border-radius:.75rem;
+      background:rgba(0,0,0,.28); padding:.9rem; }
+  .figwrap svg { display:block; min-width:640px; width:100%; height:auto; }
+  .figcap { font-size:11.5px; color:#71717a; line-height:1.55; margin-top:.6rem; }
+
+  table.tbl { width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.tbl th { text-align:left; font-family:'JetBrains Mono',monospace; font-size:9.5px;
+      letter-spacing:.1em; text-transform:uppercase; color:rgba(34,211,238,.75);
+      padding:8px 10px; border-bottom:1px solid rgba(255,255,255,.1); }
+  table.tbl td { padding:8px 10px; border-bottom:1px solid rgba(255,255,255,.05);
+      color:#a1a1aa; vertical-align:top; }
+  table.tbl tr:last-child td { border-bottom:none; }
+  table.tbl td:first-child { color:#e4e4e7; font-weight:500; white-space:nowrap; }
+
+  /* Glossaire filtrable */
+  .gl-item { border-bottom:1px solid rgba(255,255,255,.05); padding:9px 2px; }
+  .gl-item:last-child { border-bottom:none; }
+  .gl-term { color:#e4e4e7; font-weight:600; font-size:13px;
+      font-family:'JetBrains Mono',monospace; }
+  .gl-def  { color:#a1a1aa; font-size:12.5px; line-height:1.6; margin-top:2px; }
+  .gl-tag  { display:inline-block; font-family:'JetBrains Mono',monospace; font-size:8.5px;
+      letter-spacing:.08em; text-transform:uppercase; padding:1px 5px; border-radius:3px;
+      margin-left:6px; vertical-align:middle; }
+  .t-hw  { background:rgba(255,107,53,.14); color:#ff8f66; }
+  .t-sw  { background:rgba(34,211,238,.14); color:#67e8f9; }
+  .t-math{ background:rgba(63,220,151,.14); color:#3fdc97; }
+  .t-net { background:rgba(234,179,8,.14);  color:#eab308; }
+  #glSearch { width:100%; background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.1);
+      border-radius:6px; padding:.55rem .8rem; color:#e4e4e7; font-size:13px; outline:none; }
+  #glSearch:focus { border-color:rgba(34,211,238,.45); }
+  #glSearch::placeholder { color:#52525b; }
+</style>
+</head>
+
+<body class="font-sans text-zinc-200 antialiased selection:bg-accent/30">
+  <div class="pointer-events-none fixed inset-0 -z-10 grid-bg opacity-40"></div>
+  <div class="pointer-events-none fixed -top-32 left-1/4 -z-10 h-96 w-96 rounded-full bg-accent/10 blur-[150px]"></div>
+  <div class="pointer-events-none fixed bottom-0 right-0 -z-10 h-96 w-96 rounded-full bg-plasma/10 blur-[150px]"></div>
+
+  <!-- ══════════════════ NAV ══════════════════ -->
+  <header class="sticky top-0 z-50 border-b border-white/5 glass">
+    <div class="mx-auto flex max-w-7xl items-center justify-between px-5 py-3.5">
+      <a href="index.html" class="group flex items-center gap-3">
+        <span class="flex items-center gap-2">
+          <img src="vendor/NASA_logo.svg" alt="NASA" loading="lazy"
+               class="h-9 w-9 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 shadow-glow transition group-hover:scale-105" />
+          <img src="vendor/fit_seal.svg" alt="Florida Institute of Technology" loading="lazy"
+               class="h-9 w-9 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 transition group-hover:scale-105" />
+        </span>
+        <span class="hidden h-7 w-px bg-white/15 sm:block"></span>
+        <span class="font-display text-base font-bold tracking-widest">LEO<span class="text-accent">·</span>SYSTEM</span>
+      </a>
+      <nav class="hidden items-center gap-0.5 xl:flex">
+        <a href="index.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
+        <a href="ops.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_ops">Operations</a>
+        <a href="logbook.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786583509" target="_blank" rel="noopener"
+           class="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
+        <a href="system.html" class="rounded-lg bg-white/5 px-2.5 py-2 text-[13px] text-white" data-i18n="nav_system">System</a>
+        <a href="robot_description.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
+        <a href="navigation_modes.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
+        <a href="trajectory.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+        <a href="pid.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_pid">PID</a>
+        <a href="audit.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_audit">Audit</a>
+        <a href="hector_response.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_deriv">Derivations</a>
+      </nav>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/[.03] p-0.5" title="Language">
+          <button type="button" class="lang-btn" data-lang="fr" onclick="if(window.I18N)I18N.set('fr')">FR</button>
+          <button type="button" class="lang-btn" data-lang="en" onclick="if(window.I18N)I18N.set('en')">EN</button>
+        </div>
+        <button type="button" id="mobileMenuBtn" aria-label="Menu"
+                class="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/[.03] text-zinc-300 transition hover:bg-white/10 xl:hidden"
+                onclick="document.getElementById('mobileMenu').classList.toggle('hidden')">
+          <i data-lucide="menu" class="h-4 w-4"></i>
+        </button>
+      </div>
+    </div>
+    <div id="mobileMenu" class="hidden border-t border-white/5 bg-space-950/95 xl:hidden">
+      <nav class="mx-auto flex max-w-7xl flex-col gap-1 px-5 py-3">
+        <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
+        <a href="ops.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_ops">Operations</a>
+        <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786583509" target="_blank" rel="noopener"
+           class="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
+        <a href="system.html" class="rounded-lg bg-white/5 px-3 py-2.5 text-sm text-white" data-i18n="nav_system">System</a>
+        <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
+        <a href="navigation_modes.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
+        <a href="trajectory.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+        <a href="pid.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_pid">PID</a>
+        <a href="audit.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_audit">Audit</a>
+        <a href="hector_response.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_deriv">Derivations</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ══════════════════ HERO ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-8 pt-16">
+    <p class="kicker" data-i18n="sys_kicker">// system reference · read this first</p>
+    <h1 class="mt-3 font-display text-4xl font-black tracking-tight sm:text-5xl">
+      <span class="text-gradient" data-i18n="sys_title">How the whole thing works</span>
+    </h1>
+    <p class="mt-4 max-w-2xl prose-p" data-i18n="sys_lede">
+      Every physical part, every piece of software, every word of jargon, and the paths a measurement and a command actually take. Written for someone who has never seen this platform: nothing below assumes prior knowledge of the project or of ROS.
+    </p>
+  </section>
+
+  <!-- ══════════════════ 1 · QUI FAIT QUOI ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass animate-fade-up p-6 sm:p-8">
+      <p class="kicker" data-i18n="sys_s1_kicker">// part 1 — the question everyone gets wrong first</p>
+      <h2 class="mt-2 font-display text-2xl font-bold text-white" data-i18n="sys_s1_title">Two computers, not one</h2>
+      <p class="mt-3 prose-p" data-i18n-html="sys_s1_p">
+        Almost every misunderstanding on this platform traces back to a single question: <em>which of the two computers is doing this?</em> The rover carries a Raspberry Pi that talks to the hardware. A separate workstation runs the heavy estimation and serves the cockpit. They are joined by one Wi-Fi link. A node is a running program; if you do not know which machine a node lives on, you cannot reason about what happens when the link drops.
+      </p>
+
+      <div class="figwrap mt-5">
+        <svg viewBox="0 0 900 330" role="img" aria-label="Two boxes side by side. The left box is the rover's Raspberry Pi at address 10.200.0.2, running eight programs including the serial link to the motor board and the depth-camera driver. The right box is the workstation at 10.200.0.1, running twelve programs including both position estimators, the sensor cleaners, the mission backend and the web bridge. A single Wi-Fi and VPN link joins them in the middle.">
+          <!-- ROBOT -->
+          <rect x="16" y="42" width="392" height="270" rx="10" fill="rgba(255,107,53,.05)" stroke="#ff6b35" stroke-width="1.3"/>
+          <text x="34" y="72" fill="#ff8f66" font-size="15" font-weight="700" font-family="Rajdhani, sans-serif">ROVER · Raspberry Pi 4</text>
+          <text x="34" y="90" fill="#8a8f98" font-size="10.5" font-family="JetBrains Mono, monospace">10.200.0.2 · Ubuntu 20.04 · ROS Noetic</text>
+          <text x="34" y="108" fill="#6b7280" font-size="10" font-family="JetBrains Mono, monospace">talks to the hardware, nothing else</text>
+          <g font-size="10.5" font-family="JetBrains Mono, monospace">
+            <rect x="32" y="122" width="180" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="40" y="138" fill="#d4d4d8">serial_node</text>
+            <rect x="220" y="122" width="176" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="228" y="138" fill="#d4d4d8">firmware_message_converter</text>
+            <rect x="32" y="152" width="180" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="40" y="168" fill="#d4d4d8">camera/realsense2_camera</text>
+            <rect x="220" y="152" width="176" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="228" y="168" fill="#d4d4d8">robot_state_publisher</text>
+            <rect x="32" y="182" width="180" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="40" y="198" fill="#d4d4d8">leo_system</text>
+            <rect x="220" y="182" width="176" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="228" y="198" fill="#d4d4d8">rosmon</text>
+            <rect x="32" y="212" width="180" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="40" y="228" fill="#d4d4d8">raspicam_node</text>
+            <rect x="220" y="212" width="176" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="228" y="228" fill="#d4d4d8">rosapi</text>
+          </g>
+          <text x="34" y="262" fill="#ff8f66" font-size="10" font-family="JetBrains Mono, monospace">↑ also: the ROS master (roscore) lives here</text>
+          <text x="34" y="284" fill="#6b7280" font-size="10" font-family="JetBrains Mono, monospace">CORE2 board ─ UART 250 kbaud ─ serial_node</text>
+          <text x="34" y="300" fill="#6b7280" font-size="10" font-family="JetBrains Mono, monospace">motors · encoders · IMU · battery</text>
+
+          <!-- LIEN -->
+          <line x1="408" y1="175" x2="486" y2="175" stroke="#eab308" stroke-width="2" stroke-dasharray="6 4"/>
+          <polygon points="486,175 476,170 476,180" fill="#eab308"/>
+          <polygon points="408,175 418,170 418,180" fill="#eab308"/>
+          <text x="447" y="160" fill="#eab308" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">Wi-Fi</text>
+          <text x="447" y="196" fill="#eab308" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">WireGuard</text>
+
+          <!-- PC -->
+          <rect x="488" y="42" width="396" height="270" rx="10" fill="rgba(34,211,238,.05)" stroke="#22d3ee" stroke-width="1.3"/>
+          <text x="506" y="72" fill="#67e8f9" font-size="15" font-weight="700" font-family="Rajdhani, sans-serif">WORKSTATION</text>
+          <text x="506" y="90" fill="#8a8f98" font-size="10.5" font-family="JetBrains Mono, monospace">10.200.0.1 · does the thinking</text>
+          <text x="506" y="108" fill="#6b7280" font-size="10" font-family="JetBrains Mono, monospace">estimation, fusion, autonomy, web cockpit</text>
+          <g font-size="10.5" font-family="JetBrains Mono, monospace">
+            <rect x="504" y="122" width="180" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="512" y="138" fill="#d4d4d8">imu_sanitizer</text>
+            <rect x="692" y="122" width="176" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="700" y="138" fill="#d4d4d8">wheel_remap</text>
+            <rect x="504" y="152" width="180" height="24" rx="3" fill="rgba(255,107,53,.1)" stroke="rgba(255,107,53,.35)"/><text x="512" y="168" fill="#ff8f66">mins_subscribe (MINS)</text>
+            <rect x="692" y="152" width="176" height="24" rx="3" fill="rgba(34,211,238,.1)" stroke="rgba(34,211,238,.35)"/><text x="700" y="168" fill="#67e8f9">ov_msckf (VINS)</text>
+            <rect x="504" y="182" width="180" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="512" y="198" fill="#d4d4d8">pose_selector</text>
+            <rect x="692" y="182" width="176" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="700" y="198" fill="#d4d4d8">leo_backend</text>
+            <rect x="504" y="212" width="180" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="512" y="228" fill="#d4d4d8">apriltag</text>
+            <rect x="692" y="212" width="176" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="700" y="228" fill="#d4d4d8">carolus_vicon_bridge</text>
+            <rect x="504" y="242" width="180" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="512" y="258" fill="#d4d4d8">rosbridge ×2 (:9090/:9443)</text>
+            <rect x="692" y="242" width="176" height="24" rx="3" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.1)"/><text x="700" y="258" fill="#d4d4d8">web_video_server</text>
+            <rect x="504" y="272" width="364" height="24" rx="3" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.08)"/><text x="512" y="288" fill="#8a8f98">4× republish + 4× camera_info relay (image plumbing)</text>
+          </g>
+        </svg>
+      </div>
+      <p class="figcap" data-i18n-html="sys_s1_cap">
+        Node names are exactly what <code>rosnode list</code> returns on the running system; each was mapped to its machine by querying its own XML-RPC address, not assumed from a launch file. Note the asymmetry: the rover runs drivers, the workstation runs everything that thinks.
+      </p>
+
+      <div class="mt-5 rounded-xl border border-warn/25 bg-warn/[.07] p-4">
+        <p class="flex items-center gap-2 font-display text-sm font-bold text-warn">
+          <i data-lucide="lightbulb" class="h-4 w-4"></i>
+          <span data-i18n="sys_s1_key_t">Why this split matters in practice</span>
+        </p>
+        <p class="mt-2 text-[13px] leading-relaxed text-zinc-300" data-i18n-html="sys_s1_key_p">
+          The ROS master — the directory that lets programs find each other — runs <strong>on the rover</strong>. When the Wi-Fi drops, workstation programs keep running but lose their registrations, so they look alive to every simple health check while producing nothing. That single fact explains a large share of this project's hardest debugging sessions.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ 2 · CHEMIN D'UNE MESURE ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass animate-fade-up p-6 sm:p-8">
+      <p class="kicker" data-i18n="sys_s2_kicker">// part 2 — the outbound path</p>
+      <h2 class="mt-2 font-display text-2xl font-bold text-white" data-i18n="sys_s2_title">From a wheel tick to a dot on your screen</h2>
+      <p class="mt-3 prose-p" data-i18n="sys_s2_p">
+        Four physical sources feed the position estimate. Each is cleaned before it reaches an estimator — never after, because filtering an estimator's output instead of its input is how this project once turned a filter into the fault. Two estimators run the same data in parallel and a selector decides which one the rest of the system believes.
+      </p>
+
+      <div class="figwrap mt-5">
+        <svg viewBox="0 0 960 400" role="img" aria-label="Left-to-right flow in five columns: physical sensors, rover software, the network link, workstation pre-processing, and the two estimators feeding a pose selector, the mission backend, the web bridge and finally the browser cockpit.">
+          <!-- entetes de colonnes -->
+          <g font-size="9.5" font-family="JetBrains Mono, monospace" fill="#52525b" letter-spacing="1">
+            <text x="14"  y="26">PHYSICAL</text>
+            <text x="168" y="26">ROVER</text>
+            <text x="352" y="26">LINK</text>
+            <text x="432" y="26">WORKSTATION · CLEAN</text>
+            <text x="646" y="26">ESTIMATE</text>
+            <text x="820" y="26">OPERATOR</text>
+          </g>
+          <line x1="0" y1="34" x2="960" y2="34" stroke="rgba(255,255,255,.08)"/>
+          <line x1="342" y1="42" x2="342" y2="386" stroke="#eab308" stroke-width="1" stroke-dasharray="5 5" opacity=".6"/>
+          <line x1="414" y1="42" x2="414" y2="386" stroke="#eab308" stroke-width="1" stroke-dasharray="5 5" opacity=".6"/>
+          <text x="378" y="216" fill="#eab308" font-size="9.5" text-anchor="middle" font-family="JetBrains Mono, monospace" transform="rotate(-90 378 216)">Wi-Fi · WireGuard</text>
+
+          <!-- ── ligne IMU ── -->
+          <rect x="14" y="52" width="118" height="38" rx="4" fill="rgba(255,107,53,.1)" stroke="rgba(255,107,53,.4)"/>
+          <text x="24" y="70" fill="#ff8f66" font-size="11" font-weight="600">IMU</text>
+          <text x="24" y="84" fill="#8a8f98" font-size="9" font-family="JetBrains Mono, monospace">on CORE2 board</text>
+          <rect x="168" y="52" width="150" height="38" rx="4" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.12)"/>
+          <text x="176" y="70" fill="#d4d4d8" font-size="10" font-family="JetBrains Mono, monospace">serial_node</text>
+          <text x="176" y="83" fill="#6b7280" font-size="8.5" font-family="JetBrains Mono, monospace">UART 250 kbaud</text>
+          <rect x="432" y="52" width="180" height="38" rx="4" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.12)"/>
+          <text x="440" y="70" fill="#d4d4d8" font-size="10" font-family="JetBrains Mono, monospace">imu_sanitizer</text>
+          <text x="440" y="83" fill="#6b7280" font-size="8.5" font-family="JetBrains Mono, monospace">drops frozen &amp; out-of-spec samples</text>
+
+          <!-- ── ligne roues ── -->
+          <rect x="14" y="106" width="118" height="38" rx="4" fill="rgba(255,107,53,.1)" stroke="rgba(255,107,53,.4)"/>
+          <text x="24" y="124" fill="#ff8f66" font-size="11" font-weight="600">Encoders ×4</text>
+          <text x="24" y="138" fill="#8a8f98" font-size="9" font-family="JetBrains Mono, monospace">wheel rotation</text>
+          <rect x="168" y="106" width="150" height="38" rx="4" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.12)"/>
+          <text x="176" y="124" fill="#d4d4d8" font-size="10" font-family="JetBrains Mono, monospace">firmware_message_</text>
+          <text x="176" y="137" fill="#d4d4d8" font-size="10" font-family="JetBrains Mono, monospace">converter</text>
+          <rect x="432" y="106" width="180" height="38" rx="4" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.12)"/>
+          <text x="440" y="124" fill="#d4d4d8" font-size="10" font-family="JetBrains Mono, monospace">wheel_remap</text>
+          <text x="440" y="137" fill="#6b7280" font-size="8.5" font-family="JetBrains Mono, monospace">reorders wheels for MINS</text>
+
+          <!-- ── ligne camera ── -->
+          <rect x="14" y="160" width="118" height="38" rx="4" fill="rgba(255,107,53,.1)" stroke="rgba(255,107,53,.4)"/>
+          <text x="24" y="178" fill="#ff8f66" font-size="11" font-weight="600">RealSense D455</text>
+          <text x="24" y="192" fill="#8a8f98" font-size="9" font-family="JetBrains Mono, monospace">stereo IR + colour</text>
+          <rect x="168" y="160" width="150" height="38" rx="4" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.12)"/>
+          <text x="176" y="178" fill="#d4d4d8" font-size="10" font-family="JetBrains Mono, monospace">realsense2_camera</text>
+          <text x="176" y="191" fill="#6b7280" font-size="8.5" font-family="JetBrains Mono, monospace">compresses before sending</text>
+          <rect x="432" y="160" width="180" height="38" rx="4" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.12)"/>
+          <text x="440" y="178" fill="#d4d4d8" font-size="10" font-family="JetBrains Mono, monospace">republish ×4</text>
+          <text x="440" y="191" fill="#6b7280" font-size="8.5" font-family="JetBrains Mono, monospace">decompress locally</text>
+
+          <!-- ── ligne balise ── -->
+          <rect x="14" y="214" width="118" height="38" rx="4" fill="rgba(255,107,53,.1)" stroke="rgba(255,107,53,.4)"/>
+          <text x="24" y="232" fill="#ff8f66" font-size="11" font-weight="600">Beacon</text>
+          <text x="24" y="246" fill="#8a8f98" font-size="9" font-family="JetBrains Mono, monospace">LEDs + AprilTag</text>
+          <rect x="432" y="214" width="180" height="38" rx="4" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.12)"/>
+          <text x="440" y="232" fill="#d4d4d8" font-size="10" font-family="JetBrains Mono, monospace">apriltag · carolus</text>
+          <text x="440" y="245" fill="#6b7280" font-size="8.5" font-family="JetBrains Mono, monospace">absolute reference, when in view</text>
+
+          <!-- fleches capteurs -> robot -->
+          <g stroke="#6b7280" stroke-width="1.4" fill="none">
+            <path d="M132,71 L162,71"/><path d="M132,125 L162,125"/><path d="M132,179 L162,179"/>
+          </g>
+          <g fill="#6b7280">
+            <polygon points="167,71 158,67 158,75"/><polygon points="167,125 158,121 158,129"/><polygon points="167,179 158,175 158,183"/>
+          </g>
+          <!-- robot -> reseau -> pc -->
+          <g stroke="#6b7280" stroke-width="1.4" fill="none">
+            <path d="M318,71 L426,71"/><path d="M318,125 L426,125"/><path d="M318,179 L426,179"/>
+            <path d="M132,233 L426,233"/>
+          </g>
+          <g fill="#6b7280">
+            <polygon points="431,71 422,67 422,75"/><polygon points="431,125 422,121 422,129"/>
+            <polygon points="431,179 422,175 422,183"/><polygon points="431,233 422,229 422,237"/>
+          </g>
+
+          <!-- collecteur vers estimateurs -->
+          <line x1="628" y1="71" x2="628" y2="233" stroke="#6b7280" stroke-width="1.4"/>
+          <g stroke="#6b7280" stroke-width="1.4" fill="none">
+            <path d="M612,71 L628,71"/><path d="M612,125 L628,125"/>
+            <path d="M612,179 L628,179"/><path d="M612,233 L628,233"/>
+          </g>
+
+          <!-- estimateurs -->
+          <rect x="646" y="52" width="150" height="42" rx="4" fill="rgba(255,107,53,.12)" stroke="rgba(255,107,53,.45)"/>
+          <text x="656" y="70" fill="#ff8f66" font-size="11" font-weight="700">MINS</text>
+          <text x="656" y="85" fill="#8a8f98" font-size="8.5" font-family="JetBrains Mono, monospace">camera + IMU + wheels</text>
+          <rect x="646" y="106" width="150" height="42" rx="4" fill="rgba(34,211,238,.12)" stroke="rgba(34,211,238,.45)"/>
+          <text x="656" y="124" fill="#67e8f9" font-size="11" font-weight="700">openVINS</text>
+          <text x="656" y="139" fill="#8a8f98" font-size="8.5" font-family="JetBrains Mono, monospace">camera + IMU only</text>
+          <g stroke="#6b7280" stroke-width="1.4" fill="none">
+            <path d="M628,73 L642,73"/><path d="M628,127 L642,127"/>
+          </g>
+          <g fill="#6b7280"><polygon points="646,73 637,69 637,77"/><polygon points="646,127 637,123 637,131"/></g>
+
+          <!-- selecteur -->
+          <rect x="646" y="172" width="150" height="42" rx="4" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.18)"/>
+          <text x="656" y="190" fill="#e4e4e7" font-size="10.5" font-family="JetBrains Mono, monospace">pose_selector</text>
+          <text x="656" y="205" fill="#6b7280" font-size="8.5" font-family="JetBrains Mono, monospace">picks one, guards the switch</text>
+          <g stroke="#6b7280" stroke-width="1.4" fill="none">
+            <path d="M721,94 L721,168"/><path d="M721,148 L721,168"/>
+          </g>
+          <polygon points="721,172 717,163 725,163" fill="#6b7280"/>
+
+          <!-- operateur -->
+          <rect x="820" y="52" width="126" height="42" rx="4" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.12)"/>
+          <text x="828" y="70" fill="#d4d4d8" font-size="10" font-family="JetBrains Mono, monospace">leo_backend</text>
+          <text x="828" y="85" fill="#6b7280" font-size="8.5" font-family="JetBrains Mono, monospace">autonomy + telemetry</text>
+          <rect x="820" y="106" width="126" height="42" rx="4" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.12)"/>
+          <text x="828" y="124" fill="#d4d4d8" font-size="10" font-family="JetBrains Mono, monospace">rosbridge</text>
+          <text x="828" y="139" fill="#6b7280" font-size="8.5" font-family="JetBrains Mono, monospace">ROS ⇄ WebSocket</text>
+          <rect x="820" y="160" width="126" height="42" rx="4" fill="rgba(63,220,151,.1)" stroke="rgba(63,220,151,.4)"/>
+          <text x="828" y="178" fill="#3fdc97" font-size="10.5" font-weight="600">Cockpit</text>
+          <text x="828" y="193" fill="#8a8f98" font-size="8.5" font-family="JetBrains Mono, monospace">your browser</text>
+          <g stroke="#6b7280" stroke-width="1.4" fill="none">
+            <path d="M796,190 L806,190 L806,73 L814,73"/>
+            <path d="M883,94 L883,102"/><path d="M883,148 L883,156"/>
+          </g>
+          <g fill="#6b7280">
+            <polygon points="819,73 810,69 810,77"/>
+            <polygon points="883,106 879,97 887,97"/><polygon points="883,160 879,151 887,151"/>
+          </g>
+
+          <!-- retour commande -->
+          <rect x="14" y="300" width="932" height="62" rx="6" fill="rgba(252,61,33,.05)" stroke="rgba(252,61,33,.3)" stroke-dasharray="4 3"/>
+          <text x="26" y="320" fill="#FC3D21" font-size="10" font-weight="700" font-family="JetBrains Mono, monospace">COMMAND PATH (returns the other way)</text>
+          <text x="26" y="340" fill="#a1a1aa" font-size="10.5" font-family="JetBrains Mono, monospace">Cockpit → rosbridge → /mission/command → leo_backend → /cmd_vel → serial_node → CORE2 → motors</text>
+          <text x="26" y="355" fill="#6b7280" font-size="9.5" font-family="JetBrains Mono, monospace">Manual driving does NOT depend on the estimators: it is this chain alone.</text>
+        </svg>
+      </div>
+      <p class="figcap" data-i18n="sys_s2_cap">
+        Every box is a real running program and every topic name is the real one. The dashed red band is the point most people miss: driving the rover by hand uses none of the estimation chain, which is why manual control can work perfectly while the position display is frozen — and why the reverse is also possible.
+      </p>
+    </div>
+  </section>
+
+  <!-- ══════════════════ 3 · TOPICS ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass animate-fade-up p-6 sm:p-8">
+      <p class="kicker" data-i18n="sys_s3_kicker">// part 3 — the wiring</p>
+      <h2 class="mt-2 font-display text-2xl font-bold text-white" data-i18n="sys_s3_title">The topics that carry everything</h2>
+      <p class="mt-3 prose-p" data-i18n-html="sys_s3_p">
+        In ROS, programs never call each other directly. They publish messages on named channels called <em>topics</em>, and anyone interested subscribes. This is why a program can be perfectly alive and still useless: it is registered, but nothing is flowing. Message types below are exactly what <code>rostopic type</code> returns on the running system.
+      </p>
+      <div class="mt-4 overflow-x-auto">
+        <table class="tbl">
+          <tr><th data-i18n="sys_th_topic">Topic</th><th data-i18n="sys_th_type">Message type</th><th data-i18n="sys_th_carries">What it carries</th></tr>
+          <tr><td><code>/firmware/imu</code></td><td>leo_msgs/Imu</td><td data-i18n="sys_t1">Raw inertial data straight off the CORE2 board, before any cleaning.</td></tr>
+          <tr><td><code>/firmware/wheel_states</code></td><td>leo_msgs/WheelStates</td><td data-i18n="sys_t2">Position, velocity, torque and PWM for each of the four wheels.</td></tr>
+          <tr><td><code>/imu/data_raw</code></td><td>sensor_msgs/Imu</td><td data-i18n="sys_t3">The same inertial data converted to the standard ROS message.</td></tr>
+          <tr><td><code>/imu/data_clean</code></td><td>sensor_msgs/Imu</td><td data-i18n="sys_t4">After the sanitizer: frozen and out-of-spec samples removed. This is what the estimators actually read.</td></tr>
+          <tr><td><code>/joint_states</code></td><td>sensor_msgs/JointState</td><td data-i18n="sys_t5">Wheel angles in standard form. Its silence, with the node still alive, has cost this project two full debugging sessions.</td></tr>
+          <tr><td><code>/camera/color/image_raw/compressed</code></td><td>sensor_msgs/CompressedImage</td><td data-i18n="sys_t6">Colour video, compressed on the rover because the raw stream saturates the Wi-Fi link.</td></tr>
+          <tr><td><code>/mins/imu/odom</code></td><td>nav_msgs/Odometry</td><td data-i18n="sys_t7">MINS's position estimate.</td></tr>
+          <tr><td><code>/ov_msckf/odomimu</code></td><td>nav_msgs/Odometry</td><td data-i18n="sys_t8">openVINS's position estimate, computed in parallel from the same data.</td></tr>
+          <tr><td><code>/robot_pose_fused</code></td><td>nav_msgs/Odometry</td><td data-i18n="sys_t9">Whichever estimate the selector currently trusts. Everything downstream reads this one.</td></tr>
+          <tr><td><code>/pose</code></td><td>geometry_msgs/PoseStamped</td><td data-i18n="sys_t10">The beacon seen by Carolus, expressed in camera coordinates.</td></tr>
+          <tr><td><code>/tag_detections</code></td><td>apriltag_ros/…Array</td><td data-i18n="sys_t11">Every AprilTag currently visible, with its full 6-DOF pose.</td></tr>
+          <tr><td><code>/cmd_vel</code></td><td>geometry_msgs/Twist</td><td data-i18n="sys_t12">The drive command: forward speed and turn rate. The single channel every motion passes through.</td></tr>
+          <tr><td><code>/mission/telemetry</code></td><td>std_msgs/String</td><td data-i18n="sys_t13">The whole cockpit state as JSON, ten times a second.</td></tr>
+          <tr><td><code>/mission/command</code></td><td>std_msgs/String</td><td data-i18n="sys_t14">Every button you press in the cockpit, as JSON.</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ 4 · GLOSSAIRE ══════════════════ -->
+  <section class="mx-auto max-w-5xl px-5 pb-20">
+    <div class="tile glass animate-fade-up p-6 sm:p-8">
+      <p class="kicker" data-i18n="sys_s4_kicker">// part 4 — every word</p>
+      <h2 class="mt-2 font-display text-2xl font-bold text-white" data-i18n="sys_s4_title">Vocabulary</h2>
+      <p class="mt-3 prose-p" data-i18n="sys_s4_p">
+        Every term used across this site and the engineering report. Type to filter.
+      </p>
+      <div class="mt-4">
+        <input id="glSearch" type="search" autocomplete="off"
+               placeholder="Filter — try: kalman, uart, drift, quaternion…"
+               data-i18n="sys_gl_ph" />
+        <p class="mt-2 flex flex-wrap gap-2 text-[10px]">
+          <span class="gl-tag t-hw" style="margin-left:0">hardware</span>
+          <span class="gl-tag t-sw" style="margin-left:0">software</span>
+          <span class="gl-tag t-math" style="margin-left:0">maths</span>
+          <span class="gl-tag t-net" style="margin-left:0">network</span>
+        </p>
+        <p id="glCount" class="mt-2 font-mono text-[10px] text-zinc-600"></p>
+      </div>
+      <div id="glList" class="mt-3"></div>
+    </div>
+  </section>
+
+  <script src="vendor/lucide-1.25.0.umd.js?v=v1"></script>
+  <script>
+  /* ═══════════════════════════════════════════════════════════════════════
+     Glossaire — source unique, rendu et filtré côté client.
+     Les définitions marquées « report » reprennent mot pour mot le glossaire
+     de l'annexe A du rapport d'ingénierie, pour qu'un terme n'ait jamais deux
+     définitions divergentes entre le site et le document.
+     ═══════════════════════════════════════════════════════════════════════ */
+  (function () {
+    var GLOSSARY = [
+      // ── Matériel ─────────────────────────────────────────────────────────
+      ['CORE2', 'hw', 'The motor-control board between the Raspberry Pi and the hardware. It drives the four motors, reads the encoders, carries the IMU and reports battery voltage. It speaks to the Pi over a serial line, not USB.'],
+      ['Raspberry Pi 4', 'hw', 'The small computer on board the rover. Runs the drivers and the ROS master; deliberately does not run the estimators, which are too heavy for it.'],
+      ['RealSense D455', 'hw', 'Intel depth camera: two infrared cameras for stereo depth plus one colour camera. The infrared pair feeds the estimators; the colour stream feeds beacon detection and costs the most CPU.'],
+      ['IMU', 'hw', 'Inertial Measurement Unit — measures linear acceleration and angular rate. Fast and always available, but its errors accumulate when integrated, which is exactly what the camera is there to correct.'],
+      ['Encoder', 'hw', 'A sensor counting wheel rotation. Gives excellent forward distance and unreliable heading on this platform, because the mecanum rollers absorb a left/right speed difference instead of turning it into rotation.'],
+      ['Mecanum wheel', 'hw', 'A wheel whose rim carries free rollers set at 45°. It can push diagonally, so four of them can translate sideways. Fitted on this rover; the strafe capability is not enabled in the firmware.'],
+      ['AprilTag', 'hw', 'A printed square marker a camera can identify and locate in 6 degrees of freedom. Used here as a long-range beacon and as a fixed reference point.'],
+      ['Carolus', 'hw', 'The beacon system inherited from a NASA Astrobee project: coloured LEDs in a known pattern, located by solving for the camera pose that best explains where they appear in the image.'],
+      ['UART', 'hw', 'The serial line between the Pi and the CORE2 board, running at 250 000 baud. When the Pi is too busy to empty its receive buffer in time, bytes are lost and the link desynchronises — a recurring fault on this platform.'],
+
+      // ── Logiciel / ROS ───────────────────────────────────────────────────
+      ['ROS', 'sw', 'Robot Operating System — not an operating system but a middleware: it lets independent programs find each other and exchange messages. This project uses ROS Noetic.'],
+      ['Node', 'sw', 'A single running program inside ROS. <code>rosnode list</code> shows them all. A node can be registered and alive while publishing nothing at all.'],
+      ['Topic', 'sw', 'A named channel carrying messages. Publishers write to it, subscribers read from it, and neither knows the other exists.'],
+      ['ROS master', 'sw', 'The directory service that lets nodes find each other. It runs on the rover here, which is why losing the network breaks workstation nodes in a way simple health checks do not detect.'],
+      ['roslaunch', 'sw', 'Starts a set of nodes described in an XML file, with their parameters.'],
+      ['rosmon', 'sw', 'A supervisor used on the rover in place of plain roslaunch: it can stop and restart one node without touching the rest.'],
+      ['rosbag', 'sw', 'Records topics to a file for later replay or analysis. The only trustworthy way to capture an experiment here, because the cockpit buffer is lost on any backend restart.'],
+      ['rosbridge', 'sw', 'Translates between ROS and WebSocket so a browser can publish and subscribe. Two run here: one plain for the local network, one over TLS for the public tunnel.'],
+      ['TF / TF2', 'sw', 'The system tracking where every coordinate frame sits relative to every other, over time. Ask it for camera-to-ground and it composes the chain for you.'],
+      ['Frame', 'sw', 'A coordinate system attached to something — the robot body, the camera, the ground. A position is meaningless until you say which frame it is expressed in.'],
+      ['base_link', 'sw', 'The frame attached to the robot body, by convention x forward, y left, z up.'],
+      ['odom', 'sw', 'The frame the robot started in. Continuous and smooth, but it drifts: it is not a map.'],
+      ['beacon_link', 'sw', 'A ground-fixed frame anchored on the beacon the first time it is seen. Gives both estimators a common physical reference so their difference becomes a real error rather than an arbitrary offset.'],
+      ['leo_backend', 'sw', 'The program holding the autonomy state machine, the telemetry stream and the command handling. Runs on the workstation.'],
+      ['pose_selector', 'sw', 'Decides which estimator the rest of the system believes, and guards the switch so a bad source cannot be selected silently.'],
+      ['imu_sanitizer', 'sw', 'Removes frozen and out-of-spec inertial samples before they reach the estimators. Cleaning the input rather than the output is a deliberate rule here.'],
+      ['Watchdog', 'sw', 'A script running every minute that restarts what has died. It has also, when wrong, destroyed two days of measurements by restarting a healthy stack — which is why it is now documented as carefully as the code it guards.'],
+
+      // ── Estimation / maths ───────────────────────────────────────────────
+      ['MINS', 'math', 'Multisensor-aided Inertial Navigation System — the estimator fusing camera, IMU and wheel odometry in a single filter. Initialises standing still, which is why it is the default source here.'],
+      ['openVINS / VINS', 'math', 'An MSCKF-based visual-inertial estimator using camera and IMU only, no wheels. Needs a jerk to initialise. Run in parallel with MINS as an independent witness.'],
+      ['Kalman filter', 'math', 'A recursive estimator that keeps both a best guess and its uncertainty, and combines each new measurement in proportion to how much it trusts it against how much it trusts itself.'],
+      ['EKF', 'math', 'Extended Kalman Filter — a Kalman filter linearised at each step so it can handle non-linear motion and sensors.'],
+      ['MSCKF', 'math', 'Multi-State Constraint Kalman Filter — keeps a sliding window of recent camera poses in the state instead of the 3D landmarks, so the state does not grow with the number of features seen.'],
+      ['Covariance', 'math', 'The filter\'s own statement of how uncertain it is. It grows while dead-reckoning and collapses when an absolute measurement arrives.'],
+      ['Chi-squared gate', 'math', 'A statistical test rejecting a measurement that disagrees with the current estimate by more than its stated uncertainty allows. It is what stops one bad reading from wrecking the filter.'],
+      ['Odometry', 'math', 'Estimating movement by integrating motion sensors. Smooth and always available; drifts without bound because every small error is added to all previous ones.'],
+      ['Drift', 'math', 'The slow accumulation of error in dead-reckoning. Not a fault: an inherent property of integrating imperfect measurements, and the reason absolute references matter.'],
+      ['Loop closure', 'math', 'Returning to a known point and measuring the gap between where you are and where the estimate says you are. The cheapest honest error measurement available without ground truth.'],
+      ['Ground truth', 'math', 'A measurement of reality independent of the system being tested — here a tape measure and marked floor, not another estimator.'],
+      ['Quaternion', 'math', 'Four numbers encoding a 3D rotation without the gimbal lock that afflicts Euler angles. The standard rotation representation in ROS.'],
+      ['SE(3)', 'math', 'The set of rigid-body transformations: a rotation plus a translation. What a "pose" formally is.'],
+      ['PnP / P4P', 'math', 'Computing where a camera is from n known 3D points and where they appear in the image. Carolus solves this with four LEDs.'],
+      ['Kabsch / Umeyama', 'math', 'Closed-form methods for finding the rotation (and, for Umeyama, the scale) best aligning two sets of points. Used to compare two trajectories, and a scale term is deliberately kept visible because hiding it would conceal the very error being measured.'],
+      ['PID', 'math', 'A controller combining the present error, its accumulated history and its rate of change. Four of them run in this rover\'s autonomy loop.'],
+      ['SLAM', 'math', 'Simultaneous Localisation and Mapping — building a map while locating yourself in it. Disabled during pure pivots here, where landmark depth cannot be observed.'],
+      ['ZUPT', 'math', 'Zero-velocity update — telling the filter "you are stopped" when the sensors agree you are. Enabling it took one openVINS run from 41 824 m of divergence to 0.002 m.'],
+      ['Extrinsic calibration', 'math', 'Measuring where one sensor sits relative to another. Getting the camera-to-IMU extrinsic wrong produces a plausible-looking trajectory that is quietly wrong.'],
+
+      // ── Réseau ───────────────────────────────────────────────────────────
+      ['WireGuard', 'net', 'The VPN carrying ROS traffic between workstation and rover off-campus, over a single UDP port.'],
+      ['WebSocket', 'net', 'A connection staying open in both directions between a browser and a server, which is how the cockpit receives telemetry ten times a second without polling.'],
+      ['TCPROS', 'net', 'ROS\'s default transport: each topic connection is a plain TCP socket whose port is negotiated at subscription time.'],
+      ['XML-RPC', 'net', 'The protocol nodes use to register with the master and to find each other before any topic data flows.'],
+      ['Cloudflare Tunnel', 'net', 'Publishes the cockpit without opening any port on the local network: the connection is established outbound from the workstation.'],
+      ['Throttling', 'net', 'The processor slowing itself down when too hot. On this rover it dropped the CPU from 1500 to 600 MHz and broke the serial link — the reason two fans were fitted.'],
+    ];
+
+    var TAGNAME = { hw:'hardware', sw:'software', math:'maths', net:'network' };
+
+    var list = document.getElementById('glList');
+    var search = document.getElementById('glSearch');
+    var count = document.getElementById('glCount');
+
+    // Rendu une seule fois ; le filtrage ne fait ensuite que masquer des nœuds
+    // déjà construits (pas de reconstruction du DOM à chaque frappe).
+    GLOSSARY.sort(function (a, b) {
+      return a[0].toLowerCase().localeCompare(b[0].toLowerCase());
+    });
+    var frag = document.createDocumentFragment();
+    GLOSSARY.forEach(function (g) {
+      var d = document.createElement('div');
+      d.className = 'gl-item';
+      d.dataset.hay = (g[0] + ' ' + g[2] + ' ' + TAGNAME[g[1]]).toLowerCase();
+      var t = document.createElement('div');
+      t.className = 'gl-term';
+      t.textContent = g[0];
+      var tag = document.createElement('span');
+      tag.className = 'gl-tag t-' + g[1];
+      tag.textContent = TAGNAME[g[1]];
+      t.appendChild(tag);
+      var def = document.createElement('div');
+      def.className = 'gl-def';
+      def.innerHTML = g[2];      // contient parfois <code>, contenu maîtrisé ci-dessus
+      d.appendChild(t); d.appendChild(def);
+      frag.appendChild(d);
+    });
+    list.appendChild(frag);
+
+    var items = Array.prototype.slice.call(list.children);
+    function apply() {
+      var q = (search.value || '').trim().toLowerCase();
+      var n = 0;
+      items.forEach(function (el) {
+        var hit = !q || el.dataset.hay.indexOf(q) !== -1;
+        el.style.display = hit ? '' : 'none';
+        if (hit) n++;
+      });
+      count.textContent = q ? (n + ' / ' + items.length + ' terms') : (items.length + ' terms');
+    }
+    search.addEventListener('input', apply);
+    apply();
+  })();
+
+  lucide.createIcons();
+  if (window.I18N) I18N.apply();
+  </script>
+</body>
+</html>

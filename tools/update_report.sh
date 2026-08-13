@@ -56,17 +56,27 @@ cp main.pdf "/home/lab272/TOUT/web/reports/LEO_Rover_Mission_Control_Report_Nico
 VER=$(date +%s)
 PDF="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf"
 python3 - "$VER" "$PDF" <<'PYEOF'
-import re, sys
+import glob, os, re, sys
 ver, pdf = sys.argv[1], sys.argv[2]
-p = "/home/lab272/TOUT/web/logbook.html"
-s = open(p, encoding="utf-8").read()
-new = re.sub(r'href="' + re.escape(pdf) + r'(\?v=\d+)?"',
-             'href="%s?v=%s"' % (pdf, ver), s)
-if new != s:
-    open(p, "w", encoding="utf-8").write(new)
-    print("      lien du Journal de bord estampillé v=%s" % ver)
+# TOUTES les pages, pas seulement logbook.html (corrigé 2026-08-12) : depuis
+# l'harmonisation de la navigation, le lien "Report" figure dans la barre de
+# nav des 11 pages. N'estampiller que le Journal de bord laissait donc dix
+# liens sans ?v=, et Cloudflare servait par ceux-là une copie périmée — très
+# exactement le défaut que ce bloc existe pour empêcher.
+pat = re.compile(r'href="' + re.escape(pdf) + r'(\?v=\d+)?(#[^"]*)?"')
+touched = []
+for p in sorted(glob.glob("/home/lab272/TOUT/web/*.html")):
+    s = open(p, encoding="utf-8").read()
+    # le fragment #page=N doit survivre : il vise une page précise du PDF
+    new = pat.sub(lambda m: 'href="%s?v=%s%s"' % (pdf, ver, m.group(2) or ""), s)
+    if new != s:
+        open(p, "w", encoding="utf-8").write(new)
+        touched.append(os.path.basename(p))
+if touched:
+    print("      lien PDF estampillé v=%s sur %d page(s) : %s"
+          % (ver, len(touched), ", ".join(touched)))
 else:
-    print("      ATTENTION : lien introuvable dans logbook.html — à vérifier")
+    print("      ATTENTION : aucun lien vers le PDF trouvé dans web/*.html")
 PYEOF
 
 echo "[3/3] OK — $pages pages, $(stat -c%s main.pdf) octets"
