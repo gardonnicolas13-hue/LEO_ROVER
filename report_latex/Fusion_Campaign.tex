@@ -7277,6 +7277,127 @@ is the outcome the habit is for. What remains open, honestly: item 38's
 controlled A/B, and a live checksum storm whose cause is a hypothesis, not
 yet a finding.
 
+\section{Field session, August 13: the matched-load A/B, finally isolated}
+\label{sec:aug13ab}
+
+Item 38 has carried the same open action since July 30: hold the load fixed
+and compare the overrun rate, not the temperature. \S\ref{sec:aug11thermal}
+came close but missed on its own terms, by its own admission --- the Aug 11
+heavy-load figure was a $31$-node stack restart, a heavier and different
+profile from July 30's sustained single-nodelet load, so the two
+oversubscription figures it produced were suggestive, not the controlled
+comparison the item specified. This section runs the comparison the item
+actually asked for.
+
+\subsection{Instrumentation gap, closed first}
+
+Neither existing script measured the right quantity.
+\code{tools/check\_serial\_health.sh} (item 19) counts \code{wrong checksum}
+lines in \code{journalctl} --- a protocol-level symptom, one layer removed
+from the event of interest. Every number this report's UART analysis is
+actually built on, Eq.~\ref{eq:missprob}'s $3.07\,\mathrm{s}^{-1}$ and the
+$137\,000 \to 676\,751$ progression of Table~\ref{tab:july30thermal}, comes
+from the kernel's own FIFO overrun counter instead, and nothing in
+\code{tools/} read it in a scripted, repeatable way: every past reading was
+an ad hoc SSH one-liner, typed once and not saved. \code{tools/check\_uart\_overruns.sh}
+closes that gap: it reads \code{/proc/tty/driver/ttyAMA}'s \code{oe:} field
+twice, a chosen number of seconds apart, and reports the delta as a rate in
+$\mathrm{s}^{-1}$ directly comparable to Eq.~\ref{eq:missprob}. Confirmed
+live before use: \code{irq:14}, \code{uart:PL011}, the same interrupt
+already implicated in \S\ref{sec:july30thermal}'s deadline model.
+
+\subsection{Matching the load}
+
+Checked live immediately before the measurement: \code{realsense2\_camera\_manager}
+at $164.7\,\%$ CPU, \code{/camera/color/image\_raw/compressed} publishing at
+$15.0$\,Hz (not the $4$\,Hz throttle applied for the Test1/Test2 protocol
+elsewhere in this report --- reverted, whether deliberately or as a side
+effect of a later restart, and confirmed via \code{rostopic hz} rather than
+assumed), and both estimators registered and running simultaneously
+(\code{mins\_subscribe}, \code{ov\_msckf}). That is the same qualitative
+load July 30 described: ``the colour nodelet consumed $185\,\%$ of a
+four-core budget already carrying two estimators' worth of publication
+traffic.'' The CPU percentage itself is not expected to match: July 30's
+$185\,\%$ was measured with the clock throttled to $600$\,MHz, and the same
+code path against a $1500$\,MHz clock (Eq.~\ref{eq:aug11nopenalty}, no
+frequency penalty) does less relative work for the same wall-clock output,
+so a lower percentage at full clock is consistent with an equal or heavier
+absolute load, not evidence of a lighter one. Core temperature, read before
+and after both windows, held at exactly $73.0\,^\circ$C throughout with
+\code{get\_throttled} at \code{0x0} and the clock at $1500.4$\,MHz on every
+check --- stable across the full $\sim13$-minute span from the initial
+process check to the last reading, which is circumstantial support that the
+same background load persisted through the measurement, not a
+per-second confirmation of it.
+
+\begin{casestudy}{Two runs, one number: $2.07\,\mathrm{s}^{-1}$, not $3.07$}
+Two independent $180$\,s windows, run back to back, no configuration change
+between them:
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Window & $\Delta$\code{oe} & Duration & Rate \\
+\midrule
+Run A & $383$ & $180.8$\,s & $2.118\,\mathrm{s}^{-1}$ \\
+Run B & $367$ & $180.8$\,s & $2.030\,\mathrm{s}^{-1}$ \\
+\midrule
+Pooled & $750$ & $361.6$\,s & $\mathbf{2.074\,\mathrm{s}^{-1}}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+The two runs agree to within $4\,\%$ of each other, which is what makes the
+pooled figure a measurement rather than a single noisy sample. Against the
+July 30 reference,
+\begin{equation}
+\frac{2.074}{3.07} = 0.676, \qquad\text{a } 32.4\,\%\text{ reduction, and a }
+67.6\,\%\text{ remainder.}
+\label{eq:aug13reduction}
+\end{equation}
+Restating in the miss-probability form of Eq.~\ref{eq:missprob},
+\begin{equation}
+p_{\mathrm{Aug13}} = \frac{2.074}{781} = 2.66\times10^{-3}
+\qquad\text{versus}\qquad
+p_{\mathrm{Jul30}} = 3.9\times10^{-3}.
+\label{eq:aug13missprob}
+\end{equation}
+\end{casestudy}
+
+\subsection{What this actually settles}
+
+Item 38, read literally, is closed: the matched-load A/B it specified has
+been run, on the load it specified, and produced a number. What that number
+says is not what a reader hoping to close the whole UART story would want.
+Active cooling recovers roughly a third of the overrun rate at this load,
+not the whole of it. Two out of every three overruns that occurred under
+July 30's throttled, no-cooling condition are still occurring under a
+condition with \emph{no} throttling at all, clock pinned at its maximum on
+every single check taken across the session. Eq.~\ref{eq:aug11nopenalty}
+already established that the frequency-penalty term in
+Eq.~\ref{eq:latencysplit} is at its identity element under tonight's
+conditions; a majority of the original overrun rate surviving that removal
+means a majority of $L$ in that equation is coming from somewhere
+Eq.~\ref{eq:freqpenalty} never touched --- $L_{\mathrm{preempt}}$ itself, or
+a mechanism the decomposition does not model at all, such as the physical
+connector hypothesis \S\ref{sec:aug11mins} raised and explicitly did not
+establish. This result does not distinguish between those; it rules out
+temperature as sufficient, which is a narrower and more useful claim than
+ruling it out as relevant.
+
+\begin{trapbox}{What this is not}
+Two runs from one session, one physical robot, one evening. It is a real
+controlled comparison --- same load, same instrumentation, same
+$180$\,s window as the reference it is measured against --- not a large
+sample, and it says nothing about whether the remaining $67.6\,\%$ is
+constant, load-dependent, or itself thermal in a way this experiment did
+not vary (ambient temperature, connector temperature specifically rather
+than core temperature, time since boot). The next step this result points
+to, not yet run, is interrupt-latency tracing on \code{irq 14} itself
+(\code{ftrace}'s \code{irqsoff} tracer, confirmed available on this robot
+without installing anything, against \code{cyclictest}, which is not
+installed) to see whether the residual $2.07\,\mathrm{s}^{-1}$ traces to
+$L_{\mathrm{preempt}}$ directly rather than staying a subtraction.
+\end{trapbox}
+
 \section{The Carolus quaternion, traced to source: why sixteen trials were
 never going to converge on a general answer}
 \label{sec:quaternion}
@@ -8487,22 +8608,21 @@ on every telemetry tick.
     bag and report their instantaneous difference; this is the measurement
     the whole comparison programme has been building toward \\
 38 & \textbf{Thermal envelope is three degrees wide} --- \textbf{active
-    cooling installed August 11, partially re-measured}
-    (\S\ref{sec:july30thermal}, \S\ref{sec:aug11thermal}). The July 28
-    scheduling fix holds the serial link at $86\,^\circ$C under full colour
-    load ($19.7$\,Hz wheel odometry, $82.8$\,Hz IMU) and does not hold it at
-    $89.1\,^\circ$C, where the chain collapses entirely ($676\,751$ UART
-    overruns, load $8.85$, all firmware topics at $0$\,Hz). Two GPIO fans
-    now hold the ARM clock at $1500$\,MHz (no throttling, $89.1\,^\circ$C
-    never approached) at both a light load ($58$--$59\,^\circ$C) and the
-    heaviest load observed to date, a $31$-node stack restart
-    ($72.5\,^\circ$C, margin $M_{89.1}=16.6\,^\circ$C by
-    Eq.~\ref{eq:thermalmargin}) &
-    the matched-load A/B this item originally specified, overrun rate at
-    the exact July 30 profile ($185\,\%$ colour nodelet, sustained,
-    cooling installed), has still not been run; tonight's heavy-load figure
-    is a different, heavier-but-not-equivalent profile and is suggestive,
-    not the controlled comparison \\
+    cooling installed August 11, matched-load A/B run August 13, CLOSED}
+    (\S\ref{sec:july30thermal}, \S\ref{sec:aug11thermal}, \S\ref{sec:aug13ab}).
+    The July 28 scheduling fix holds the serial link at $86\,^\circ$C under
+    full colour load and does not hold it at $89.1\,^\circ$C, where the
+    chain collapses entirely ($676\,751$ UART overruns, load $8.85$, all
+    firmware topics at $0$\,Hz). Two GPIO fans hold the ARM clock at
+    $1500$\,MHz under every load tested, $89.1\,^\circ$C never approached.
+    The controlled comparison this item specified --- overrun rate,
+    July 30's load (colour nodelet, both estimators), cooling installed,
+    two independent $180$\,s windows --- gives $2.074\,\mathrm{s}^{-1}$
+    pooled against the July 30 reference of $3.07\,\mathrm{s}^{-1}$: a
+    $32.4\,\%$ reduction, not elimination &
+    closed as specified; the $67.6\,\%$ of the original overrun rate that
+    survives zero throttling is not this item's question any more, it is
+    item 40's --- see its updated entry below \\
 39 & \textbf{Second absolute-error method: implemented, never measured}
     (\S\ref{sec:aug05beacon}). Item~37's beacon bridge is gated on
     item~36; this session added a complementary method on already-
@@ -8517,48 +8637,26 @@ on every telemetry tick.
     protocol's third corner is already instrumented for it,
     \S\ref{ap:repro-mins-guide}); drive at least two laps past it in one
     recording; run \code{tag\_drift.py} on the result \\
-40 & \textbf{A live UART checksum storm, unresolved, two more hypotheses
-    now eliminated by measurement} (\S\ref{sec:aug11mins}).
-    \code{tools/restart\_stack.sh} ended \code{TIMEOUT init MINS}; a
-    re-check found \code{mins\_subscribe} registered but
-    \code{/mins/imu/odom} and \code{/firmware/wheel\_states} both silent
-    over a $10$\,s window, \code{pose\_selector} still reporting
-    \code{pose\_source: "MINS"} regardless, and
-    \code{/serial\_node} filling \code{journalctl} with sustained
-    \code{wrong checksum for topic id and msg} entries, the same
-    signature as Eq.~\ref{eq:missprob} (July 30) and
-    \S\ref{sec:july22network} (July 22), while the ROS graph wiring itself
-    (unlike the July 22 case) was confirmed correct. Both earlier
-    occurrences were thermal; the ARM clock stayed at $1500$\,MHz
-    throughout, ruling that specific mechanism out.
-    \textbf{Follow-up, same night:} the storm was confirmed still active
-    with the rover completely stationary (\code{/firmware/wheel\_states}
-    velocity all zero), directly refuting the motion-excitation hypothesis
-    this item previously proposed. A second hypothesis, that the kernel's
-    global real-time budget (\code{sched\_rt\_runtime\_us}, found still at
-    its stock default of $950\,000\,\mu$s$/1\,000\,000\,\mu$s, i.e.\ a
-    mandatory $5\,\%$ idle window every second across \emph{all} SCHED\_FIFO
-    tasks regardless of individual priority) was starving
-    \code{serial\_node} despite its correct \code{rtprio}$=25$, evidenced by
-    one \code{dmesg} line, \code{sched: RT throttling activated}, $271$\,s
-    after boot, was tested directly: a controlled before/after A/B
-    (\code{sysctl -w kernel.sched\_rt\_runtime\_us=-1}, four 15\,s samples
-    against a 15\,s baseline of $38$ checksum errors) gave
-    $28,41,36,26$, well within the baseline's own sample-to-sample noise,
-    not a reduction. The setting was reverted immediately
-    (\code{950\,000}, confirmed). A structural fact was found in passing
-    that narrows the remaining search: IRQ~$14$ (\code{uart-pl011}, the
-    CORE2 link) is a traditional, non-threaded hard interrupt pinned
-    entirely to CPU0 ($\approx550$/s), not a schedulable kernel thread, so
-    neither \code{serial\_node}'s process priority nor the kernel's RT
-    budget setting is the layer where a multi-millisecond gap could
-    actually be introduced; both were plausible and both are now ruled out
-    by measurement, not assumption &
-    instrument interrupt-handling latency directly (e.g.\ the kernel's own
-    \code{irqsoff}/\code{preemptirqsoff} ftrace tracers, or a
-    \code{cyclictest} run against \code{/dev/ttyAMA0}'s IRQ) rather than
-    continuing to test process-level scheduling hypotheses, since two of
-    those have now been eliminated by direct, controlled measurement \\
+40 & \textbf{A live UART checksum storm, thermal explanation now ruled
+    insufficient} (\S\ref{sec:aug11mins}, \S\ref{sec:aug13ab}). Discovered
+    mid-verification: sustained \code{wrong checksum} errors, same
+    signature as Eq.~\ref{eq:missprob} (July 30), ROS graph wiring itself
+    confirmed correct (unlike item 10/July 22). Three explanations tested,
+    all narrowed by direct measurement rather than argued: motion
+    excitation, refuted (storm persisted with the rover fully stationary);
+    the kernel's RT budget starving \code{serial\_node}, refuted by a
+    controlled A/B ($28,41,36,26$ against a $38$ baseline, within noise,
+    setting reverted); temperature, ruled insufficient by item 38's
+    matched-load A/B ($2.074\,\mathrm{s}^{-1}$ at zero throttling, two
+    thirds of the July 30 rate). IRQ~$14$ (\code{uart-pl011}) is a
+    non-threaded hard interrupt pinned to CPU0, not a schedulable thread
+    --- the layer the first two hypotheses needed to act through, and
+    where both were disproven &
+    instrument interrupt latency directly on IRQ~$14$ (\code{ftrace}'s
+    \code{irqsoff} tracer, confirmed available with no install needed;
+    \code{cyclictest} would need \code{rt-tests} first), since three of
+    this item's four candidate explanations are now eliminated or bounded
+    by direct measurement, not argument \\
 \end{longtable}
 \end{center}
 
