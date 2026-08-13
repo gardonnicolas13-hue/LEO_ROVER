@@ -7482,6 +7482,45 @@ CPU0 entirely, which would remove the contention without touching the UART
 side at all.
 \end{trapbox}
 
+\subsection{Two of three candidates checked, the same evening}
+
+\paragraph{DMA mask: ruled out directly, not inferred.} The trapbox above
+named the xHCI controller's DMA mask as a candidate. Checked directly
+rather than assumed: \code{lspci -vv} reports the VL805 controller
+(PCI $01{:}00.0$) with \code{dma\_mask\_bits} $=64$, and the platform's
+own \code{dma-ranges} property (\code{/proc/device-tree/scb/dma-ranges},
+decoded by hand against \code{\#address-cells}$=2$/\code{\#size-cells}$=2$)
+maps a $16$\,GiB inbound window starting at physical address $0$ ---
+double this robot's installed $7.6$\,GiB, so nothing on this board is
+DMA-unreachable. This rules out address-range restriction as the reason
+\S\ref{sec:aug13irqsoff}'s trace shows \code{swiotlb} bouncing; the cause
+is elsewhere in the driver/allocator path, not identified tonight.
+
+\paragraph{IRQ affinity: xHCI is hard-blocked by the kernel, MMC moved but the test was inconclusive.}
+\code{/proc/interrupts} confirmed the exact contention pattern
+\S\ref{sec:aug13irqsoff} inferred: IRQ~$14$ (UART), IRQ~$27$
+(\code{mmc0}/\code{mmc1}) and IRQ~$43$ (\code{xhci\_hcd}) had each
+delivered essentially $100\,\%$ of their interrupts to CPU0
+($2.2$\,M, $18.6$\,M and $354$\,k respectively), despite an
+\code{smp\_affinity\_list} of \code{0-3} on all three --- nothing was
+actively rebalancing them. Writing a narrower mask to IRQ~$43$ failed
+outright, twice, with \code{I/O error} on both the list and bitmask
+interfaces: this specific Broadcom STB PCIe MSI controller does not
+support runtime affinity changes for this interrupt at all, closing off
+the most direct version of this mitigation. IRQ~$27$ (MMC) accepted the
+same change. The before/after overrun-rate comparison this enabled was
+inconclusive: three $30$\,s samples taken in sequence
+($1.579\,\mathrm{s}^{-1}$ baseline, $2.632\,\mathrm{s}^{-1}$ with MMC
+moved, $2.928$ and $2.961\,\mathrm{s}^{-1}$ after reverting to the
+original affinity) drift upward across the whole window regardless of
+which configuration was active, meaning a single sample before and
+after cannot separate a real effect from ordinary time-varying load ---
+exactly the discipline item 38's own matched-load protocol
+(\S\ref{sec:aug13ab}) was built to enforce, and a single quick test here
+did not. Configuration fully restored (\code{0-3} on all three,
+confirmed) before moving on. The one candidate not attempted tonight,
+the SD-card driver's \code{udelay} busy-waits, remains open.
+
 \section{sqrtVINS on the Raspberry Pi: installed, debugged, and diverged
 --- a complete answer to a new request}
 \label{sec:sqrtvins}
@@ -8939,14 +8978,19 @@ on every telemetry tick.
     descriptor drain, one preceded by SD-card interrupt handling. Capture 2
     brackets the UART directly: serviced at $t{=}10\,\mu$s, not again until
     $t{=}2889\,\mu$s (Eq.~\ref{eq:pl011gap}) --- a gap wide enough for
-    $\sim\!40$ bytes to overflow the FIFO in one occurrence &
-    check whether the xHCI controller's DMA mask forces unnecessary
-    \code{swiotlb} bouncing; audit the SD-card driver's \code{udelay}
-    busy-waits inside its IRQ handler; check
-    \code{/proc/irq/*/smp\_affinity} for moving the MSI-based xHCI/MMC
-    interrupts off CPU0, away from IRQ~$14$'s fixed line, without touching
-    the UART side at all --- all three candidate explanations remaining
-    after tonight are now measurement-driven, not argued \\
+    $\sim\!40$ bytes to overflow the FIFO in one occurrence. Two of three
+    mitigation candidates checked the same evening: DMA mask ruled out
+    directly ($64$-bit device, $16$\,GiB platform window, both confirmed
+    by reading the hardware/device-tree, not inferred); IRQ affinity for
+    xHCI refused outright by the kernel (\code{I/O error}, this MSI
+    controller does not support runtime re-steering), MMC's move gave an
+    inconclusive result against a load that drifted on its own across the
+    test window &
+    audit the SD-card driver's \code{udelay} busy-waits inside its IRQ
+    handler --- the one candidate not yet attempted; re-test IRQ~$27$'s
+    move with a matched-load protocol (\S\ref{sec:aug13ab}-style, not a
+    single before/after sample) to separate a real effect from the
+    drift observed tonight \\
 41 & \textbf{$\sqrt{\text{VINS}}$ on the Pi: installed and running, diverges
     on a real driven lap} (\S\ref{sec:sqrtvins}). Builds and runs at
     $30$--$70\,\mathrm{Hz}$ on live sensor data, two real defects found
