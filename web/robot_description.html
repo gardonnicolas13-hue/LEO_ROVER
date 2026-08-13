@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>LEO ROVER — Robot Description</title>
-<script src="i18n.js?v=r20"></script>
+<script src="i18n.js?v=r21"></script>
 <script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
@@ -65,6 +65,32 @@
   .lang-btn:hover { color:#fff; }
   .lang-btn.active { background:rgba(34,211,238,.18); color:#67e8f9; }
   table.spec-tbl th, table.spec-tbl td, table.cmp th, table.cmp td { vertical-align:top; }
+
+  /* ── Bloc formule (section roues, 2026-08-12) ────────────────────────── */
+  .eq { background:rgba(0,0,0,.4); border:1px solid rgba(255,255,255,.08);
+        border-radius:.6rem; padding:.85rem 1rem; margin:.85rem 0;
+        font-family:'JetBrains Mono',ui-monospace,monospace; font-size:12.5px;
+        line-height:1.85; color:#c9d1d9; overflow-x:auto; }
+  .eq .lbl { color:#67e8f9; }
+  .eq .num { color:#ff8f66; }
+  .eq .cmt { color:#6b7280; }
+  .eq b   { color:#fff; font-weight:600; }
+  /* Tableau comparatif roues */
+  table.wtbl { width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.wtbl th { text-align:left; font-family:'JetBrains Mono',monospace;
+      font-size:9.5px; letter-spacing:.1em; text-transform:uppercase;
+      color:rgba(34,211,238,.75); padding:8px 10px;
+      border-bottom:1px solid rgba(255,255,255,.1); }
+  table.wtbl td { padding:8px 10px; border-bottom:1px solid rgba(255,255,255,.05);
+      color:#a1a1aa; vertical-align:top; }
+  table.wtbl tr:last-child td { border-bottom:none; }
+  table.wtbl td:first-child { color:#e4e4e7; font-weight:500; }
+  .src-mfr  { color:#67e8f9; font-size:9.5px; font-family:'JetBrains Mono',monospace; }
+  .src-meas { color:#ff8f66; font-size:9.5px; font-family:'JetBrains Mono',monospace; }
+  figure.wfig { margin:1.1rem 0; }
+  figure.wfig svg { display:block; width:100%; height:auto; }
+  figure.wfig figcaption { font-size:11.5px; color:#71717a; line-height:1.55;
+      margin-top:.5rem; }
 
   /* ── Visualiseur STL ─────────────────────────────────────────────────── */
   .viewer-canvas-wrap { position:relative; height:52vh; min-height:380px; max-height:560px; }
@@ -410,6 +436,426 @@
           <p class="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">baud, Pi↔CORE2</p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ SUBSYSTEM 02b · ROUES ══════════════════
+       Standard vs Mecanum : comparatif sourcé (spec constructeur vs mesures
+       faites sur CE robot), mathématiques de la cinématique, et l'état réel
+       de la configuration — y compris ce que cette configuration ne sait PAS
+       faire. Ajouté 2026-08-12 avec le sélecteur de roues du cockpit. -->
+  <section class="mx-auto max-w-5xl px-5 pb-6">
+    <div class="tile glass p-6">
+      <p class="font-mono text-xs uppercase tracking-[.3em] text-plasma" data-i18n="robot_w_kicker">// drivetrain · wheels</p>
+      <h2 class="mt-2 flex items-center gap-2 font-display text-2xl font-bold text-white">
+        <i data-lucide="circle-dot" class="h-5 w-5 text-plasma"></i>
+        <span data-i18n="robot_w_title">Wheels: Standard vs Mecanum</span>
+      </h2>
+
+      <p class="mt-4 text-sm leading-relaxed text-zinc-400" data-i18n="robot_w_intro">
+        The rover ships with rubber tyres and can be refitted with a mecanum set. The choice is not cosmetic: it changes the effective rolling radius, the way a pivot is physically produced, and therefore how every wheel-derived distance and heading must be read. This section states what is manufacturer specification, what was measured on this particular rover, and where the two disagree.
+      </p>
+
+      <!-- État réel, vérifié en direct -->
+      <div class="mt-4 rounded-xl border border-warn/25 bg-warn/[.07] p-4">
+        <p class="flex items-center gap-2 font-display text-sm font-bold text-warn">
+          <i data-lucide="triangle-alert" class="h-4 w-4"></i>
+          <span data-i18n="robot_w_state_title">Current state of this rover, read live from the firmware</span>
+        </p>
+        <p class="mt-2 text-[13px] leading-relaxed text-zinc-300" data-i18n-html="robot_w_state_p">
+          Mecanum wheels are physically fitted, but the firmware is running the <em>differential</em> profile: <code class="text-accent">/firmware/mecanum_wheels</code> is <code class="text-accent">false</code> and <code class="text-accent">/etc/ros/setup.bash</code> carries <code class="text-accent">export MECANUM_WHEELS=false</code>. The firmware holds two complete and separate parameter sets — only one of them is in use.
+        </p>
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+          <div class="rounded-lg border border-ok/25 bg-ok/[.06] p-3">
+            <p class="font-mono text-[10px] uppercase tracking-wider text-ok">/firmware/diff_drive — active</p>
+            <p class="mt-1 font-mono text-[11.5px] leading-relaxed text-zinc-300">
+              wheel_radius: 0.0625 m<br>wheel_separation: 0.358 m<br>
+              angular_velocity_multiplier: <b class="text-warn">1.76</b>
+            </p>
+          </div>
+          <div class="rounded-lg border border-white/10 bg-white/[.03] p-3">
+            <p class="font-mono text-[10px] uppercase tracking-wider text-zinc-500">/firmware/mecanum_drive — present, unused</p>
+            <p class="mt-1 font-mono text-[11.5px] leading-relaxed text-zinc-400">
+              wheel_radius: 0.0635 m<br>wheel_separation: 0.37 m<br>wheel_base: 0.3052 m<br>
+              angular_velocity_multiplier: <b class="text-ok">1.0</b>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Tableau comparatif ─────────────────────────────────────────── -->
+      <h3 class="mt-6 font-display text-lg font-bold text-white" data-i18n="robot_w_cmp_title">Side-by-side comparison</h3>
+      <p class="mt-1 text-[12px] text-zinc-500">
+        <span class="src-mfr">■ manufacturer spec</span> &nbsp;·&nbsp;
+        <span class="src-meas">■ measured on this rover</span>
+      </p>
+      <div class="mt-3 overflow-x-auto">
+        <table class="wtbl">
+          <tr><th data-i18n="robot_w_th_prop">Property</th><th>Standard</th><th>Mecanum</th></tr>
+          <tr>
+            <td data-i18n="robot_w_r_outer">Outer diameter</td>
+            <td>125 mm <span class="src-mfr">mfr</span></td>
+            <td>128.8 mm <span class="src-meas">meas</span></td>
+          </tr>
+          <tr>
+            <td data-i18n="robot_w_r_geo">Geometric radius</td>
+            <td>62.5 mm</td><td>64.4 mm</td>
+          </tr>
+          <tr>
+            <td data-i18n="robot_w_r_eff">Effective rolling radius</td>
+            <td>62.5 mm <span class="src-mfr">assumed = geometric</span></td>
+            <td><b class="text-plasma">62.2 mm ± 0.5</b> <span class="src-meas">meas</span></td>
+          </tr>
+          <tr>
+            <td data-i18n="robot_w_contact">Contact / tread</td>
+            <td data-i18n-html="robot_w_contact_std">Rubber, soft foam insert, non-pneumatic <span class="src-mfr">mfr</span></td>
+            <td data-i18n-html="robot_w_contact_mec">12 polyurethane rollers at 45°, aluminium body <span class="src-mfr">mfr</span></td>
+          </tr>
+          <tr>
+            <td data-i18n="robot_w_load">Load rating</td>
+            <td data-i18n="robot_w_load_std">not published</td>
+            <td>15 kg <span data-i18n="robot_w_each">each</span> (60 kg total) <span class="src-mfr">mfr</span></td>
+          </tr>
+          <tr>
+            <td data-i18n="robot_w_mass">Mass per wheel</td>
+            <td data-i18n="robot_w_load_std">not published</td>
+            <td>500 g <span class="src-mfr">mfr</span></td>
+          </tr>
+          <tr>
+            <td data-i18n="robot_w_dof">Controllable DOF</td>
+            <td>2 — v<sub>x</sub>, ω<sub>z</sub></td>
+            <td data-i18n-html="robot_w_dof_mec">3 in principle — v<sub>x</sub>, v<sub>y</sub>, ω<sub>z</sub> (not enabled here)</td>
+          </tr>
+          <tr>
+            <td data-i18n="robot_w_yawmul">Firmware yaw multiplier</td>
+            <td><b class="text-warn">1.76</b></td>
+            <td><b class="text-ok">1.0</b></td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- ── Fig 1 : rayon effectif ─────────────────────────────────────── -->
+      <h3 class="mt-7 font-display text-lg font-bold text-white" data-i18n="robot_w_m1_title">1 · Effective radius: why a mecanum wheel is “smaller” than it looks</h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="robot_w_m1_p">
+        A rubber tyre rolls on its outer surface, so its rolling radius is essentially its geometric radius. A mecanum wheel rolls on polyurethane rollers that deform under load, so the distance travelled per revolution corresponds to a radius smaller than the one you would measure with a calliper on the unloaded wheel.
+      </p>
+
+      <figure class="wfig">
+        <svg viewBox="0 0 460 260" role="img" aria-label="Cross-section of a mecanum wheel showing the unloaded geometric radius of 64.4 millimetres against the measured effective rolling radius of 62.2 millimetres, a 2.2 millimetre roller compression, with a ten-times magnified view of the contact patch.">
+          <!-- sol -->
+          <line x1="20" y1="200" x2="250" y2="200" stroke="#6b7684" stroke-width="2"/>
+          <g stroke="#6b7684" stroke-width="1" opacity=".55">
+            <line x1="30" y1="200" x2="22" y2="209"/><line x1="60" y1="200" x2="52" y2="209"/>
+            <line x1="90" y1="200" x2="82" y2="209"/><line x1="120" y1="200" x2="112" y2="209"/>
+            <line x1="150" y1="200" x2="142" y2="209"/><line x1="180" y1="200" x2="172" y2="209"/>
+            <line x1="210" y1="200" x2="202" y2="209"/><line x1="240" y1="200" x2="232" y2="209"/>
+          </g>
+          <!-- roue : centre a r_eff au-dessus du sol -->
+          <circle cx="135" cy="122" r="78" fill="none" stroke="#6b7684" stroke-width="1.4" stroke-dasharray="5 4"/>
+          <circle cx="135" cy="122" r="78" fill="rgba(255,107,53,.05)"/>
+          <circle cx="135" cy="122" r="3.5" fill="#e4e4e7"/>
+          <!-- rayon geometrique (oblique, vers la jante non chargee) -->
+          <line x1="135" y1="122" x2="190.2" y2="66.8" stroke="#6b7684" stroke-width="1.6"/>
+          <text x="196" y="64" fill="#a1a1aa" font-size="11" font-family="JetBrains Mono, monospace">r_geo = 64.4 mm</text>
+          <text x="196" y="77" fill="#6b7684" font-size="9.5" font-family="JetBrains Mono, monospace">(Ø 128.8 unloaded)</text>
+          <!-- rayon effectif (vertical vers le sol) -->
+          <line x1="135" y1="122" x2="135" y2="200" stroke="#ff6b35" stroke-width="2.4"/>
+          <text x="143" y="140" fill="#ff8f66" font-size="11" font-family="JetBrains Mono, monospace">r_eff = 62.2 mm</text>
+          <!-- rouleaux stylises -->
+          <g stroke="#ff8f66" stroke-width="2" opacity=".75" stroke-linecap="round">
+            <line x1="103" y1="55" x2="118" y2="70"/><line x1="163" y1="60" x2="176" y2="74"/>
+            <line x1="60" y1="100" x2="75" y2="114"/><line x1="196" y1="105" x2="209" y2="119"/>
+            <line x1="66" y1="152" x2="80" y2="166"/><line x1="192" y1="155" x2="205" y2="169"/>
+          </g>
+          <!-- zoom -->
+          <circle cx="135" cy="196" r="20" fill="none" stroke="#22d3ee" stroke-width="1.2" opacity=".7"/>
+          <line x1="153" y1="188" x2="300" y2="120" stroke="#22d3ee" stroke-width="1" opacity=".5" stroke-dasharray="3 3"/>
+          <rect x="300" y="96" width="140" height="96" rx="8" fill="rgba(34,211,238,.05)" stroke="#22d3ee" stroke-width="1.2" opacity=".9"/>
+          <text x="370" y="112" fill="#67e8f9" font-size="9.5" text-anchor="middle" font-family="JetBrains Mono, monospace">contact ×10</text>
+          <line x1="315" y1="170" x2="425" y2="170" stroke="#6b7684" stroke-width="2"/>
+          <path d="M 320,148 Q 370,128 420,148" fill="none" stroke="#6b7684" stroke-width="1.4" stroke-dasharray="4 3"/>
+          <path d="M 320,170 Q 370,152 420,170" fill="none" stroke="#ff6b35" stroke-width="2"/>
+          <line x1="370" y1="137" x2="370" y2="161" stroke="#ff8f66" stroke-width="1.6"/>
+          <text x="376" y="152" fill="#ff8f66" font-size="9.5" font-family="JetBrains Mono, monospace">2.2 mm</text>
+          <text x="370" y="186" fill="#6b7684" font-size="9" text-anchor="middle" font-family="JetBrains Mono, monospace">roller compression</text>
+        </svg>
+        <figcaption data-i18n="robot_w_fig1_cap">
+          The 2.2 mm difference is 3.4 % of the geometric radius. It is drawn to scale on the wheel but is only legible in the magnified inset — which is precisely why it is easy to miss and easy to get wrong in a configuration file.
+        </figcaption>
+      </figure>
+
+      <div class="eq">
+<span class="cmt">// roller compression, from the two radii above</span>
+δ = r_geo − r_eff = 64.4 − 62.2 = <span class="num">2.2 mm</span>
+δ / r_geo = 2.2 / 64.4 = <span class="num">3.4 %</span>
+      </div>
+
+      <!-- ── Math 2 : erreur d'odométrie ────────────────────────────────── -->
+      <h3 class="mt-7 font-display text-lg font-bold text-white" data-i18n="robot_w_m2_title">2 · What using the wrong radius costs, in metres</h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="robot_w_m2_p">
+        Wheel odometry integrates encoder angle into distance through one multiplication. The radius is therefore a pure scale factor on every distance the wheels report: get it wrong by a percentage and every measurement is wrong by that same percentage, in the same direction, forever.
+      </p>
+      <div class="eq">
+<span class="cmt">// distance reported by the wheels</span>
+d̂ = r_used · Σ Δθ<sub>wheel</sub>        <span class="cmt">d_true = r_true · Σ Δθ_wheel</span>
+
+<span class="cmt">// pure scale error, independent of path length</span>
+ε = (r_used − r_true) / r_true
+
+<span class="cmt">// this rover today: firmware uses stock 0.0625, fitted wheels measure 0.0622</span>
+ε = (0.0625 − 0.0622) / 0.0622 = <span class="num">+0.48 %</span>
+
+<span class="cmt">// on the 23.35 m taped-rectangle lap (report §12.16)</span>
+Δd = 23.35 × 0.0048 = <span class="num">+0.11 m</span>  <span class="cmt">over-reported</span>
+      </div>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n-html="robot_w_m2_p2">
+        Read this honestly: 0.11 m is small next to the 0.449 m loop-closure gap actually measured on that lap, so the radius mismatch is <em>not</em> the dominant error. It is, however, a systematic bias that costs nothing to remove — unlike the rest of the gap, which requires estimator work.
+      </p>
+
+      <!-- ── Fig 2 : pivot ──────────────────────────────────────────────── -->
+      <h3 class="mt-7 font-display text-lg font-bold text-white" data-i18n="robot_w_m3_title">3 · Why a pivot costs 1.76× on standard wheels and 1.0× on mecanum</h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="robot_w_m3_p">
+        A four-wheel skid-steer platform has no steering linkage. To rotate, the tyres must slide sideways across the ground — the wheels roll forward while the chassis turns, so the contact patches scrub. That scrub absorbs part of the commanded rotation, which is why the firmware has to over-drive the wheel differential to obtain the yaw it was asked for. A mecanum wheel does not fight this: its rollers are free to turn about their own axes, so the lateral motion a pivot demands is rolling, not sliding.
+      </p>
+
+      <figure class="wfig">
+        <svg viewBox="0 0 460 230" role="img" aria-label="Top view comparing a pivot on standard wheels, where all four contact patches must scrub sideways, with a pivot on mecanum wheels, where the angled rollers roll freely and no scrubbing is required.">
+          <!-- panneau gauche : skid-steer -->
+          <text x="105" y="20" fill="#e4e4e7" font-size="12" text-anchor="middle" font-weight="600">Standard — skid-steer</text>
+          <rect x="55" y="45" width="100" height="120" rx="6" fill="rgba(255,255,255,.03)" stroke="#6b7684" stroke-width="1.3"/>
+          <g fill="#4b5563" stroke="#9ca3af" stroke-width="1.2">
+            <rect x="38" y="55" width="17" height="34" rx="3"/><rect x="155" y="55" width="17" height="34" rx="3"/>
+            <rect x="38" y="121" width="17" height="34" rx="3"/><rect x="155" y="121" width="17" height="34" rx="3"/>
+          </g>
+          <!-- fleches de patinage lateral -->
+          <g stroke="#FC3D21" stroke-width="2.2" stroke-linecap="round">
+            <line x1="46" y1="72" x2="46" y2="52"/><line x1="163" y1="72" x2="163" y2="92"/>
+            <line x1="46" y1="138" x2="46" y2="118"/><line x1="163" y1="138" x2="163" y2="158"/>
+          </g>
+          <g fill="#FC3D21">
+            <polygon points="46,46 42,54 50,54"/><polygon points="163,98 159,90 167,90"/>
+            <polygon points="46,112 42,120 50,120"/><polygon points="163,164 159,156 167,156"/>
+          </g>
+          <path d="M 85,105 A 20,20 0 1 1 125,105" fill="none" stroke="#67e8f9" stroke-width="2"/>
+          <polygon points="125,105 120,97 130,99" fill="#67e8f9"/>
+          <text x="105" y="188" fill="#FC3D21" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">lateral scrub at all 4</text>
+          <text x="105" y="203" fill="#FC3D21" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">contact patches</text>
+          <text x="105" y="220" fill="#eab308" font-size="11" text-anchor="middle" font-family="JetBrains Mono, monospace">multiplier 1.76</text>
+
+          <!-- separateur -->
+          <line x1="230" y1="35" x2="230" y2="205" stroke="#374151" stroke-width="1" stroke-dasharray="4 4"/>
+
+          <!-- panneau droit : mecanum -->
+          <text x="355" y="20" fill="#e4e4e7" font-size="12" text-anchor="middle" font-weight="600">Mecanum — rolling</text>
+          <rect x="305" y="45" width="100" height="120" rx="6" fill="rgba(255,255,255,.03)" stroke="#6b7684" stroke-width="1.3"/>
+          <g fill="#4b5563" stroke="#9ca3af" stroke-width="1.2">
+            <rect x="288" y="55" width="17" height="34" rx="3"/><rect x="405" y="55" width="17" height="34" rx="3"/>
+            <rect x="288" y="121" width="17" height="34" rx="3"/><rect x="405" y="121" width="17" height="34" rx="3"/>
+          </g>
+          <!-- rouleaux a 45 deg, configuration X -->
+          <g stroke="#ff8f66" stroke-width="1.5" stroke-linecap="round">
+            <line x1="291" y1="60" x2="302" y2="71"/><line x1="291" y1="72" x2="302" y2="83"/>
+            <line x1="419" y1="60" x2="408" y2="71"/><line x1="419" y1="72" x2="408" y2="83"/>
+            <line x1="291" y1="138" x2="302" y2="127"/><line x1="291" y1="150" x2="302" y2="139"/>
+            <line x1="419" y1="138" x2="408" y2="127"/><line x1="419" y1="150" x2="408" y2="139"/>
+          </g>
+          <!-- rouleaux qui roulent (vert) -->
+          <g stroke="#3fdc97" stroke-width="2.2" stroke-linecap="round">
+            <line x1="296" y1="72" x2="296" y2="52"/><line x1="413" y1="72" x2="413" y2="92"/>
+            <line x1="296" y1="138" x2="296" y2="118"/><line x1="413" y1="138" x2="413" y2="158"/>
+          </g>
+          <g fill="#3fdc97">
+            <polygon points="296,46 292,54 300,54"/><polygon points="413,98 409,90 417,90"/>
+            <polygon points="296,112 292,120 300,120"/><polygon points="413,164 409,156 417,156"/>
+          </g>
+          <path d="M 335,105 A 20,20 0 1 1 375,105" fill="none" stroke="#67e8f9" stroke-width="2"/>
+          <polygon points="375,105 370,97 380,99" fill="#67e8f9"/>
+          <text x="355" y="188" fill="#3fdc97" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">rollers turn freely —</text>
+          <text x="355" y="203" fill="#3fdc97" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">no sliding required</text>
+          <text x="355" y="220" fill="#3fdc97" font-size="11" text-anchor="middle" font-family="JetBrains Mono, monospace">multiplier 1.0</text>
+        </svg>
+        <figcaption data-i18n="robot_w_fig2_cap">
+          The two firmware profiles encode this difference as a single number. The differential profile carries a 1.76 correction; the mecanum profile carries none. Both values are read directly from the running parameter server, not from a datasheet.
+        </figcaption>
+      </figure>
+
+      <div class="eq">
+<span class="cmt">// ideal differential drive: yaw from the wheel speed difference</span>
+ω<sub>z</sub> = r · (ω<sub>R</sub> − ω<sub>L</sub>) / b        <span class="cmt">b = wheel_separation</span>
+
+<span class="cmt">// what the firmware actually applies</span>
+ω<sub>z,cmd</sub> = k · r · (ω<sub>R</sub> − ω<sub>L</sub>) / b     <span class="cmt">k = angular_velocity_multiplier</span>
+
+<span class="cmt">// k = 1.76 is equivalent to an effective yaw track of</span>
+b<sub>eff</sub> = k · b = 1.76 × 0.358 = <span class="num">0.630 m</span>
+<span class="cmt">   i.e. the platform rotates as if its wheels were 63 cm apart,</span>
+<span class="cmt">   not 35.8 cm — the cost of scrubbing four tyres sideways.</span>
+
+<span class="cmt">// sensitivity of yaw to the two geometric parameters</span>
+δω/ω = δr/r − δb/b     <span class="cmt">radius and track pull in opposite directions</span>
+      </div>
+
+      <!-- ── Math 4 : cinématique mecanum ───────────────────────────────── -->
+      <h3 class="mt-7 font-display text-lg font-bold text-white" data-i18n="robot_w_m4_title">4 · The third degree of freedom this rover is not using</h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="robot_w_m4_p">
+        Because each roller is set at 45° to the wheel axis, the force a mecanum wheel can transmit to the ground is constrained to one diagonal direction. Mounted in the standard X pattern, the four diagonals span the plane: sum them one way and the platform moves forward, another way and it translates sideways without rotating, a third way and it spins on the spot. This is the full three-degree-of-freedom mecanum inverse kinematics, written with this firmware's own mecanum parameters.
+      </p>
+
+      <figure class="wfig">
+        <svg viewBox="0 0 460 250" role="img" aria-label="Top view of the mecanum X configuration showing the four roller diagonals and, on the right, how the four wheel-force diagonals combine to produce a pure sideways translation.">
+          <text x="115" y="18" fill="#e4e4e7" font-size="12" text-anchor="middle" font-weight="600">X configuration (top view)</text>
+          <rect x="60" y="45" width="110" height="140" rx="7" fill="rgba(255,255,255,.03)" stroke="#6b7684" stroke-width="1.3"/>
+          <text x="115" y="120" fill="#6b7684" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">x ↑ fwd</text>
+          <g fill="#4b5563" stroke="#9ca3af" stroke-width="1.2">
+            <rect x="40" y="56" width="20" height="40" rx="3"/><rect x="170" y="56" width="20" height="40" rx="3"/>
+            <rect x="40" y="134" width="20" height="40" rx="3"/><rect x="170" y="134" width="20" height="40" rx="3"/>
+          </g>
+          <!-- diagonales des rouleaux : FL et RR "\" ; FR et RL "/" -->
+          <g stroke="#ff8f66" stroke-width="2" stroke-linecap="round">
+            <line x1="43" y1="60" x2="57" y2="74"/><line x1="43" y1="78" x2="57" y2="92"/>
+            <line x1="187" y1="60" x2="173" y2="74"/><line x1="187" y1="78" x2="173" y2="92"/>
+            <line x1="43" y1="152" x2="57" y2="138"/><line x1="43" y1="170" x2="57" y2="156"/>
+            <line x1="187" y1="152" x2="173" y2="138"/><line x1="187" y1="170" x2="173" y2="156"/>
+          </g>
+          <text x="30" y="52" fill="#a1a1aa" font-size="9" font-family="JetBrains Mono, monospace">FL</text>
+          <text x="192" y="52" fill="#a1a1aa" font-size="9" font-family="JetBrains Mono, monospace">FR</text>
+          <text x="30" y="188" fill="#a1a1aa" font-size="9" font-family="JetBrains Mono, monospace">RL</text>
+          <text x="192" y="188" fill="#a1a1aa" font-size="9" font-family="JetBrains Mono, monospace">RR</text>
+          <!-- cotes -->
+          <line x1="60" y1="205" x2="170" y2="205" stroke="#22d3ee" stroke-width="1"/>
+          <text x="115" y="220" fill="#67e8f9" font-size="9.5" text-anchor="middle" font-family="JetBrains Mono, monospace">2·l_y = 0.370 m</text>
+          <line x1="205" y1="76" x2="205" y2="154" stroke="#22d3ee" stroke-width="1"/>
+          <text x="212" y="112" fill="#67e8f9" font-size="9.5" font-family="JetBrains Mono, monospace">2·l_x =</text>
+          <text x="212" y="124" fill="#67e8f9" font-size="9.5" font-family="JetBrains Mono, monospace">0.305 m</text>
+
+          <!-- panneau droit : composition pour le strafe -->
+          <line x1="270" y1="30" x2="270" y2="220" stroke="#374151" stroke-width="1" stroke-dasharray="4 4"/>
+          <text x="370" y="18" fill="#e4e4e7" font-size="12" text-anchor="middle" font-weight="600">Pure sideways translation</text>
+          <rect x="325" y="60" width="90" height="110" rx="7" fill="rgba(255,255,255,.03)" stroke="#6b7684" stroke-width="1.3"/>
+          <g fill="#4b5563" stroke="#9ca3af" stroke-width="1.2">
+            <rect x="309" y="70" width="16" height="32" rx="3"/><rect x="415" y="70" width="16" height="32" rx="3"/>
+            <rect x="309" y="128" width="16" height="32" rx="3"/><rect x="415" y="128" width="16" height="32" rx="3"/>
+          </g>
+          <!-- diagonales de force : toutes pointent vers +y (gauche ecran) -->
+          <g stroke="#ff8f66" stroke-width="2" stroke-linecap="round">
+            <line x1="317" y1="86" x2="295" y2="64"/><line x1="423" y1="86" x2="401" y2="64"/>
+            <line x1="317" y1="144" x2="295" y2="166"/><line x1="423" y1="144" x2="401" y2="166"/>
+          </g>
+          <g fill="#ff8f66">
+            <polygon points="292,61 302,63 300,71"/><polygon points="398,61 408,63 406,71"/>
+            <polygon points="292,169 302,167 300,159"/><polygon points="398,169 408,167 406,159"/>
+          </g>
+          <!-- resultante -->
+          <line x1="370" y1="115" x2="300" y2="115" stroke="#3fdc97" stroke-width="3"/>
+          <polygon points="294,115 304,110 304,120" fill="#3fdc97"/>
+          <text x="340" y="105" fill="#3fdc97" font-size="10" text-anchor="middle" font-family="JetBrains Mono, monospace">v_y</text>
+          <text x="370" y="200" fill="#6b7684" font-size="9.5" text-anchor="middle" font-family="JetBrains Mono, monospace">forward components cancel,</text>
+          <text x="370" y="213" fill="#6b7684" font-size="9.5" text-anchor="middle" font-family="JetBrains Mono, monospace">lateral components add</text>
+        </svg>
+        <figcaption data-i18n="robot_w_fig3_cap">
+          Each wheel can only push along its roller diagonal. In the X pattern the four diagonals are arranged so that a chosen combination of wheel speeds cancels the unwanted components and leaves the motion you asked for.
+        </figcaption>
+      </figure>
+
+      <div class="eq">
+<span class="cmt">// mecanum inverse kinematics, X configuration, rollers at 45°</span>
+<span class="cmt">// using /firmware/mecanum_drive as read from this robot</span>
+r = 0.0635 m   l_x = 0.3052/2 = 0.1526 m   l_y = 0.370/2 = 0.185 m
+L = l_x + l_y = <span class="num">0.3376 m</span>
+
+ω<sub>FL</sub> = ( v<sub>x</sub> − v<sub>y</sub> − L·ω<sub>z</sub> ) / r
+ω<sub>FR</sub> = ( v<sub>x</sub> + v<sub>y</sub> + L·ω<sub>z</sub> ) / r
+ω<sub>RL</sub> = ( v<sub>x</sub> + v<sub>y</sub> − L·ω<sub>z</sub> ) / r
+ω<sub>RR</sub> = ( v<sub>x</sub> − v<sub>y</sub> + L·ω<sub>z</sub> ) / r
+
+<span class="cmt">// pure sideways translation: v_x = 0, ω_z = 0</span>
+ω<sub>FL</sub> = −v<sub>y</sub>/r   ω<sub>FR</sub> = +v<sub>y</sub>/r   ω<sub>RL</sub> = +v<sub>y</sub>/r   ω<sub>RR</sub> = −v<sub>y</sub>/r
+<span class="cmt">   two wheels forward, two backward, at equal speed</span>
+
+<span class="cmt">// pure rotation: v_x = v_y = 0  → |ω_i| = L·|ω_z| / r for all four</span>
+      </div>
+
+      <div class="mt-4 rounded-xl border border-alert/25 bg-alert/[.06] p-4">
+        <p class="flex items-center gap-2 font-display text-sm font-bold text-alert">
+          <i data-lucide="ban" class="h-4 w-4"></i>
+          <span data-i18n="robot_w_nostrafe_title">This rover cannot strafe, and the reason is not the wheels</span>
+        </p>
+        <p class="mt-2 text-[13px] leading-relaxed text-zinc-300" data-i18n-html="robot_w_nostrafe_p">
+          The hardware is capable of everything above. The configuration is not: with <code class="text-accent">MECANUM_WHEELS=false</code>, the CORE2 firmware runs the two-degree-of-freedom differential model, and the command topic <code class="text-accent">/cmd_vel</code> carries a Twist whose <code class="text-accent">linear.y</code> is simply discarded downstream. There is no v<sub>y</sub> anywhere in the chain to strafe with. Enabling it is a firmware-side change plus a matching odometry model — a real piece of work, not a checkbox, and it is listed as future work rather than claimed as a capability.
+        </p>
+      </div>
+
+      <!-- ── Mesuré sur ce robot ────────────────────────────────────────── -->
+      <h3 class="mt-7 font-display text-lg font-bold text-white" data-i18n="robot_w_meas_title">5 · What the mecanum set actually does on this rover</h3>
+      <p class="mt-2 text-sm leading-relaxed text-zinc-400" data-i18n="robot_w_meas_p">
+        Everything below was measured on this platform during the campaign, not taken from a datasheet.
+      </p>
+      <div class="mt-3 grid gap-3 sm:grid-cols-2">
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-4">
+          <p class="font-mono text-[10px] uppercase tracking-wider text-ok">yaw authority</p>
+          <p class="mt-1 font-display text-xl font-bold text-white">92–99 %</p>
+          <p class="mt-1 text-[12px] leading-relaxed text-zinc-400" data-i18n="robot_w_meas_yaw">
+            of commanded yaw actually delivered, 0.15 → 0.40 rad/s, on a healthy battery. Dead zone below ≈0.12 rad/s: the rollers need a breakaway force before anything turns.
+          </p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-4">
+          <p class="font-mono text-[10px] uppercase tracking-wider text-warn">battery, not mechanics</p>
+          <p class="mt-1 font-display text-xl font-bold text-white">10.3 V</p>
+          <p class="mt-1 text-[12px] leading-relaxed text-zinc-400" data-i18n="robot_w_meas_batt">
+            An apparent “roller stall” turned out to be motor sag at 10.3 V, not a wheel problem. On this platform, check the battery before theorising about the mechanics.
+          </p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-4">
+          <p class="font-mono text-[10px] uppercase tracking-wider text-plasma">left/right asymmetry</p>
+          <p class="mt-1 font-display text-xl font-bold text-white">≈1.65 %</p>
+          <p class="mt-1 text-[12px] leading-relaxed text-zinc-400" data-i18n="robot_w_meas_asym">
+            of effective-radius difference between sides, isolated by correlating the gyro against wheel speeds over windows where the commanded wheel speeds were symmetric to within 3 %. Masked in software by a yaw trim of −0.087 rad/s per m/s — a stopgap, not a substitute for measuring each side.
+          </p>
+        </div>
+        <div class="rounded-xl border border-white/10 bg-white/[.03] p-4">
+          <p class="font-mono text-[10px] uppercase tracking-wider text-accent">pivot geometry</p>
+          <p class="mt-1 font-display text-xl font-bold text-white">≈16 cm</p>
+          <p class="mt-1 text-[12px] leading-relaxed text-zinc-400" data-i18n="robot_w_meas_pivot">
+            of real IMU excursion during a ≈115° turn on the spot: the sensor orbits the pivot centre. This is genuine motion, not estimator error — and it is why visual SLAM is disabled during pure pivots, where landmark depth is unobservable.
+          </p>
+        </div>
+      </div>
+
+      <!-- ── Désaccords ouverts ─────────────────────────────────────────── -->
+      <h3 class="mt-7 font-display text-lg font-bold text-white" data-i18n="robot_w_gaps_title">6 · Open disagreements, stated rather than smoothed over</h3>
+      <div class="mt-3 overflow-x-auto">
+        <table class="wtbl">
+          <tr><th data-i18n="robot_w_th_qty">Quantity</th><th data-i18n="robot_w_th_a">One source says</th><th data-i18n="robot_w_th_b">The other says</th><th data-i18n="robot_w_th_st">Status</th></tr>
+          <tr>
+            <td>wheel_radius</td>
+            <td>0.0625 m <span class="src-mfr">firmware, active</span></td>
+            <td>0.0622 m <span class="src-meas">measured, mecanum fitted</span></td>
+            <td class="text-warn" data-i18n="robot_w_gap1">Open — registry item 1. Costs +0.48 % on every wheel distance.</td>
+          </tr>
+          <tr>
+            <td>track width</td>
+            <td>0.354 m <span class="src-mfr">manufacturer</span></td>
+            <td>0.358 m <span class="src-meas">firmware / as-built</span></td>
+            <td class="text-zinc-400" data-i18n="robot_w_gap2">1.1 % apart. Neither has been checked with a tape measure on this unit.</td>
+          </tr>
+          <tr>
+            <td>mecanum radius</td>
+            <td>0.0635 m <span class="src-mfr">firmware mecanum profile</span></td>
+            <td>0.0622 m <span class="src-meas">measured effective</span></td>
+            <td class="text-zinc-400" data-i18n="robot_w_gap3">2.1 % apart — the unused profile assumes the geometric radius, ignoring roller compression.</td>
+          </tr>
+          <tr>
+            <td data-i18n="robot_w_gap_model">kinematic model</td>
+            <td data-i18n="robot_w_gap_model_a">4-wheel skid-steer, physically</td>
+            <td data-i18n="robot_w_gap_model_b">2-wheel differential, in the estimator</td>
+            <td class="text-zinc-400" data-i18n="robot_w_gap4">Deliberate approximation; the online extrinsic refinement absorbs most of the mismatch.</td>
+          </tr>
+        </table>
+      </div>
+
+      <p class="mt-5 text-[12px] leading-relaxed text-zinc-500" data-i18n="robot_w_sources">
+        Manufacturer figures: FictionLab Leo Rover 1.9 specification and mecanum wheel add-on documentation. Measured figures: this project's own calibration campaign, recorded in the engineering report. Firmware parameters were read live from the running parameter server on 2026-08-12, not copied from a configuration file.
+      </p>
     </div>
   </section>
 
