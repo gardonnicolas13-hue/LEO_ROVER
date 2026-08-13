@@ -70,11 +70,127 @@
 /* ── Chiffres de télémétrie : tabulaires + lueur douce ──────────────────── */
 .font-mono { font-variant-numeric: tabular-nums; }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMMANDES — modèle tactile unifié                          (2026-08-12)
+   ───────────────────────────────────────────────────────────────────────────
+   Constat avant : 67 boutons, 33 variantes de classes, chacun stylé à la main.
+   Tous plats (même `bg-white/5` + `border-white/10` quelle que soit
+   l'importance), tous en transition Tailwind par défaut, et 63 sur 67 sans
+   AUCUN retour au clic — d'où une impression de maquette plutôt que
+   d'instrument.
+
+   Parti pris assumé, et c'est le seul : **panneaux souples, commandes
+   nettes**. Les cartes gardent leur rayon généreux (.tile, 1.25rem) ; les
+   commandes passent à un rayon serré de 6 px. Cette différence de traitement
+   crée une hiérarchie lisible — on distingue au premier coup d'œil ce qui est
+   une surface de ce qui est actionnable — là où un rayon unique partout est
+   précisément la signature « tout est une carte » qu'on cherche à quitter.
+
+   Aucune classe du markup n'est modifiée : cette couche ne touche QUE des
+   propriétés que Tailwind ne pose pas (background-image, transform) ou qu'elle
+   pose avec une spécificité inférieure (border-radius, transition), pour
+   qu'aucun `hover:bg-*` existant ne soit cassé.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root {
+  --ms-ctl-radius: 6px;
+  /* Amorti « instrument » : départ franc, arrivée douce. Volontairement
+     différent du cubic-bezier(.4,0,.2,1) par défaut de Tailwind, qui donne à
+     tous les sites la même inertie. */
+  --ms-ease:       cubic-bezier(.2,.7,.3,1);
+  --ms-ease-press: cubic-bezier(.3,0,.6,1);
+}
+
+/* Cible : les vrais boutons, et les liens qui sont visuellement des boutons
+   (rayon + bordure). Les liens de navigation, qui n'ont pas de bordure, sont
+   volontairement exclus : ils doivent rester du texte. */
+button[class],
+a[class*="rounded-"][class*="border-"] {
+  border-radius: var(--ms-ctl-radius);
+  /* `background-image` et non `background-color` : la teinte reste celle que
+     Tailwind a posée (y compris ses `hover:bg-*`), on ne fait qu'ajouter une
+     lumière rasante sur l'arête haute. C'est ce dégradé, pas la couleur, qui
+     donne l'aspect touche usinée plutôt que rectangle opaque. */
+  background-image: linear-gradient(180deg,
+                      rgba(255,255,255,.055) 0%,
+                      rgba(255,255,255,.012) 45%,
+                      rgba(0,0,0,.055) 100%);
+  transition: background-color .17s var(--ms-ease),
+              border-color     .17s var(--ms-ease),
+              color            .17s var(--ms-ease),
+              background-image .17s var(--ms-ease),
+              transform        .09s var(--ms-ease-press);
+}
+/* Pas de `will-change: transform` ici : la page Operations porte 30 boutons,
+   et le promouvoir créerait 30 calques de compositing en permanence pour une
+   translation d'un pixel. Le coût mémoire dépasserait largement le gain. */
+
+/* Survol : la lumière rasante se renforce, rien d'autre ne bouge de plus d'un
+   pixel. La retenue est le sujet — un bouton qui grossit ou qui s'illumine
+   fait gadget sur une console. */
+button[class]:hover,
+a[class*="rounded-"][class*="border-"]:hover {
+  background-image: linear-gradient(180deg,
+                      rgba(255,255,255,.085) 0%,
+                      rgba(255,255,255,.022) 45%,
+                      rgba(0,0,0,.05) 100%);
+  transform: translateY(-1px);
+}
+
+/* Appui : la touche s'enfonce et la lumière s'inverse (l'arête haute passe à
+   l'ombre). Deux pixels de course au total entre survol et appui — assez pour
+   être senti, trop peu pour être vu comme une animation. */
+button[class]:active,
+a[class*="rounded-"][class*="border-"]:active {
+  transform: translateY(1px);
+  background-image: linear-gradient(180deg,
+                      rgba(0,0,0,.10) 0%,
+                      rgba(255,255,255,.015) 60%,
+                      rgba(255,255,255,.03) 100%);
+}
+
+button[disabled],
+button[class][disabled]:hover,
+button[class][disabled]:active {
+  transform: none;
+  background-image: none;
+  cursor: not-allowed;
+}
+
+/* Le D-pad garde son carré : une croix directionnelle se lit à sa géométrie,
+   l'arrondir la rendrait moins immédiate sous le pouce. */
+button[data-drive] { border-radius: 4px; }
+
+/* Bascules FR/EN : même modèle, à l'échelle du micro-contrôle. */
+.lang-btn {
+  border-radius: 5px;
+  transition: background-color .17s var(--ms-ease),
+              color .17s var(--ms-ease),
+              transform .09s var(--ms-ease-press);
+}
+.lang-btn:active { transform: translateY(1px); }
+.lang-btn.active { box-shadow: inset 0 0 0 1px rgba(34,211,238,.22); }
+
+/* Barre d'outils du visualiseur 3D : alignée sur le même rayon. */
+.viewer-toolbtn { border-radius: var(--ms-ctl-radius); }
+
+/* Accessibilité : sur `prefers-reduced-motion`, on retire le déplacement mais
+   on GARDE le changement de lumière — l'état reste lisible sans mouvement. */
+@media (prefers-reduced-motion: reduce) {
+  button[class], a[class*="rounded-"][class*="border-"], .lang-btn {
+    transition: background-color .17s linear, border-color .17s linear,
+                color .17s linear, background-image .17s linear;
+  }
+  button[class]:hover, button[class]:active,
+  a[class*="rounded-"][class*="border-"]:hover,
+  a[class*="rounded-"][class*="border-"]:active,
+  .lang-btn:active { transform: none; }
+}
+
 /* ── Focus clavier visibles (console opérée sous pression) ──────────────── */
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
   outline: 1px solid var(--ms-cyan);
   outline-offset: 2px;
-  border-radius: .4rem;
+  border-radius: var(--ms-ctl-radius);
 }
 
 /* ── Scrollbars fines partout ───────────────────────────────────────────── */

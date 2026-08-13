@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LEO · TRAJECTORY — Mission Control</title>
+<!-- Couche commune des commandes (rayon, lumière rasante, retour au clic).
+     Chargée AVANT le <style> de la page : les règles propres au cockpit
+     ci-dessous restent prioritaires à spécificité égale. -->
+<link rel="stylesheet" href="mission.css?v=m2" />
 <style>
   /* ── JPL Mission Control — charbon, gris spatial, orange NASA, cyan ─────── */
   :root {
@@ -61,6 +65,13 @@
   .modes button.vins.active { color: var(--cyan);  border-color: var(--cyan);  box-shadow: inset 0 0 12px rgba(34,211,238,.12); }
   .modes button.mins.active { color: var(--orange); border-color: var(--orange); box-shadow: inset 0 0 12px rgba(255,107,53,.15); }
   .modes button:disabled { opacity: .35; cursor: not-allowed; }
+  /* mission.css apporte à toutes les commandes du site un retour au clic et un
+     rayon de 6 px. Ce cockpit conserve en revanche sa géométrie franche : dans
+     une vue instrument dense, l'angle vif se lit plus vite que l'arrondi, et
+     c'est ce qui distingue cette page des pages de contenu. On ne garde donc
+     de la couche commune que le MOUVEMENT, pas la forme. */
+  header nav a, .modes button, button.exp, button.info-btn,
+  button.close, .hud button, main button { border-radius: 2px; }
   /* ── Bouton Export MATLAB ────────────────────────────────────────────────── */
   button.exp {
     font-family: var(--mono); font-size: 12px; letter-spacing: .1em; font-weight: 600;
