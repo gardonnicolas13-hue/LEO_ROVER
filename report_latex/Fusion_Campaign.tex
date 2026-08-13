@@ -7724,6 +7724,402 @@ identified, currently unguarded risk, not a proven field problem, since no
 live AUTO traverse has yet exercised this boundary
 (\S\ref{sec:pidvalidation}).
 
+\section{Standard versus mecanum wheels: two firmware kinematics, one of
+them switched off}
+\label{sec:wheelcompare}
+\S\ref{sec:wheels} established, in July, that the wheels on this rover are
+mecanum and not the rigid skid-steer set the configuration assumed, and
+drew the estimator-side consequences (wheel yaw discounted,
+$r_{\mathrm{eff}}=62.2$\,mm calibrated). What follows does not repeat that
+discovery. It documents four things learned since, three of which come from
+reading the running parameter server on 2026-08-12 rather than any
+configuration file: that the firmware carries \emph{two} complete kinematic
+profiles and runs the wrong one; what the wheel choice costs in metres,
+written out; the full three-degree-of-freedom kinematics the hardware
+supports and this configuration cannot express; and a cockpit control added
+the same day so that recorded data finally states which wheels produced it.
+
+\subsection{Two profiles, read live}
+\label{sec:wheeltwoprofiles}
+\code{rosparam} on the running robot returns two disjoint parameter trees
+under \code{/firmware/}, plus a boolean selecting between them:
+\begin{center}\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+& \code{diff\_drive} \textbf{(active)} & \code{mecanum\_drive} (unused) \\
+\midrule
+\code{wheel\_radius}                & $0.0625$\,m & $0.0635$\,m \\
+\code{wheel\_separation}            & $0.358$\,m  & $0.370$\,m \\
+\code{wheel\_base}                  & ---         & $0.3052$\,m \\
+\code{angular\_velocity\_multiplier}& $\mathbf{1.76}$ & $\mathbf{1.0}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\noindent with \code{/firmware/mecanum\_wheels} $=$ \code{false} and, on the
+robot's own \code{/etc/ros/setup.bash}, \code{export MECANUM\_WHEELS=false}
+--- the single switch FictionLab's own integration guide names. The rover
+therefore drives mecanum hardware through the differential model, and the
+mecanum profile, geometry and all, sits unused beside it. Three separate
+mismatches follow, and they are independent of one another:
+\begin{enumerate}[leftmargin=1.4em]
+\item the \textbf{radius} in use ($0.0625$) is the stock rubber-tyre figure,
+  not this rover's measured $r_{\mathrm{eff}} = 0.0622$ (\S\ref{sec:wheelradius});
+\item the \textbf{yaw multiplier} in use ($1.76$) is a scrub compensation
+  derived for rubber tyres, applied to wheels whose rollers do not scrub
+  (\S\ref{sec:wheelyaw});
+\item the \textbf{model} in use has two degrees of freedom where the
+  hardware has three (\S\ref{sec:wheelmecanum}).
+\end{enumerate}
+
+\subsection{Effective radius, and what a wrong one costs}
+\label{sec:wheelradius}
+A rubber tyre rolls on its outer surface, so its rolling radius is
+essentially geometric. A mecanum wheel rolls on polyurethane rollers that
+compress under load, so the distance covered per revolution corresponds to a
+radius smaller than a calliper reading on the unloaded wheel:
+\begin{equation}
+\delta = r_{\mathrm{geo}} - r_{\mathrm{eff}} = 64.4 - 62.2 = 2.2\;\text{mm},
+\qquad
+\frac{\delta}{r_{\mathrm{geo}}} = \frac{2.2}{64.4} = 3.4\,\%.
+\label{eq:rollercomp}
+\end{equation}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex, scale=0.9]
+  % sol
+  \draw[thick, black!55] (-2.6,0) -- (2.6,0);
+  \foreach \x in {-2.4,-1.9,...,2.5} \draw[black!45] (\x,0) -- ++(-0.18,-0.2);
+  % roue (rayon dessine 2.2 cm  <->  62.2 mm effectif)
+  \draw[dashed, black!55] (0,2.2) circle (2.28);
+  \fill[alertred!6] (0,2.2) circle (2.28);
+  \fill (0,2.2) circle (1.4pt);
+  % rayon geometrique, oblique
+  \draw[black!60, thick] (0,2.2) -- ++(45:2.28);
+  \node[font=\scriptsize, anchor=west, align=left] at (1.72,4.0)
+       {$r_{\mathrm{geo}} = 64.4$\,mm\\[-1pt]\scriptsize($\varnothing128.8$, unloaded)};
+  % rayon effectif, vertical
+  \draw[alertred, very thick] (0,2.2) -- (0,0);
+  \node[alertred, font=\scriptsize, anchor=west] at (0.16,1.5) {$r_{\mathrm{eff}} = 62.2$\,mm};
+  % rouleaux stylises
+  \foreach \a in {20,75,130,200,255,310}
+    \draw[alertred!75, thick] ([shift=(\a:1.95)]0,2.2) -- ([shift=(\a:2.28)]0,2.2);
+  % zoom
+  \draw[accentblue] (0,0.12) circle (0.55);
+  \draw[accentblue, dashed] (0.5,0.5) -- (4.3,1.75);
+  \draw[accentblue, fill=accentblue!5] (4.3,0.75) rectangle (7.5,2.75);
+  \node[accentblue, font=\scriptsize] at (5.9,2.5) {contact, $\times 10$};
+  \draw[thick, black!55] (4.6,1.15) -- (7.2,1.15);
+  \draw[dashed, black!55] (4.7,1.72) .. controls (5.9,2.12) .. (7.1,1.72);
+  \draw[alertred, thick]  (4.7,1.15) .. controls (5.9,1.55) .. (7.1,1.15);
+  \draw[alertred, thick, <->] (5.75,1.35) -- (5.75,1.92);
+  \node[alertred, font=\scriptsize, anchor=west] at (5.95,1.63) {$\delta=2.2$\,mm};
+  \node[black!55, font=\scriptsize] at (5.9,0.95) {roller compression};
+\end{tikzpicture}
+\caption[Geometric versus effective rolling radius]{The $2.2$\,mm of
+Eq.~\ref{eq:rollercomp} drawn to scale on the wheel, where it is invisible,
+and again at $\times 10$, where it is not. That ratio is the whole reason
+this quantity is easy to leave wrong in a configuration file for months.}
+\label{fig:rollercomp}
+\end{figure}
+
+Wheel odometry turns encoder angle into distance through a single
+multiplication, so the radius is a \emph{pure scale factor}: an error in it
+does not average out over a long run, it grows with the run.
+\begin{align}
+\hat d &= r_{\mathrm{used}} \textstyle\sum \Delta\theta_{\mathrm{wheel}},
+\qquad
+d_{\mathrm{true}} = r_{\mathrm{true}} \textstyle\sum \Delta\theta_{\mathrm{wheel}},
+\label{eq:odoscale}\\
+\varepsilon &= \frac{r_{\mathrm{used}} - r_{\mathrm{true}}}{r_{\mathrm{true}}}
+ = \frac{0.0625 - 0.0622}{0.0622} = +0.48\,\%.
+\label{eq:odoscaleval}
+\end{align}
+On the $23.35$\,m taped-rectangle lap of \S\ref{sec:aug05result} that is
+$+0.11$\,m of pure over-report. \textbf{Stated honestly, this is not the
+dominant error}: the loop-closure gap actually measured on that lap was
+$0.449$\,m, four times larger. It is, however, the only part of that gap
+available for free, by editing one number, where the remainder needs
+estimator work.
+
+\subsection{Why a pivot costs $1.76\times$ on rubber and $1.0\times$ on rollers}
+\label{sec:wheelyaw}
+A four-wheel skid-steer platform has no steering linkage. To rotate, its
+tyres must slide sideways across the ground: the wheels roll forward while
+the chassis turns, so all four contact patches scrub. That scrub absorbs
+part of the commanded rotation, and the firmware compensates by
+over-driving the wheel differential. Mecanum rollers, free to turn about
+their own axes, convert the same lateral demand into rolling instead of
+sliding, and need no such compensation --- which is exactly what the two
+profiles of \S\ref{sec:wheeltwoprofiles} encode in one number each.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex, scale=0.82,
+  chas/.style={draw=black!55, rounded corners=2pt, fill=black!3},
+  whl/.style={draw=black!60, fill=black!12, rounded corners=1pt}]
+  % --- panneau gauche : skid-steer ---
+  \begin{scope}
+    \node[font=\small\bfseries] at (1.1,4.5) {Standard --- skid-steer};
+    \draw[chas] (0,0) rectangle (2.2,3.6);
+    \foreach \y in {0.35,2.55} {
+      \draw[whl] (-0.42,\y) rectangle (0,\y+0.7);
+      \draw[whl] (2.2,\y) rectangle (2.62,\y+0.7);
+    }
+    % ripage lateral
+    \foreach \y in {0.7,2.9} {
+      \draw[alertred, very thick, ->] (-0.21,\y) -- ++(0,0.55);
+      \draw[alertred, very thick, ->] (2.41,\y) -- ++(0,-0.55);
+    }
+    \draw[accentblue, very thick, ->] (0.5,1.8) arc (180:0:0.6);
+    \node[alertred, font=\scriptsize, align=center] at (1.1,-0.75)
+         {lateral scrub at\\all four patches};
+    \node[font=\scriptsize\bfseries, black!70] at (1.1,-1.6) {multiplier $1.76$};
+  \end{scope}
+  % --- panneau droit : mecanum ---
+  \begin{scope}[xshift=6.4cm]
+    \node[font=\small\bfseries] at (1.1,4.5) {Mecanum --- rolling};
+    \draw[chas] (0,0) rectangle (2.2,3.6);
+    \foreach \y in {0.35,2.55} {
+      \draw[whl] (-0.42,\y) rectangle (0,\y+0.7);
+      \draw[whl] (2.2,\y) rectangle (2.62,\y+0.7);
+    }
+    % rouleaux a 45 deg
+    \foreach \y in {0.35,2.55} {
+      \foreach \d in {0.1,0.32,0.54} {
+        \draw[alertred!70] (-0.40,\y+\d) -- ++(0.22,0.22);
+        \draw[alertred!70] (2.60,\y+\d) -- ++(-0.22,0.22);
+      }
+    }
+    \foreach \y in {0.7,2.9} {
+      \draw[green!55!black, very thick, ->] (-0.21,\y) -- ++(0,0.55);
+      \draw[green!55!black, very thick, ->] (2.41,\y) -- ++(0,-0.55);
+    }
+    \draw[accentblue, very thick, ->] (0.5,1.8) arc (180:0:0.6);
+    \node[green!55!black, font=\scriptsize, align=center] at (1.1,-0.75)
+         {rollers turn freely,\\no sliding required};
+    \node[font=\scriptsize\bfseries, black!70] at (1.1,-1.6) {multiplier $1.0$};
+  \end{scope}
+\end{tikzpicture}
+\caption[Pivot: scrub versus rolling]{The same commanded pivot, produced two
+different ways. Red arrows are enforced sliding; green arrows are free
+rolling. The firmware states the difference as a single scalar per profile,
+and both scalars were read from the live parameter server.}
+\label{fig:pivotscrub}
+\end{figure}
+
+The differential model relates yaw to the wheel-speed difference through
+the track $b$; the firmware inserts a gain $k$ on top:
+\begin{equation}
+\omega_z = \frac{r\,(\omega_R - \omega_L)}{b},
+\qquad
+\omega_{z,\mathrm{cmd}} = k\,\frac{r\,(\omega_R - \omega_L)}{b}.
+\label{eq:diffyaw}
+\end{equation}
+A gain is indistinguishable from a change of track, so $k=1.76$ is exactly
+the statement that the platform rotates as though its wheels were
+\begin{equation}
+b_{\mathrm{eff}} = k\,b = 1.76 \times 0.358 = 0.630\;\text{m}
+\label{eq:beff}
+\end{equation}
+apart, against a geometric $0.358$\,m. Differentiating
+Eq.~\ref{eq:diffyaw} gives the sensitivity that makes both geometric
+parameters matter at once, and in opposite directions:
+\begin{equation}
+\frac{\delta\omega_z}{\omega_z}
+  = \frac{\delta r}{r} - \frac{\delta b}{b}.
+\label{eq:yawsens}
+\end{equation}
+
+\begin{trapbox}{The $1.76$ in use was derived for wheels this rover does not have}
+$1.76$ is the stock FictionLab value, shipped with the rubber-tyre
+configuration, and it compensates a scrub mechanism that mecanum rollers do
+not produce. Running it against the fitted mecanum set is therefore a third
+mismatch on top of the radius and the model, and it is consistent with what
+\S\ref{sec:wheels} already measured the hard way in July: a sustained
+$\Delta\omega \approx 3.8$\,rad/s of wheel differential that produced
+$0.001$\,rad/s of real yaw. No scalar gain repairs that, because the
+quantity being scaled is not merely mis-scaled but, in that regime,
+fabricated --- which is why the estimator-side answer was to discount wheel
+yaw (\code{noise\_w}: $0.2 \rightarrow 0.8$) rather than to retune $k$.
+\end{trapbox}
+
+\subsection{The third degree of freedom, written out}
+\label{sec:wheelmecanum}
+Each roller is set at $45^\circ$ to the wheel axis, so a mecanum wheel can
+transmit ground force along one diagonal only. Mounted in the standard X
+pattern the four diagonals span the plane, and the platform gains a genuine
+third controllable degree of freedom. With this firmware's \emph{own}
+mecanum numbers,
+\begin{equation}
+l_x = \tfrac{1}{2}(0.3052) = 0.1526\;\text{m},\quad
+l_y = \tfrac{1}{2}(0.370) = 0.185\;\text{m},\quad
+L = l_x + l_y = 0.3376\;\text{m},
+\label{eq:mecgeom}
+\end{equation}
+the inverse kinematics mapping a body twist to the four wheel rates is
+\begin{equation}
+\begin{pmatrix}\omega_{FL}\\ \omega_{FR}\\ \omega_{RL}\\ \omega_{RR}\end{pmatrix}
+=\frac{1}{r}
+\begin{pmatrix}
+ 1 & -1 & -L\\
+ 1 & \phantom{-}1 & \phantom{-}L\\
+ 1 & \phantom{-}1 & -L\\
+ 1 & -1 & \phantom{-}L
+\end{pmatrix}
+\begin{pmatrix}v_x\\ v_y\\ \omega_z\end{pmatrix}.
+\label{eq:mecik}
+\end{equation}
+Three degenerate cases make the structure legible. Pure advance
+($v_y=\omega_z=0$) drives all four wheels alike, $\omega_i = v_x/r$. Pure
+lateral translation ($v_x=\omega_z=0$) gives
+$\omega_{FL}=\omega_{RR}=-v_y/r$ and $\omega_{FR}=\omega_{RL}=+v_y/r$: two
+wheels forward, two backward, at equal magnitude, the forward components
+cancelling and the lateral ones adding. Pure rotation ($v_x=v_y=0$) gives
+$|\omega_i| = L|\omega_z|/r$ on all four, so that
+\begin{equation}
+\omega_z = \frac{r\,(\omega_R-\omega_L)}{2L},
+\qquad 2L = 0.675\;\text{m},
+\label{eq:mecyaw}
+\end{equation}
+i.e.\ mecanum yaw obeys the same shape as Eq.~\ref{eq:diffyaw} but with
+$2L$ in place of $b$ --- an effective base $2L/b = 1.89$ times the
+differential one. \textbf{The numerical proximity of $1.89$ to the
+differential profile's $k=1.76$ is a coincidence and is flagged as such}:
+the two arise from unrelated mechanisms (roller geometry against tyre
+scrub), no derivation links them, and treating the match as evidence would
+be exactly the kind of numerology this report avoids elsewhere.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex, scale=0.82,
+  chas/.style={draw=black!55, rounded corners=2pt, fill=black!3},
+  whl/.style={draw=black!60, fill=black!12, rounded corners=1pt}]
+  % --- X configuration ---
+  \begin{scope}
+    \node[font=\small\bfseries] at (1.1,4.6) {X configuration (top view)};
+    \draw[chas] (0,0) rectangle (2.2,3.6);
+    \node[black!55, font=\scriptsize] at (1.1,1.8) {$x\uparrow$ fwd};
+    \foreach \y in {0.35,2.55} {
+      \draw[whl] (-0.42,\y) rectangle (0,\y+0.7);
+      \draw[whl] (2.2,\y) rectangle (2.62,\y+0.7);
+    }
+    % FL et RR : "\" ; FR et RL : "/"
+    \foreach \d in {0.12,0.34,0.56} {
+      \draw[alertred!75] (-0.40,2.55+\d) -- ++(0.22,0.22);   % FL
+      \draw[alertred!75] (2.60,2.55+\d) -- ++(-0.22,0.22);   % FR
+      \draw[alertred!75] (-0.40,0.35+\d+0.12) -- ++(0.22,-0.22); % RL
+      \draw[alertred!75] (2.60,0.35+\d+0.12) -- ++(-0.22,-0.22); % RR
+    }
+    \node[font=\scriptsize, black!60] at (-0.75,3.45) {FL};
+    \node[font=\scriptsize, black!60] at (2.95,3.45) {FR};
+    \node[font=\scriptsize, black!60] at (-0.75,0.25) {RL};
+    \node[font=\scriptsize, black!60] at (2.95,0.25) {RR};
+    \draw[accentblue, <->] (0,-0.55) -- (2.2,-0.55);
+    \node[accentblue, font=\scriptsize] at (1.1,-0.95) {$2l_y = 0.370$\,m};
+    \draw[accentblue, <->] (3.35,0.7) -- (3.35,2.9);
+    \node[accentblue, font=\scriptsize, anchor=west, align=left] at (3.45,1.8)
+         {$2l_x =$\\$0.305$\,m};
+  \end{scope}
+  % --- composition du strafe ---
+  \begin{scope}[xshift=7.6cm]
+    \node[font=\small\bfseries] at (1.1,4.6) {Pure lateral translation};
+    \draw[chas] (0,0) rectangle (2.2,3.6);
+    \foreach \y in {0.35,2.55} {
+      \draw[whl] (-0.42,\y) rectangle (0,\y+0.7);
+      \draw[whl] (2.2,\y) rectangle (2.62,\y+0.7);
+    }
+    % diagonales de force, toutes vers la gauche
+    \draw[alertred, thick, ->] (-0.21,2.9) -- ++(-0.75,0.75);
+    \draw[alertred, thick, ->] (2.41,2.9) -- ++(-0.75,0.75);
+    \draw[alertred, thick, ->] (-0.21,0.7) -- ++(-0.75,-0.75);
+    \draw[alertred, thick, ->] (2.41,0.7) -- ++(-0.75,-0.75);
+    \draw[green!55!black, ultra thick, ->] (1.1,1.8) -- (-0.9,1.8);
+    \node[green!55!black, font=\scriptsize, anchor=south] at (0.1,1.9) {$v_y$};
+    \node[black!55, font=\scriptsize, align=center] at (1.1,-0.9)
+         {forward components cancel,\\lateral components add};
+  \end{scope}
+\end{tikzpicture}
+\caption[Mecanum X configuration]{Left: the roller diagonals in the X
+pattern, with the two geometric lengths of Eq.~\ref{eq:mecgeom}. Right: the
+second degenerate case of Eq.~\ref{eq:mecik} --- four diagonal wheel forces
+whose longitudinal parts cancel in pairs, leaving a pure $v_y$.}
+\label{fig:mecx}
+\end{figure}
+
+\begin{trapbox}{This rover cannot strafe, and the wheels are not the reason}
+Every equation above describes hardware that is bolted to this rover today.
+The configuration cannot reach it: with \code{MECANUM\_WHEELS=false} the
+CORE2 firmware runs the two-degree-of-freedom differential model, and the
+command path carries a \code{geometry\_msgs/Twist} whose \code{linear.y} is
+discarded downstream --- there is no $v_y$ anywhere in the chain to strafe
+with, whatever Eq.~\ref{eq:mecik} permits. Enabling it means the firmware
+switch \emph{and} a mecanum-aware odometry model
+(\S\ref{sec:wheels}'s July conclusion, unchanged), which is real work rather
+than a checkbox. It stays listed as future work, not claimed as a
+capability.
+\end{trapbox}
+
+\subsection{Four quantities, two sources each}
+\label{sec:wheelgaps}
+Collecting the disagreements rather than smoothing them over:
+\begin{center}\small
+\begin{tabular}{@{}L{2.6cm}L{3.2cm}L{3.3cm}L{3.4cm}@{}}
+\toprule
+Quantity & One source & The other & Gap, and status \\
+\midrule
+\code{wheel\_radius} & $0.0625$\,m, firmware, active &
+  $0.0622$\,m, measured on this rover &
+  $0.48\,\%$ --- registry item 1; Eq.~\ref{eq:odoscaleval} \\
+track & $0.354$\,m, manufacturer & $0.358$\,m, firmware / as-built &
+  $1.1\,\%$; neither tape-measured on this unit \\
+mecanum radius & $0.0635$\,m, unused profile &
+  $0.0622$\,m, measured effective &
+  $2.1\,\%$; the unused profile assumes the geometric radius, ignoring
+  Eq.~\ref{eq:rollercomp} \\
+kinematic model & 4-wheel skid-steer, physically &
+  2-wheel differential, in the estimator &
+  deliberate approximation; online extrinsic refinement absorbs most of it \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{A cockpit control so the data says which wheels produced it}
+\label{sec:wheelselector}
+None of the above was recorded anywhere a dataset could carry: a bag
+replayed in six months could not state which wheels were fitted when it was
+taken, although that single fact conditions how every distance and heading
+in it must be read. A two-position selector was therefore added to the
+Operations panel, and it is \textbf{declarative on purpose}: it does not
+write \code{/firmware/diff\_drive/*}. That tree is read-only in
+\code{leo\_backend.py} by an existing, documented decision --- writing it
+requires editing \code{/etc/ros/param.yaml} \emph{on the robot} and
+restarting \code{leo.service}, which cuts the drive link, so it must stay a
+deliberate human act rather than a side effect of a click.
+
+What the selector does instead is publish the declared set into telemetry
+(and from there into every export and bag), persist it across backend
+restarts because it describes physical hardware, write a logbook entry on
+change because a wheel swap invalidates comparability with everything
+measured before, and --- the useful half --- continuously compare the
+declaration against the radius the firmware is actually applying:
+\begin{equation}
+\text{mismatch} =
+\begin{cases}
+\text{undefined} & \text{if } r_{\mathrm{fw}} \text{ unreachable},\\[2pt]
+\left| r_{\mathrm{fw}} - r_{\mathrm{decl}} \right| > \epsilon
+  & \epsilon = 10^{-4}\,\text{m}.
+\end{cases}
+\label{eq:wheelmismatch}
+\end{equation}
+The three-state result matters: with the parameter server unreachable the
+cockpit stays silent rather than asserting an agreement it has not checked.
+Verified end to end on the running robot on 2026-08-12, the check fires
+immediately and correctly, reporting
+$r_{\mathrm{decl}} = 0.0622$ against $r_{\mathrm{fw}} = 0.0625$ --- which is
+registry item 1, until now dormant in a configuration file and now visible
+on every telemetry tick.
+
 \section{Open items registry}
 \label{sec:openitems}
 \small
@@ -7745,14 +8141,29 @@ live AUTO traverse has yet exercised this boundary
 \endfoot
 \bottomrule
 \endlastfoot
-1 & \textbf{Rigid-wheel radius/track} (config frozen at stock values;
-    2026-07-21: leftward drift measured directly, $\approx 1.65\,\%$
-    right/left effective-radius bias (\S\ref{sec:yawtrim}); masked in
-    software by a bisected yaw trim, $K\approx-0.087$\,rad/s per m/s, not a
-    substitute for the measurement below) &
+1 & \textbf{Wheel radius/track, and now the whole kinematic profile}
+    (config frozen at stock values; 2026-07-21: leftward drift measured
+    directly, $\approx 1.65\,\%$ right/left effective-radius bias
+    (\S\ref{sec:yawtrim}); masked in software by a bisected yaw trim,
+    $K\approx-0.087$\,rad/s per m/s, not a substitute for the measurement
+    below). \textbf{Widened 2026-08-12} (\S\ref{sec:wheelcompare}): reading
+    the live parameter server showed the firmware carries \emph{two}
+    complete profiles and runs the differential one
+    (\code{/firmware/mecanum\_wheels}\,$=$\,\code{false}), so three
+    independent mismatches stack against the fitted mecanum set --- the
+    radius ($0.0625$ stock against $0.0622$ measured, $+0.48\,\%$ on every
+    wheel distance, Eq.~\ref{eq:odoscaleval}), the yaw multiplier ($1.76$,
+    a rubber-tyre scrub compensation applied to rollers that do not
+    scrub), and the model itself (2 DOF against 3). The cockpit now
+    surfaces the radius half of this on every telemetry tick
+    (\S\ref{sec:wheelselector}) &
     roll-out measurement; update firmware \code{diff\_drive} and
     \code{config\_wheel.yaml}; re-run slip protocol; remove the software
-    trim (\S\ref{sec:yawtrim}) once corrected \\
+    trim (\S\ref{sec:yawtrim}) once corrected. Separately, decide
+    deliberately whether to enable \code{MECANUM\_WHEELS=true} with a
+    matching odometry model or to keep the differential approximation ---
+    what must not continue is running a rubber-tyre profile against
+    mecanum hardware without that being a stated choice \\
 2 & \code{T\_imu\_cam} (measured seed, refined online) &
     \code{kalibr\_calibrate\_imu\_camera} (monocular cam0), inject via
     \code{fill\_mins\_camchain.py} \\
