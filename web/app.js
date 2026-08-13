@@ -2742,30 +2742,44 @@
     setBoost(false);
 
     /* ── Boutons vidéo ──────────────────────────────────────────────────── */
-    $('btnVideoRetry').addEventListener('click', () => startVideo($('host').value.trim() || '10.0.0.10'));
+    /* Gardes ajoutées (2026-08-12, audit site) : ces 4 éléments n'existent
+       que sur ops.html. Sans garde, un $('id') qui renvoie null faisait
+       planter TOUT le reste de initCockpit() — donc aussi connect(),
+       les sliders de vitesse et l'overlay d'alerte — dès que ce bloc
+       s'exécutait sur index.html / logbook.html / preview-design.html
+       (qui chargent aussi app.js). Même schéma que btnBoost ci-dessus. */
+    const btnVideoRetry = $('btnVideoRetry');
+    if (btnVideoRetry) {
+      btnVideoRetry.addEventListener('click', () => startVideo($('host').value.trim() || '10.0.0.10'));
+    }
 
     /* Relance caméra (2026-07-20) : déclenche côté backend la même échelle
        que le watchdog (cycle rosmon, purge republish, params ré-appliqués) —
        cooldown 15 s côté backend, désactivation visuelle 20 s ici (la relance
        prend ~10-15 s, on laisse une marge avant de ré-autoriser le clic). */
-    $('btnCamRecover').addEventListener('click', () => {
-      if (!connected || !topics.command) return;
-      const btn = $('btnCamRecover');
-      btn.disabled = true;
-      btn.classList.add('opacity-50', 'cursor-not-allowed');
-      btn.innerHTML = '<i data-lucide="loader-2" class="h-3 w-3 animate-spin"></i> ' + T('ops_vid_recovering');
-      if (window.lucide) lucide.createIcons();
-      topics.command.publish(new ROSLIB.Message({ data: JSON.stringify({ action: 'recover_camera' }) }));
-      setTimeout(() => {
-        btn.disabled = false;
-        btn.classList.remove('opacity-50', 'cursor-not-allowed');
-        btn.innerHTML = '<i data-lucide="refresh-cw" class="h-3 w-3"></i> ' + T('ops_vid_recover');
+    const btnCamRecover = $('btnCamRecover');
+    if (btnCamRecover) {
+      btnCamRecover.addEventListener('click', () => {
+        if (!connected || !topics.command) return;
+        const btn = $('btnCamRecover');
+        btn.disabled = true;
+        btn.classList.add('opacity-50', 'cursor-not-allowed');
+        btn.innerHTML = '<i data-lucide="loader-2" class="h-3 w-3 animate-spin"></i> ' + T('ops_vid_recovering');
         if (window.lucide) lucide.createIcons();
-        startVideo($('host').value.trim() || '10.0.0.10');
-      }, 20000);
-    });
-    $('btnConnect').addEventListener('click', () => wantConnected ? disconnect() : connect());
-    $('host').addEventListener('keydown', (e) => { if (e.key === 'Enter') { disconnect(); connect(); } });
+        topics.command.publish(new ROSLIB.Message({ data: JSON.stringify({ action: 'recover_camera' }) }));
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.classList.remove('opacity-50', 'cursor-not-allowed');
+          btn.innerHTML = '<i data-lucide="refresh-cw" class="h-3 w-3"></i> ' + T('ops_vid_recover');
+          if (window.lucide) lucide.createIcons();
+          startVideo($('host').value.trim() || '10.0.0.10');
+        }, 20000);
+      });
+    }
+    const btnConnect = $('btnConnect');
+    if (btnConnect) btnConnect.addEventListener('click', () => wantConnected ? disconnect() : connect());
+    const hostInput = $('host');
+    if (hostInput) hostInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { disconnect(); connect(); } });
 
     /* ── Velocity config sliders ────────────────────────────────────────────── */
     let velTimer = null;

@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" type="image/svg+xml" href="leo_icon.svg" />
 <title>LEO ROVER — Operations Cockpit</title>
 <script src="i18n.js?v=r22"></script>
 <script src="vendor/tailwind.min.js"></script>
@@ -961,6 +962,44 @@
         <p class="mt-1 text-center font-mono text-[9px] uppercase tracking-[.22em] text-plasma/35">// COMMS RELAY</p>
       </section>
 
+      <!-- ATTITUDE / ARTIFICIAL HORIZON (roll & pitch from /camera/imu/data_raw)
+           Complète le trio CPU · NETWORK · ATTITUDE annoncé par l'en-tête de
+           section ci-dessus. Le calcul, le rendu canvas et les 4 clés i18n
+           (ops_horizon_*) existaient déjà dans app.js/i18n.js depuis la mise
+           en place de l'horizon artificiel — seul ce panneau HTML manquait
+           pour qu'ils s'affichent quelque part (trouvé lors de l'audit du
+           site du 2026-08-12, complété dans la foulée). -->
+      <section class="tile glass col-span-12 p-4 transition md:col-span-6 lg:col-span-4">
+        <h3 class="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+          <i data-lucide="gauge" class="h-4 w-4 text-accent"></i> <span data-i18n="ops_horizon_title">Attitude · IMU</span>
+        </h3>
+
+        <div class="flex items-center gap-5">
+          <!-- Artificial horizon canvas -->
+          <div class="relative shrink-0 overflow-hidden rounded-full ring-1 ring-white/10" style="width:100px;height:100px;">
+            <canvas id="horizonCanvas" width="100" height="100" style="width:100px;height:100px;"></canvas>
+            <div id="horizonNaMsg" class="absolute inset-0 hidden items-center justify-center bg-zinc-900/85 px-2 text-center font-mono text-[8px] uppercase leading-tight tracking-wider text-zinc-500" data-i18n="ops_horizon_na">IMU offline</div>
+          </div>
+
+          <!-- Roll / Pitch readouts -->
+          <div class="flex-1 space-y-3">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-zinc-500" data-i18n="ops_horizon_roll">Roll</span>
+              <span id="imuRoll" class="font-mono font-bold text-white">—°</span>
+            </div>
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-zinc-500" data-i18n="ops_horizon_pitch">Pitch</span>
+              <span id="imuPitch" class="font-mono font-bold text-white">—°</span>
+            </div>
+            <div class="flex items-center gap-1.5 pt-2 font-mono text-[10px] text-zinc-600">
+              <span id="imuStatusDot" class="led-dot text-zinc-700"><span class="block h-2 w-2 rounded-full bg-current"></span></span>
+              <span id="imuStatusTxt">/camera/imu/data_raw</span>
+            </div>
+          </div>
+        </div>
+        <p class="mt-4 text-center font-mono text-[9px] uppercase tracking-[.22em] text-accent/35">// ARTIFICIAL HORIZON</p>
+      </section>
+
       <!-- CALIBRATION STATUS (Kalibr camchain health, fed by calibration_monitor.py) -->
       <section class="tile glass col-span-12 p-4 transition md:col-span-6 lg:col-span-4">
         <h3 class="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
@@ -1153,7 +1192,7 @@
   <script src="vendor/lucide-1.25.0.umd.js?v=v1"></script>
   <script>lucide.createIcons(); if (window.I18N) I18N.apply();</script>
   <script src="audio_manager.js?v=r8b"></script>
-  <script src="app.js?v=r38"></script>
+  <script src="app.js?v=r39"></script>
   <script src="vendor/three.min.js"></script>
   <script src="vendor/gsap.min.js"></script>
   <script src="vendor/ScrollTrigger.min.js"></script>

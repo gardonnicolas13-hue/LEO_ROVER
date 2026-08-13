@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <!--
   demo.html — vue DEMONSTRATION (Lot E, v4, 2026-07-30).
 
@@ -19,6 +20,11 @@
   voir son en-tete). Sans lui la page affiche « en attente » — elle ne ment
   jamais en montrant des axes vides comme si c'etait une mesure.
 -->
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2307090c'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%2326c6da' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23ff7043'/%3E%3C/svg%3E" />
 <title>LEO Rover · Démonstration</title>
 <script src="vendor/roslib.min.js?v=v1"></script>
 
@@ -69,6 +75,8 @@
   code{font-family:ui-monospace,Menlo,Consolas,monospace;
        background:#0a1520;padding:2px 6px;border-radius:4px;color:var(--caro)}
 </style>
+</head>
+<body>
 
 <header>
   <span class="dot" id="dot"></span>
@@ -300,3 +308,5 @@
   }, 250);
 })();
 </script>
+</body>
+</html>
