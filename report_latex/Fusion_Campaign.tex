@@ -7535,11 +7535,37 @@ card is also its boot device, and testing a rebuilt storage driver on
 the only one this robot has, live, was judged the wrong trade for
 tonight. All three candidates this item named are now checked, not
 guessed at: one ruled out, one hard-blocked by the kernel, one with no
-accessible knob. What remains, if this is pursued further, is a kernel
-patch (out of scope here) or accepting the mechanism as a platform
-limit and mitigating elsewhere: MMC's affinity move, re-tested properly
-against a matched load next time, is the one candidate this evening
-left genuinely open rather than closed.
+accessible knob.
+
+\paragraph{MMC affinity, re-tested properly: still not confirmed, now for a
+better reason.} The gap this section left open --- a single before/after
+sample cannot separate a real effect from drift --- was closed the same
+evening with an alternating protocol matching item 38's own discipline
+(\S\ref{sec:aug13ab}): two $120$\,s windows with IRQ~$27$ on CPU$1$ and
+two with it restored to \code{0-3}, in B--A--B--A order, configuration
+confirmed restored after each switch.
+\begin{center}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+& Round 1 & Round 2 \\
+\midrule
+B (CPU$1$) & $2.616\,\mathrm{s}^{-1}$ & $1.744\,\mathrm{s}^{-1}$ \\
+A (\code{0-3}) & $2.450\,\mathrm{s}^{-1}$ & $2.558\,\mathrm{s}^{-1}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Mean B $=2.180\,\mathrm{s}^{-1}$, mean A $=2.504\,\mathrm{s}^{-1}$, a
+nominal $12.9\,\%$ reduction --- but B's own two samples span
+$0.872\,\mathrm{s}^{-1}$ (standard deviation $0.617$), nearly three times
+the $0.324\,\mathrm{s}^{-1}$ gap between the two means, while A's two
+samples agree far more closely (spread $0.108$, standard deviation
+$0.076$). A difference smaller than the noise within one of the two
+groups it is drawn from is not a confirmed effect, whichever direction
+it points. Four windows, honestly, is not enough power to settle this
+either way; what this run adds over the earlier single-sample attempt
+is knowing precisely how much power is missing; not that there is none.
+What remains genuinely open is the same experiment run longer, or
+repeated over more than one evening.
 
 \section{sqrtVINS on the Raspberry Pi: installed, debugged, and diverged
 --- a complete answer to a new request}
@@ -9005,14 +9031,18 @@ on every telemetry tick.
     xHCI refused outright by the kernel (\code{I/O error}, this MSI
     controller does not support runtime re-steering), MMC's move gave an
     inconclusive result against a load that drifted on its own across the
-    test window. Third candidate also closed: \code{bcm2835\_mmc} exposes
-    only two module parameters, both debug-logging flags, no timing
-    control &
+    test window, so re-run with a proper B--A--B--A matched protocol
+    ($4\times120$\,s): mean $2.180\,\mathrm{s}^{-1}$ (CPU$1$) against
+    $2.504\,\mathrm{s}^{-1}$ (original) --- a $12.9\,\%$ nominal gap
+    smaller than the spread within the CPU$1$ samples themselves
+    ($0.872\,\mathrm{s}^{-1}$), not a confirmed effect either way. Third
+    candidate closed: \code{bcm2835\_mmc} exposes only two module
+    parameters, both debug-logging flags, no timing control &
     a kernel patch to \code{bcm2835\_mmc} is the only route left to the
     \code{udelay} busy-waits, not attempted (this Pi's SD card is also
-    its boot device); re-test IRQ~$27$'s move with a matched-load
-    protocol (\S\ref{sec:aug13ab}-style, not a single before/after
-    sample) --- the one candidate this evening left genuinely open \\
+    its boot device); the MMC-affinity question needs more statistical
+    power than four $120$\,s windows gave it --- longer or more numerous
+    runs, not a different protocol \\
 41 & \textbf{$\sqrt{\text{VINS}}$ on the Pi: installed and running, diverges
     on a real driven lap} (\S\ref{sec:sqrtvins}). Builds and runs at
     $30$--$70\,\mathrm{Hz}$ on live sensor data, two real defects found
