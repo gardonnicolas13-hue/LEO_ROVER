@@ -75,6 +75,11 @@
   }
   .verdict-yes { border-color: #3fdc97; background: rgba(63,220,151,.06); color: #d4d4d8; }
   .verdict-no  { border-color: #FC3D21; background: rgba(252,61,33,.06); color: #d4d4d8; }
+  .verdict-partial { border-color: #eab308; background: rgba(234,179,8,.07); color: #d4d4d8; }
+  .compare-table { width:100%; border-collapse:collapse; font-size:.85rem; margin:1rem 0; }
+  .compare-table th, .compare-table td { padding:.5rem .75rem; text-align:left; border-bottom:1px solid rgba(255,255,255,.08); }
+  .compare-table th { color:#a1a1aa; font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; }
+  .compare-table td.num { font-variant-numeric:tabular-nums; }
 </style>
 </head>
 
@@ -99,7 +104,7 @@
         <a href="index.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786649461" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786659311" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
         <a href="system.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
@@ -128,7 +133,7 @@
         <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786649461" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786659311" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
         <a href="system.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
@@ -143,23 +148,25 @@
 
   <!-- ══════════════════ HERO ══════════════════ -->
   <section class="mx-auto max-w-4xl px-5 pb-8 pt-16">
-    <p class="font-mono text-xs uppercase tracking-[.3em] text-accent">// response to supervisor review · 2026-08-12</p>
+    <p class="font-mono text-xs uppercase tracking-[.3em] text-accent">// response to supervisor review · 2026-08-12 – 2026-08-13</p>
     <h1 class="mt-3 font-display text-4xl font-black tracking-tight sm:text-5xl">
-      <span class="text-gradient">The Carolus Quaternion, Relocalization Theory &amp; Pose-Regulation Control</span>
+      <span class="text-gradient">The Carolus Quaternion, Relocalization Theory, Pose-Regulation Control &amp; sqrtVINS</span>
     </h1>
     <p class="mt-4 max-w-2xl text-zinc-400">
-      Three items from Pr. Gutierrez's latest review, worked through with full
-      derivations, source-code verification, and — where a claim could be
-      tested — an actual running check. Every equation below is also in the
-      Technical Guide PDF, page-referenced throughout.
+      Four items from Pr. Gutierrez, worked through with full derivations,
+      source-code verification, and — where a claim could be tested — an
+      actual running check. Every equation below is also in the Technical
+      Guide PDF, page-referenced throughout.
     </p>
     <div class="mt-5 flex flex-wrap gap-3 text-[11px]">
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786649461#page=312" target="_blank" rel="noopener"
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786659311#page=312" target="_blank" rel="noopener"
          class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.18, p.312 — Quaternion</a>
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786649461#page=317" target="_blank" rel="noopener"
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786659311#page=317" target="_blank" rel="noopener"
          class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.19, p.317 — Relocalization</a>
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786649461#page=448" target="_blank" rel="noopener"
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786659311#page=448" target="_blank" rel="noopener"
          class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">Appendix D.15, p.448 — Pose control</a>
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786659311#page=318" target="_blank" rel="noopener"
+         class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.20, p.318 — sqrtVINS</a>
     </div>
   </section>
 
@@ -344,6 +351,67 @@
           diagnosed, would risk producing a field result that measures the fault rather than the controller.
           Integration, once resolved, is wiring one more FSM state alongside the existing
           <code>LOCK_BEACON</code>/<code>GOTO_BEACON</code> states — not new development.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ PART 4: sqrtVINS ══════════════════ -->
+  <section class="mx-auto max-w-4xl px-5 pb-20">
+    <div class="tile glass animate-fade-up p-6 sm:p-8">
+      <p class="section-label">// follow-up · 2026-08-13</p>
+      <h2 class="font-display text-2xl font-bold text-white">"Install and test sqrtVINS on the Pi 4B, compare against MINS"</h2>
+      <div class="doc-body mt-2">
+        <p>Installed the same evening the request arrived, debugged to a running state, and tested on an
+        actual driven lap of the lab rectangle — not simulated, not deferred. The honest result: it runs in
+        real time on the Pi as claimed, but diverged badly on real motion, worse than even the classic
+        openVINS already running on the ground PC. Full derivation, both bugs found, and the complete
+        comparison table are in the report, §12.20.</p>
+
+        <h3>Installed and running — the README's claim independently confirmed</h3>
+        <p><code>ov_srvins</code> (openVINS extended with a square-root filter, single-precision throughout —
+        confirmed directly in the compiler flags, not just claimed) was built in a workspace fully isolated
+        from the existing openVINS install (its bundled <code>ov_core</code>/<code>ov_data</code>/<code>ov_eval</code>
+        share names with packages already on this robot — mixing workspaces would have broken the estimator
+        this whole report depends on). 104 minutes, zero errors, every system dependency already present.
+        Once running, it read this robot's camera and IMU directly — no network hop to the PC at all, since
+        it lives on the same machine the D455 publishes from — and processed frames at 30–70&nbsp;Hz.</p>
+
+        <h3>Two real bugs, found by bisection, not guessed at</h3>
+        <p>The first config attempt — this robot's proven openVINS values, ported onto the classic openVINS
+        schema — crashed before a single frame processed (<code>boost: mutex lock failed</code>). Rebuilt from
+        the one file confirmed to run, re-adding values one at a time: the schema itself was incompatible
+        (<code>ov_srvins</code> silently needs fields no classic config has, undocumented in the README).
+        Second: this robot's proven setting <code>try_zupt: true</code> — the exact fix that took openVINS from
+        a 41,824&nbsp;m divergence down to 0.002&nbsp;m on the PC — caused the <em>opposite</em> here: state
+        velocity growing from 1780 to 6015&nbsp;m/s in seconds, with the filter's own consistency gate logging
+        each one as <em>accepted</em> at a χ² of 10¹⁷ against a threshold near 65. Deployed with ZUPT off,
+        the one proven setting reversed from what this robot needed on the PC.</p>
+
+        <h3>The driven test: three estimators, one lap</h3>
+        <p>Recorded simultaneously in one bag, 415&nbsp;s, three estimators on the identical motion:</p>
+        <table class="compare-table">
+          <thead><tr><th>Estimator</th><th>Sensors</th><th>Loop closure error</th></tr></thead>
+          <tbody>
+            <tr><td>MINS (ground PC)</td><td>wheels + camera + IMU</td><td class="num" style="color:#3fdc97">1.02 m</td></tr>
+            <tr><td>openVINS (ground PC)</td><td>camera + IMU</td><td class="num" style="color:#eab308">541.7 m</td></tr>
+            <tr><td>sqrtVINS (Pi 4B, local)</td><td>camera + IMU</td><td class="num" style="color:#FC3D21">unbounded (43,742 m reported for a ~20 m lap)</td></tr>
+          </tbody>
+        </table>
+        <p class="fig-caption">Loop closure = distance between first and last recorded position, same
+        methodology as <code>compare_tests.m</code> elsewhere on this site. Full growth curve (plausible to
+        ~20 m, then an accelerating runaway) in the report, §12.20.4.</p>
+
+        <div class="verdict-box verdict-partial">
+          <strong>Exactly what the request itself predicted, and then some.</strong> Less accurate than MINS —
+          expected, stated in the request, true of every camera+IMU-only estimator in this report. What
+          wasn't expected: worse than the classic openVINS already running on the PC, on the identical lap.
+          The most defensible reading isn't "unusable" — it's that tonight's configuration, running without
+          zero-velocity updates because the alternative crashed outright, wasn't enough to keep this specific
+          filter bounded through real, moderately dynamic motion on this hardware. Two concrete next steps,
+          neither attempted tonight: report the χ² defect upstream to RPNG with the reproduction above, and
+          re-test with <code>zupt_chi2_multipler: 0</code> (disparity-only zero-velocity updates) as a middle
+          ground never tried.
         </div>
       </div>
     </div>

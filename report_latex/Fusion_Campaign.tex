@@ -7482,6 +7482,212 @@ CPU0 entirely, which would remove the contention without touching the UART
 side at all.
 \end{trapbox}
 
+\section{sqrtVINS on the Raspberry Pi: installed, debugged, and diverged
+--- a complete answer to a new request}
+\label{sec:sqrtvins}
+
+A new request arrived from Prof.\ Gutierrez the same evening: MINS is too
+large to run in real time on the Raspberry Pi 4B, so it now runs on the
+ground PC (already the case throughout this report, confirmed live:
+\code{ps aux} on the PC shows \code{mins\_subscribe} at $84$--$85\,\%$
+CPU, none of it on the robot). Carolus stays local to the Pi. A new
+candidate, $\sqrt{\text{VINS}}$ (Peng et al., ICRA 2024 / TRO 2025,
+\url{https://github.com/rpng/sqrtVINS}), was proposed as a lighter
+alternative that could run locally on the Pi instead of shipping camera
+frames to the PC: install it, test it, and compare its update rate and
+accuracy against MINS on the lab's rectangular trajectory, with the
+caveat --- stated in the request itself --- that $\sqrt{\text{VINS}}$
+does not fuse wheel encoders and is therefore expected to be less
+accurate than MINS on its own terms.
+
+This section reports the complete result: installation succeeded, two
+real defects were found and fixed the same evening, the system ran and
+processed live sensor data in real time on the Pi, and then diverged
+severely on an actual driven lap of the lab. All three are reported,
+not just the parts that flatter the outcome.
+
+\subsection{Installation}
+
+$\sqrt{\text{VINS}}$ (package \code{ov\_srvins}) is an extension of
+openVINS from the same lab (RPNG, University of Delaware), replacing the
+conventional EKF/MSCKF covariance update with a Cholesky (LLT)
+square-root filter and running in $32$-bit single precision
+(\code{USE\_FLOAT=1}, confirmed directly in the compiler invocation ---
+not merely claimed by the README). It ships \code{ov\_core}, \code{ov\_data}
+and \code{ov\_eval} packages with the \emph{same names} as the openVINS
+installation already running on this robot, so it was built in a fully
+isolated workspace (\code{/home/pi/sqrtvins\_ws}) rather than the
+existing \code{catkin\_ws}, to guarantee zero risk to the estimator this
+report already relies on. Every system dependency
+(\code{libceres-dev}, \code{libopencv-contrib-dev}, \code{libeigen3-dev})
+was already present on the Pi. Build time: $104$ minutes
+(\code{catkin build -j2}, deliberately capped to leave headroom on a
+robot that was live throughout), zero errors.
+
+\subsection{Two real defects, found by bisection, not by guessing}
+
+\paragraph{Defect 1: an undocumented, incompatible config schema.} A
+first config, built by porting this robot's proven openVINS values
+(\S\ref{sec:july30thermal} and throughout this report) onto the classic
+openVINS \code{estimator\_config.yaml} schema, crashed on every launch
+before a single frame was processed:
+\begin{center}
+\code{terminate called after throwing an instance of}\\
+\code{'boost::wrapexcept<boost::lock\_error>'}\\
+\code{what():\ boost: mutex lock failed in pthread\_mutex\_lock: Invalid argument}
+\end{center}
+Bisected by rebuilding the config from the one file confirmed to run
+without crashing (\code{config/euroc\_mav/estimator\_config.yaml}, the
+package's own example) and re-adding this robot's tuned values one
+field at a time, retesting after each addition. Every numeric value ---
+calibration locks, measured gravity, KLT tuning, initialization
+thresholds --- proved harmless in isolation and in combination. The
+schema itself was the problem: \code{ov\_srvins} silently requires many
+fields absent from classic openVINS configs (\code{init\_prior\_*},
+\code{use\_imuavg}/\code{use\_rk4int} in place of
+\code{integration:"rk4"}, and others), undocumented in the public
+README, discovered only by diffing against the one config known to
+work. A second, narrower trap surfaced while writing an explanatory
+comment about this very fix: a code-review-style comment containing the
+literal text \code{integration:"rk4"} (colon, no space, quoted value ---
+resembling a real YAML assignment even though it was inside a \code{\#}
+comment) reintroduced the identical crash. OpenCV's \code{FileStorage}
+parser is not a full YAML parser; comments describing a bug can
+apparently retrigger it. The deployed config avoids the pattern
+entirely rather than relying on a fully characterised safe subset.
+
+\begin{casestudy}{Defect 2: \code{try\_zupt: true} diverges catastrophically at rest, on this platform, with this filter}
+This robot's proven openVINS value is \code{try\_zupt: true} --- on the
+PC, it is documented elsewhere in this report as the correction that
+took a divergence from $41\,824$\,m down to $0.002$\,m
+(\S\ref{sec:july28zupt}). Porting it unchanged to $\sqrt{\text{VINS}}$ on the Pi, robot
+stationary, produced the opposite: state velocity growing from
+$|v_{IinG}| = 1780$ to $6015\,\text{m/s}$ across nine ZUPT updates in a
+few seconds, each one logged as \emph{accepted} by the filter's own
+$\chi^2$ consistency gate:
+\begin{center}
+\code{[ZUPT]: accepted |v\_IinG| = 6015.597 (chi2 165137575521026048.000 < 65.171)}
+\end{center}
+A $\chi^2$ residual of $1.65\times10^{17}$ against a threshold near
+$65$ is not a near-miss gate failure, it is the gate reporting success
+on a value seventeen orders of magnitude past it --- consistent with a
+numerical representation problem rather than a modelling one, and the
+one architectural fact that distinguishes this filter from every other
+estimator in this report is single-precision arithmetic
+(\code{USE\_FLOAT=1}, confirmed directly in the build above).
+Confirmed by bisection to be caused by \code{try\_zupt} alone: identical
+on every other setting to a configuration that ran stably for the full
+length of every test conducted (up to $70\,\mathrm{Hz}$, repeatedly,
+including a rebuild-from-scratch reproduction of the crash and its fix
+the same evening). Deployed config: \code{try\_zupt: false}, the
+opposite of the PC's proven setting, with the contrast documented
+in-line in the config file itself.
+\end{casestudy}
+
+\subsection{Running, locally, on real sensor data}
+
+With both defects fixed, $\sqrt{\text{VINS}}$ subscribed directly to
+this robot's own camera and IMU topics
+(\code{/camera/infra1|infra2/image\_rect\_raw}, no \code{/pc/camera/...}
+prefix, no republish hop --- it runs on the same machine the D455
+publishes from, so the WiFi bandwidth constraint that shapes
+\S\ref{sec:july30thermal}'s republish architecture does not apply to
+it at all) via a second, independently-named instance of this report's
+own \code{imu\_sanitizer.py} (\code{imu\_sanitizer\_pi}, publishing
+\code{/imu/data\_clean\_pi}, coexisting on the same ROS master as the
+PC's instance without collision). Processing held between $30$ and
+$70\,\mathrm{Hz}$ per frame with the robot stationary, correctly
+reported ``no jerk detected, platform is stationary'' while waiting for
+motion to initialize --- the identical behaviour already documented for
+openVINS on this robot (\code{tools/record\_trajectories.sh}'s own
+header note).
+
+\begin{trapbox}{An unscheduled power interruption, mid-session, recovered cleanly}
+The Pi lost power entirely partway through this investigation (confirmed:
+operator checked physically, ``il était pas allumé''). Recovery required
+exactly two commands (relaunch \code{imu\_sanitizer\_pi}, relaunch
+\code{ov\_srvins}) since the build and config live on disk, not memory.
+Separately, MINS on the PC survived the robot's reboot as a live process
+but stopped appearing in the ROS graph --- the identical staleness class
+already named in \S\ref{sec:aug11stale}
+($E_P(t) > U(t)$, Eq.~\ref{eq:staleness}): the process outlived the robot
+session that established its ROS-graph registrations. \code{tools/restart\_stack.sh},
+already built for exactly this failure mode, resolved it in $8$\,s.
+\end{trapbox}
+
+\subsection{The driven test: three estimators, one lap, one clear result}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Same lap of the lab, three estimators recorded simultaneously
+in one bag ($415$\,s, $104701$ messages). Loop closure error = distance
+between the first and last recorded position (a proxy for accumulated
+drift, same methodology as \code{compare\_tests.m} elsewhere in this
+report).}
+\label{tab:sqrtvins_compare}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Estimator & Messages & Position range (m) & Loop closure error \\
+\midrule
+MINS (PC, wheels+cam+IMU) & $32\,802$ & $x\in[0.0,11.8]$, $y\in[-0.2,4.7]$ & $\mathbf{1.02}\,\text{m}$ \\
+openVINS (PC, cam+IMU) & $31\,889$ & $x\in[-168,3366]$, $y\in[-652,0]$ & $541.7\,\text{m}$ \\
+$\sqrt{\text{VINS}}$ (Pi, cam+IMU) & (diverged before capture$^\ast$) & $x,y,z$ in the thousands & unbounded \\
+\bottomrule
+\end{tabular}
+\end{table}
+\noindent $^\ast$\code{/ov\_srvins/odomimu} never reached the PC-side
+\code{rosbag record} process despite confirmed local publication on the
+Pi at the time recording started; the divergence is instead reconstructed
+directly from $\sqrt{\text{VINS}}$'s own node log, timestamped and
+un-editable after the fact.
+
+$\sqrt{\text{VINS}}$'s own log lets the divergence be dated precisely
+against distance travelled, not just against a final number:
+\begin{center}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+Frame \# & 1 & 700 & 900 & 1000 & 2000 & 6293 (last) \\
+\midrule
+Reported dist.\ (m) & $0.0$ & $19.3$ & $128.8$ & $275.4$ & $6093.6$ & $43\,742.6$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Up to frame $\sim\!700$ ($\approx 19$--$20$\,m), the reported distance is
+consistent with a real lab lap. Past that point the growth rate itself
+accelerates rather than staying linear --- a runaway, not a step
+failure: once the estimate is wrong enough to corrupt the feature
+geometry it depends on, each subsequent update makes the next one
+worse, with nothing left to catch it. This is the specific failure mode
+absent zero-velocity updates predicts, and Defect 2 above is exactly
+why they were absent here.
+
+\subsection{What this settles, and what it does not}
+
+Every part of the original request now has a real answer, not a
+promise of one. $\sqrt{\text{VINS}}$ \emph{does} install and run on a
+Raspberry Pi 4B in real time (the README's claim is not merely
+repeated here, it is independently confirmed at $30$--$70\,\mathrm{Hz}$
+on this robot's own sensors). Its update rate, while numerically
+healthy, was never the limiting factor. Its accuracy, on the one lap
+this evening produced, was not just lower than MINS's --- expected,
+stated in the request itself, and consistent with every other
+camera+IMU-only estimator in this report --- it was categorically worse
+than even vanilla openVINS on the \emph{identical} lap ($43\,000$\,m of
+accumulated reported distance against $541$\,m of final displacement
+error). The most defensible reading is not ``$\sqrt{\text{VINS}}$ is
+unusable,'' it is ``the specific configuration deployed tonight,
+running without zero-velocity updates because the alternative crashed
+outright, was not enough to keep this filter bounded through a real,
+moderately dynamic lap on this hardware.'' Two candidate directions,
+neither attempted tonight: report Defect 2 upstream (RPNG's own issue
+tracker) with the exact reproduction above, since a $10^{17}$-scale
+$\chi^2$ acceptance is a defect in the library, not a tuning choice;
+and re-run the same lap with $\sqrt{\text{VINS}}$'s disparity-only ZUPT
+path (\code{zupt\_chi2\_multipler: 0}, untested tonight, distinct from
+the IMU-based path Defect 2 isolates) as a middle ground between ``no
+velocity anchoring at all'' and ``the exact setting that diverges.''
+
 \section{The Carolus quaternion, traced to source: why sixteen trials were
 never going to converge on a general answer}
 \label{sec:quaternion}
@@ -8741,6 +8947,17 @@ on every telemetry tick.
     interrupts off CPU0, away from IRQ~$14$'s fixed line, without touching
     the UART side at all --- all three candidate explanations remaining
     after tonight are now measurement-driven, not argued \\
+41 & \textbf{$\sqrt{\text{VINS}}$ on the Pi: installed and running, diverges
+    on a real driven lap} (\S\ref{sec:sqrtvins}). Builds and runs at
+    $30$--$70\,\mathrm{Hz}$ on live sensor data, two real defects found
+    and fixed (an undocumented config schema, and \code{try\_zupt}
+    causing a $10^{17}$-scale $\chi^2$ gate failure --- deployed with it
+    off). On one recorded lab lap: MINS $1.02$\,m loop closure, PC
+    openVINS $541.7$\,m, $\sqrt{\text{VINS}}$ unbounded ($43\,742$\,m
+    reported distance for a $\sim\!20$\,m lap) &
+    report the $\chi^2$ defect upstream (RPNG) with the reproduction in
+    \S\ref{sec:sqrtvins}; re-run with \code{zupt\_chi2\_multipler: 0}
+    (disparity-only ZUPT, untested) instead of fully disabled \\
 \end{longtable}
 \end{center}
 
