@@ -2,6 +2,173 @@
   "entries": [
     {
       "id": "auto_0200",
+      "timestamp": "2026-08-13T18:18:26",
+      "event_type": "LED_RESET",
+      "title": "LED Reset triggered \u2014 odometry zeroed",
+      "details": "Cluster at (253, 244) px \u2014 3 LEDs",
+      "tags": [
+        "reset",
+        "odometry",
+        "led"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
+      "timestamp": "2026-08-13T18:18:21",
+      "event_type": "LED_RESET",
+      "title": "LED Reset triggered \u2014 odometry zeroed",
+      "details": "Cluster at (253, 244) px \u2014 3 LEDs",
+      "tags": [
+        "reset",
+        "odometry",
+        "led"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
+      "timestamp": "2026-08-13T18:16:03",
+      "event_type": "LED_RESET",
+      "title": "LED Reset triggered \u2014 odometry zeroed",
+      "details": "Cluster at (254, 244) px \u2014 3 LEDs",
+      "tags": [
+        "reset",
+        "odometry",
+        "led"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
+      "timestamp": "2026-08-13T18:15:57",
+      "event_type": "LED_RESET",
+      "title": "LED Reset triggered \u2014 odometry zeroed",
+      "details": "Cluster at (254, 244) px \u2014 3 LEDs",
+      "tags": [
+        "reset",
+        "odometry",
+        "led"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
+      "timestamp": "2026-08-13T18:15:50",
+      "event_type": "LED_RESET",
+      "title": "LED Reset triggered \u2014 odometry zeroed",
+      "details": "Cluster at (254, 244) px \u2014 3 LEDs",
+      "tags": [
+        "reset",
+        "odometry",
+        "led"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
+      "timestamp": "2026-08-13T18:15:45",
+      "event_type": "LED_RESET",
+      "title": "LED Reset triggered \u2014 odometry zeroed",
+      "details": "Cluster at (254, 244) px \u2014 3 LEDs",
+      "tags": [
+        "reset",
+        "odometry",
+        "led"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
+      "timestamp": "2026-08-13T18:15:41",
+      "event_type": "LED_RESET",
+      "title": "LED Reset triggered \u2014 odometry zeroed",
+      "details": "Cluster at (254, 244) px \u2014 3 LEDs",
+      "tags": [
+        "reset",
+        "odometry",
+        "led"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
+      "timestamp": "2026-08-13T18:15:34",
+      "event_type": "LED_RESET",
+      "title": "LED Reset triggered \u2014 odometry zeroed",
+      "details": "Cluster at (196, 239) px \u2014 3 LEDs",
+      "tags": [
+        "reset",
+        "odometry",
+        "led"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
+      "timestamp": "2026-08-13T18:13:08",
+      "event_type": "LED_RESET",
+      "title": "LED Reset triggered \u2014 odometry zeroed",
+      "details": "Cluster at (196, 239) px \u2014 3 LEDs",
+      "tags": [
+        "reset",
+        "odometry",
+        "led"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
+      "timestamp": "2026-08-13T18:13:02",
+      "event_type": "LED_RESET",
+      "title": "LED Reset triggered \u2014 odometry zeroed",
+      "details": "Cluster at (195, 239) px \u2014 3 LEDs",
+      "tags": [
+        "reset",
+        "odometry",
+        "led"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
+      "timestamp": "2026-08-13T18:06:08",
+      "event_type": "LED_RESET",
+      "title": "LED Reset triggered \u2014 odometry zeroed",
+      "details": "Cluster at (263, 388) px \u2014 3 LEDs",
+      "tags": [
+        "reset",
+        "odometry",
+        "led"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
+      "timestamp": "2026-08-13T17:52:53",
+      "event_type": "MODE_CHANGE",
+      "title": "Mode set to MANUEL",
+      "details": "Beacon count at transition: 0",
+      "tags": [
+        "mode",
+        "manuel"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
+      "timestamp": "2026-08-13T17:52:52",
+      "event_type": "MODE_CHANGE",
+      "title": "Mode set to AUTO",
+      "details": "Beacon count at transition: 0",
+      "tags": [
+        "mode",
+        "auto"
+      ],
+      "auto": true
+    },
+    {
+      "id": "auto_0200",
       "timestamp": "2026-08-13T00:02:16",
       "event_type": "LED_RESET",
       "title": "LED Reset triggered \u2014 odometry zeroed",
@@ -2416,175 +2583,6 @@
       "event_type": "LED_RESET",
       "title": "LED Reset triggered \u2014 odometry zeroed",
       "details": "Cluster at (313, 417) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T10:04:14",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (449, 446) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T10:03:30",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (456, 446) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T09:46:06",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (455, 447) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T09:45:22",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (478, 447) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T09:27:55",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (363, 416) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T09:27:10",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (384, 430) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T09:09:40",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (478, 469) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T09:08:56",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (446, 450) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T08:51:17",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (216, 416) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T08:50:35",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (247, 423) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T08:33:17",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (373, 424) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T08:32:33",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (370, 427) px \u2014 4 LEDs",
-      "tags": [
-        "reset",
-        "odometry",
-        "led"
-      ],
-      "auto": true
-    },
-    {
-      "id": "auto_0200",
-      "timestamp": "2026-08-12T08:15:08",
-      "event_type": "LED_RESET",
-      "title": "LED Reset triggered \u2014 odometry zeroed",
-      "details": "Cluster at (217, 394) px \u2014 4 LEDs",
       "tags": [
         "reset",
         "odometry",
