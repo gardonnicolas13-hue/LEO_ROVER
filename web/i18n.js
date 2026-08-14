@@ -33,7 +33,7 @@
       nav_trajectory:       'Trajectory',
       nav_pid:              'PID',
       nav_audit:            'Audit',
-      nav_deriv:            'Derivations',
+      nav_deriv:            'Findings',
       nav_system:           'System',
       /* ── Page System & vocabulaire (2026-08-12) ─────────────────────── */
       sys_kicker:      '// system reference · read this first',
@@ -735,7 +735,7 @@
       nav_trajectory:       'Trajectory',
       nav_pid:              'PID',
       nav_audit:            'Audit',
-      nav_deriv:            'Démonstrations',
+      nav_deriv:            'Résultats',
       nav_system:           'Système',
       /* ── Page Système & vocabulaire (2026-08-12) ────────────────────── */
       sys_kicker:      '// référence système · à lire en premier',
