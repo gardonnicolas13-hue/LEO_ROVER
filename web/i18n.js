@@ -535,6 +535,16 @@
       navmodes_table_usage_vins: 'Short, well-lit, feature-rich runs; quick calibration checks; when CPU headroom is tight.',
       navmodes_table_usage_mins: 'Longer missions, variable lighting, whenever wheel odometry or Carolus beacons are available.',
 
+      /* ── Third candidate: sqrtVINS, evaluated 2026-08-13 ─────────────── */
+      navmodes_srv_badge: 'Tested · not deployed',
+      navmodes_srv_title: 'A third candidate: sqrtVINS, tried and set aside',
+      navmodes_srv_role: 'A square-root-filter variant of openVINS, built to run locally on the Raspberry Pi instead of shipping camera frames to the ground PC. Installed, debugged, and driven around this exact lab loop — not a proposal, a completed test with a real outcome.',
+      navmodes_srv_stat1_k: 'Loop closure — MINS',
+      navmodes_srv_stat2_k: 'Loop closure — VINS (PC)',
+      navmodes_srv_stat3_k: 'Loop closure — sqrtVINS (Pi)',
+      navmodes_srv_verdict: 'It runs in real time on the Pi as claimed — the part that failed was staying numerically stable through real motion, not speed. Two real defects found and fixed along the way; one config setting that is essential on this robot\'s live VINS above turned out to be exactly wrong for this filter instead. Not a third switchable mode: a documented result.',
+      navmodes_srv_link_text: 'Full write-up, both defects, and the complete comparison →',
+
       navmodes_switch_title: 'Switching live',
       navmodes_switch_desc:  'The Pose Source button in Operations → Commands calls /pose_selector/set_source (std_srvs/SetBool) through leo_backend.py. pose_selector.py republishes a single continuous pose on /robot_pose_fused regardless of which estimator is active, applying a one-time rigid (SE(3)) correction at the exact instant of the switch so the output is bit-for-bit identical immediately before and after — no jump, even though the two estimators drift independently afterward.',
       navmodes_diag_title: "Live data flow",
@@ -1225,6 +1235,16 @@
       navmodes_table_usage:    'Usage idéal',
       navmodes_table_usage_vins: 'Trajets courts, bien éclairés, riches en features ; vérifications rapides de calibration ; quand la marge CPU est serrée.',
       navmodes_table_usage_mins: 'Missions plus longues, éclairage variable, dès que l\'odométrie de roues ou les balises Carolus sont disponibles.',
+
+      /* ── Troisième candidat : sqrtVINS, évalué le 13/08/2026 ──────────── */
+      navmodes_srv_badge: 'Testé · non déployé',
+      navmodes_srv_title: 'Un troisième candidat : sqrtVINS, essayé puis écarté',
+      navmodes_srv_role: 'Une variante d\'openVINS à filtre racine-carrée, construite pour tourner en local sur le Raspberry Pi plutôt que d\'envoyer les images caméra vers le PC au sol. Installée, déboguée, et testée sur ce même tour du labo — pas une proposition, un essai terminé avec un vrai résultat.',
+      navmodes_srv_stat1_k: 'Fermeture de boucle — MINS',
+      navmodes_srv_stat2_k: 'Fermeture de boucle — VINS (PC)',
+      navmodes_srv_stat3_k: 'Fermeture de boucle — sqrtVINS (Pi)',
+      navmodes_srv_verdict: 'Il tourne en temps réel sur le Pi comme annoncé — ce qui a échoué, c\'est la stabilité numérique pendant un vrai mouvement, pas la vitesse. Deux vrais défauts trouvés et corrigés en cours de route ; un réglage essentiel sur le VINS en direct de ce robot ci-dessus s\'est révélé exactement inverse pour ce filtre. Pas un troisième mode commutable : un résultat documenté.',
+      navmodes_srv_link_text: 'Article complet, les deux défauts, et le comparatif intégral →',
 
       navmodes_switch_title: 'Basculer en direct',
       navmodes_switch_desc:  'Le bouton Pose Source dans Opérations → Commandes appelle /pose_selector/set_source (std_srvs/SetBool) via leo_backend.py. pose_selector.py republie une pose unique et continue sur /robot_pose_fused quel que soit l\'estimateur actif, en appliquant une correction rigide (SE(3)) unique à l\'instant exact du switch pour que la sortie soit identique bit à bit juste avant/après — aucun saut, même si les deux estimateurs dérivent ensuite indépendamment.',

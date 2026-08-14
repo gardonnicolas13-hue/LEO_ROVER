@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="icon" type="image/svg+xml" href="leo_icon.svg" />
 <title>LEO ROVER — System &amp; Vocabulary</title>
-<script src="i18n.js?v=r22"></script>
+<script src="i18n.js?v=r23"></script>
 <script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
@@ -481,6 +481,8 @@
       // ── Estimation / maths ───────────────────────────────────────────────
       ['MINS', 'math', 'Multisensor-aided Inertial Navigation System — the estimator fusing camera, IMU and wheel odometry in a single filter. Initialises standing still, which is why it is the default source here.'],
       ['openVINS / VINS', 'math', 'An MSCKF-based visual-inertial estimator using camera and IMU only, no wheels. Needs a jerk to initialise. Run in parallel with MINS as an independent witness.'],
+      ['sqrtVINS', 'math', 'A square-root-filter variant of openVINS, tested on the rover\'s own Raspberry Pi. Ran in real time as claimed, but a config setting essential to the PC\'s openVINS turned out to be exactly wrong here, and it diverged badly on a real drive — a completed test, not a deployed mode.'],
+      ['Single precision (float32)', 'math', 'Storing a number in 32 bits instead of 64 (double). Half the memory and often faster, at the cost of roughly seven significant digits instead of fifteen — the architectural fact behind sqrtVINS\'s divergence above.'],
       ['Kalman filter', 'math', 'A recursive estimator that keeps both a best guess and its uncertainty, and combines each new measurement in proportion to how much it trusts it against how much it trusts itself.'],
       ['EKF', 'math', 'Extended Kalman Filter — a Kalman filter linearised at each step so it can handle non-linear motion and sensors.'],
       ['MSCKF', 'math', 'Multi-State Constraint Kalman Filter — keeps a sliding window of recent camera poses in the state instead of the 3D landmarks, so the state does not grow with the number of features seen.'],
@@ -506,6 +508,8 @@
       ['XML-RPC', 'net', 'The protocol nodes use to register with the master and to find each other before any topic data flows.'],
       ['Cloudflare Tunnel', 'net', 'Publishes the cockpit without opening any port on the local network: the connection is established outbound from the workstation.'],
       ['Throttling', 'net', 'The processor slowing itself down when too hot. On this rover it dropped the CPU from 1500 to 600 MHz and broke the serial link — the reason two fans were fitted.'],
+      ['IRQ affinity', 'net', 'Which CPU core services a given hardware interrupt. On this Pi, three unrelated interrupts (UART, SD card, USB) were all defaulting to core 0 with nothing rebalancing them — found directly in <code>/proc/interrupts</code>, not assumed.'],
+      ['swiotlb', 'net', 'A software bounce buffer: the kernel copies data through a reachable memory region on behalf of a device that cannot reach it directly. Seen live, dozens of calls deep, inside the interrupt that was found to starve the UART.'],
     ];
 
     var TAGNAME = { hw:'hardware', sw:'software', math:'maths', net:'network' };
