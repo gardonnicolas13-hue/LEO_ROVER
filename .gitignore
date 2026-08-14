@@ -82,6 +82,10 @@
 # trace versionnee, meme avant toute soumission externe (voir §12.20 du
 # rapport pour le contexte complet et les deux reproductions).
 !/docs/rpng_sqrtvins_zupt_bug_report.md
+# Correctif source applique et verifie en direct le meme soir (garde de
+# validite numerique sur le chi2 du ZUPT) -- diff produit par `git diff`
+# dans le clone du Pi, jamais soumis en amont, garde pour reproductibilite.
+!/docs/sqrtvins_zupt_numerical_guard.patch
 
 # ── 5. data : les donnees derivees, pas les enregistrements bruts ──────────
 # Les .bag totalisent 760 Mo, dont un .bag.active de 506 Mo (enregistrement

@@ -437,7 +437,7 @@
       log_download_hint:    'Engineering report — mission-control architecture, vision pipeline, tightly-coupled MINS/VINS fusion (MSCKF), calibration & drift analysis (T1.1), safety & reliability, full mathematical derivations',
       log_download_size:    'PDF · ~2.3 MB',
       log_mins_link:         'MINS build \u0026 launch instructions',
-      log_mins_hint:         'Jumps straight to the MINS guide in Appendix D: download, build, install, calibrate, and test, start to finish (printed p.363).',
+      log_mins_hint:         'Jumps straight to the MINS guide in Appendix D: download, build, install, calibrate, and test, start to finish (printed p.424).',
 
       /* ── logbook.html · Header ──────────────────────────────────────────── */
       log_kicker:        '// mission log · R&D internship',
@@ -542,7 +542,7 @@
       navmodes_srv_stat1_k: 'Loop closure — MINS',
       navmodes_srv_stat2_k: 'Loop closure — VINS (PC)',
       navmodes_srv_stat3_k: 'Loop closure — sqrtVINS (Pi)',
-      navmodes_srv_verdict: 'It runs in real time on the Pi as claimed — the part that failed was staying numerically stable through real motion, not speed. A follow-up test tried the filter\'s other zero-velocity mode, hoping for a safer middle ground: it failed faster, not slower — the consistency check reached literal infinity in under a second. Both failure modes are now written up for the library\'s own maintainers. Not a third switchable mode: a documented result.',
+      navmodes_srv_verdict: 'It runs in real time on the Pi as claimed — the part that failed was staying numerically stable through real motion, not speed. A follow-up test tried the filter\'s other zero-velocity mode, hoping for a safer middle ground: it failed faster, not slower — the consistency check reached literal infinity in under a second. Reading the update\'s own source found the actual bug (an unchecked matrix solve, a gate the disparity path bypasses at rest) and a minimal patch fixed it, verified live: garbage updates now correctly rejected, none accepted. Reported honestly, that still wasn\'t the whole story — the filter kept diverging afterward through a second, separate cause not yet found. Both failure modes and the patch are written up for the library\'s own maintainers. Not a third switchable mode: a documented result, patch included.',
       navmodes_srv_link_text: 'Full write-up, both defects, and the complete comparison →',
 
       navmodes_switch_title: 'Switching live',
@@ -1138,7 +1138,7 @@
       log_download_hint:    'Rapport d\'ingénierie — architecture mission control, pipeline vision, fusion couplée serrée MINS/VINS (MSCKF), calibration & analyse de dérive (T1.1), sécurité & fiabilité, dérivations mathématiques complètes',
       log_download_size:    'PDF · ~2,3 Mo',
       log_mins_link:         'Instructions MINS (build \u0026 lancement)',
-      log_mins_hint:         'Va directement au guide MINS de l\u2019Annexe D : telechargement, compilation, installation, calibration et test, de zero (p.363 imprimee).',
+      log_mins_hint:         'Va directement au guide MINS de l\u2019Annexe D : telechargement, compilation, installation, calibration et test, de zero (p.424 imprimee).',
 
       /* ── logbook.html · En-tête ─────────────────────────────────────────── */
       log_kicker:        '// mission log · stage R&D',
@@ -1243,7 +1243,7 @@
       navmodes_srv_stat1_k: 'Fermeture de boucle — MINS',
       navmodes_srv_stat2_k: 'Fermeture de boucle — VINS (PC)',
       navmodes_srv_stat3_k: 'Fermeture de boucle — sqrtVINS (Pi)',
-      navmodes_srv_verdict: 'Il tourne en temps réel sur le Pi comme annoncé — ce qui a échoué, c\'est la stabilité numérique pendant un vrai mouvement, pas la vitesse. Un test de suivi a essayé l\'autre mode de mise à jour à vitesse nulle du filtre, en espérant un compromis plus sûr : il a échoué plus vite, pas moins — le test de cohérence a atteint l\'infini littéral en moins d\'une seconde. Les deux modes d\'échec sont maintenant rédigés pour les mainteneurs de la bibliothèque. Pas un troisième mode commutable : un résultat documenté.',
+      navmodes_srv_verdict: 'Il tourne en temps réel sur le Pi comme annoncé — ce qui a échoué, c\'est la stabilité numérique pendant un vrai mouvement, pas la vitesse. Un test de suivi a essayé l\'autre mode de mise à jour à vitesse nulle du filtre, en espérant un compromis plus sûr : il a échoué plus vite, pas moins — le test de cohérence a atteint l\'infini littéral en moins d\'une seconde. La lecture directe du code source de cette mise à jour a révélé le vrai bug (une résolution matricielle jamais vérifiée, une garde que le mode disparité contourne à l\'arrêt) et un correctif minimal l\'a corrigé, vérifié en direct : les mises à jour invalides sont désormais rejetées, aucune acceptée. Rapporté honnêtement, ça ne réglait pas tout — le filtre a continué à diverger ensuite, via une seconde cause distincte, pas encore trouvée. Les deux modes d\'échec et le correctif sont rédigés pour les mainteneurs de la bibliothèque. Pas un troisième mode commutable : un résultat documenté, correctif inclus.',
       navmodes_srv_link_text: 'Article complet, les deux défauts, et le comparatif intégral →',
 
       navmodes_switch_title: 'Basculer en direct',

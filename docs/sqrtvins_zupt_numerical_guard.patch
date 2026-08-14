@@ -1,0 +1,64 @@
+diff --git a/ov_srvins/src/update/UpdaterZeroVelocity.cpp b/ov_srvins/src/update/UpdaterZeroVelocity.cpp
+index b3e1920..9edab2e 100644
+--- a/ov_srvins/src/update/UpdaterZeroVelocity.cpp
++++ b/ov_srvins/src/update/UpdaterZeroVelocity.cpp
+@@ -45,6 +45,8 @@
+ #include <boost/date_time/posix_time/posix_time.hpp>
+ #include <boost/math/distributions/chi_squared.hpp>
+ 
++#include <cmath> // std::isfinite -- explicit, not relied on transitively (2026-08-14 patch)
++
+ using namespace ov_core;
+ using namespace ov_type;
+ using namespace ov_srvins;
+@@ -226,7 +228,24 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state,
+   MatX HUT = H * U_marg.transpose().triangularView<Eigen::Lower>();
+   MatX S = HUT * HUT.transpose();
+   S.diagonal() += zupt_noise_multiplier_ * VecX::Ones(S.rows());
+-  DataType chi2 = res.dot(S.llt().solve(res));
++
++  // PATCH (2026-08-14, LEO Rover / Pi 4B single-precision build): S.llt()'s
++  // .info() was never checked before .solve() -- Eigen does NOT throw on a
++  // failed (non-PD) Cholesky factorization, it silently returns whatever the
++  // partial factorization produces. Observed live on this platform: chi2
++  // printing as a finite-but-astronomical value (~1e17) in the IMU-gated
++  // path, and as literal +inf (with the *threshold* itself printing 0.000,
++  // i.e. options_.chi2_multipler * chi2_check underflowing) in the
++  // disparity-gated path. Both are consistent with S becoming numerically
++  // indefinite in float32 without the code ever finding out. This does not
++  // fix *why* S becomes ill-conditioned (not diagnosed further tonight) --
++  // it stops a failed factorization from silently producing a chi2 value
++  // the rest of the function then treats as meaningful.
++  Eigen::LLT<MatX> llt_of_S(S);
++  DataType chi2 = res.dot(llt_of_S.solve(res));
++  bool chi2_numerically_valid = (llt_of_S.info() == Eigen::Success) &&
++                                 std::isfinite(static_cast<double>(chi2)) &&
++                                 (chi2 >= 0);
+ 
+   // Get our threshold (we precompute up to 1000 but handle the case that it is
+   // more)
+@@ -269,6 +288,24 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state,
+ 
+   // Check if we are currently zero velocity
+   // We need to pass the chi2 and not be above our velocity threshold
++  //
++  // PATCH (2026-08-14): the numerical-validity check below is UNCONDITIONAL,
++  // deliberately outside the "!disparity_passed &&" branch that gates
++  // everything else here. Originally, disparity_passed==true short-circuited
++  // this whole condition, so a chi2 of +inf (or ~1e17) was *never once*
++  // consulted before the update was accepted and applied to the state --
++  // the printed "(chi2 X < Y)" in the acceptance log line was cosmetic, not
++  // load-bearing. This was found by reading the source, not assumed.
++  if (!chi2_numerically_valid) {
++    last_zupt_state_timestamp_ = 0.0;
++    last_zupt_count_ = 0;
++    PRINT_WARNING(
++        RED "[ZUPT]: rejected -- chi2 numerically invalid (llt_success=%d, "
++            "chi2=%.6e, disparity_passed=%d)\n" RESET,
++        (int)(llt_of_S.info() == Eigen::Success),
++        static_cast<double>(chi2), (int)disparity_passed);
++    return false;
++  }
+   if (!disparity_passed && (chi2 > options_.chi2_multipler * chi2_check ||
+                             state->imu->vel().norm() > zupt_max_velocity_)) {
+     last_zupt_state_timestamp_ = 0.0;

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="icon" type="image/svg+xml" href="leo_icon.svg" />
 <title>LEO ROVER — Response to Pr. Gutierrez: Quaternion, Relocalization, Pose Control &amp; sqrtVINS</title>
-<script src="i18n.js?v=r25"></script>
+<script src="i18n.js?v=r26"></script>
 <script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
@@ -104,7 +104,7 @@
         <a href="index.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786667162" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786668632" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
         <a href="system.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
@@ -133,7 +133,7 @@
         <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786667162" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786668632" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
         <a href="system.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
@@ -159,13 +159,13 @@
       Guide PDF, page-referenced throughout.
     </p>
     <div class="mt-5 flex flex-wrap gap-3 text-[11px]">
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786667162#page=312" target="_blank" rel="noopener"
-         class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.18, p.312 — Quaternion</a>
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786667162#page=317" target="_blank" rel="noopener"
-         class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.19, p.317 — Relocalization</a>
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786667162#page=448" target="_blank" rel="noopener"
-         class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">Appendix D.15, p.448 — Pose control</a>
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786667162#page=318" target="_blank" rel="noopener"
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786668632#page=327" target="_blank" rel="noopener"
+         class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.21, p.325 — Quaternion</a>
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786668632#page=333" target="_blank" rel="noopener"
+         class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.22, p.331 — Relocalization</a>
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786668632#page=472" target="_blank" rel="noopener"
+         class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">Appendix D.15, p.470 — Pose control</a>
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786668632#page=320" target="_blank" rel="noopener"
          class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.20, p.318 — sqrtVINS</a>
     </div>
   </section>
@@ -424,6 +424,33 @@
           attempted, since a mode reaching <code>inf</code> standing still has nothing left to test by moving.
           A complete bug report covering both failure modes is written and ready to submit to RPNG's
           issue tracker — the one step from the original two-item list still actually pending.
+        </div>
+
+        <h3>A source patch, read and fixed rather than just reported</h3>
+        <p>The bug report above was finished by reading <code>UpdaterZeroVelocity.cpp</code> directly
+        rather than stopping at the printed symptom. Two real defects, compounding: the χ² check calls
+        <code>S.llt().solve(res)</code> without ever checking <code>.info()</code> — Eigen's documented
+        behaviour on a failed decomposition is to return garbage silently, not fail loudly — and the
+        disparity-only path's reject condition short-circuits out entirely whenever
+        <code>disparity_passed</code> is true, which is the common case at rest. The printed
+        <code>(chi2 inf &lt; 0.000)</code> above was never actually gating anything in that branch.
+        A minimal, additive patch (one file, 38 insertions, no tuning values changed) adds an
+        unconditional numerical-validity guard ahead of that reject block. Full diff in the report,
+        §12.20.6.</p>
+
+        <div class="verdict-box verdict-partial">
+          <strong>The patch does exactly what it's supposed to — and that turns out not to be enough.</strong>
+          Built and run live for 60&nbsp;s against real stereo+IMU data, robot stationary: 588 updates
+          correctly rejected as numerically invalid, 241 correctly accepted with sane χ² values, zero
+          acceptances of an <code>inf</code>/garbage χ². The exact bug this page opened with — silent
+          acceptance of an astronomically-out-of-threshold residual — no longer reproduces. But with every
+          garbage ZUPT update now correctly rejected, the same 60&nbsp;s run <em>still diverges</em>: the
+          position estimate grows smoothly from ~10¹⁵&nbsp;m to ~3.4×10¹⁷&nbsp;m over the window — no longer
+          via ZUPT chatter, since ZUPT is now provably not the source. That narrows the remaining problem to
+          somewhere in propagation or the MSCKF update itself, not yet diagnosed. Per the same rule applied
+          everywhere else on this site — no driven test until stationary is stable — none was run against
+          the patched build, and none is claimed. The patch is offered to RPNG as a real, verified fix for
+          the logic bug it targets, not as a fix for the platform's divergence as a whole.
         </div>
       </div>
     </div>

@@ -70,5 +70,40 @@ The one architectural fact that distinguishes this build from a typical desktop/
 ## What downstream this affects
 Because neither ZUPT sub-mode is safely usable in this configuration, we deployed with `try_zupt: false` on this platform. That configuration ran stably at rest and during a short jerk-triggered initialization, but diverged severely during an actual driven lap of a real environment (loop-closure error effectively unbounded — tens of kilometers of accumulated reported distance for a ~20 m real path), considerably worse than a classic openVINS (MSCKF, double precision) instance run on the identical motion from recorded sensor data. We had hoped the disparity-only path would be a usable middle ground between "no velocity anchoring at all" and "the IMU-based setting that diverges" — it is not; it fails faster and more completely (`inf` rather than a large finite number) than the path it was meant to replace.
 
+## A candidate root cause, found by reading `UpdaterZeroVelocity.cpp` directly
+
+We went looking in the source rather than stopping at "reported as an observed symptom," and found what looks like a real, concrete bug (not just a float32-precision artifact) in `ov_srvins/src/update/UpdaterZeroVelocity.cpp`:
+
+1. **The χ² consistency check is computed via `S.llt().solve(res)` without ever checking `.info()`.** If the `LLT` decomposition of the innovation covariance `S` fails (not positive-definite — plausible under single precision as terms accumulate/round), Eigen's documented behavior is that `.solve()` silently returns garbage rather than throwing or returning a failure indicator. Nothing downstream inspects `.info()`, so a numerically invalid decomposition is indistinguishable from a valid one at the call site.
+2. **In the disparity-only path, the chi2/velocity check is unreachable when it matters most.** The reject condition is written as (paraphrased): `if (!disparity_passed && (chi2 > thresh || vel > max_vel)) reject;`. When `disparity_passed == true` — which is the common case at rest, since disparity is small and stationary — the entire chi2/velocity gate is short-circuited out and the update is accepted unconditionally, regardless of what `chi2` actually evaluated to. This exactly matches what we observed: the console prints "(chi2 inf < 0.000)" as if it were being checked, but that printed comparison is cosmetic in this branch — it never gates anything once `disparity_passed` is true.
+
+Both defects compound: an `LLT` failure produces a garbage (possibly `inf`/`nan`) `chi2`, and the disparity-only path's logic never actually looks at that value before accepting.
+
+## A minimal patch we applied and tested (not upstream, offered as a candidate)
+
+We added an unconditional numerical-validity guard, evaluated *before* the existing disparity-gated reject block, that does not change any tuning/threshold semantics — it only refuses to accept an update whose χ² was not validly computed:
+
+```cpp
+Eigen::LLT<MatX> llt_of_S(S);
+DataType chi2 = res.dot(llt_of_S.solve(res));
+bool chi2_numerically_valid = (llt_of_S.info() == Eigen::Success) &&
+                               std::isfinite(static_cast<double>(chi2)) &&
+                               (chi2 >= 0);
+...
+if (!chi2_numerically_valid) {
+  last_zupt_state_timestamp_ = 0.0;
+  last_zupt_count_ = 0;
+  PRINT_WARNING(RED "[ZUPT]: rejected -- chi2 numerically invalid (llt_success=%d, "
+                    "chi2=%.6e, disparity_passed=%d)\n" RESET, ...);
+  return false;
+}
+```
+
+Full diff attached: [`sqrtvins_zupt_numerical_guard.patch`](sqrtvins_zupt_numerical_guard.patch) (produced via `git diff` against the package as cloned, 64 lines, one file).
+
+**Tested, and it does exactly what it's supposed to do.** A 60-second live run against real stereo+IMU data with the patch applied, robot stationary, `try_zupt: true`, disparity-only path: 588 updates correctly rejected as numerically invalid, 241 updates correctly accepted with sane χ² values, zero acceptances of an invalid/`inf` χ². The specific bug this report opened with — silent acceptance of astronomically-out-of-threshold residuals — no longer reproduces.
+
+**Reported honestly, it is not sufficient on its own.** With the patch applied and every garbage ZUPT update now correctly rejected, the filter's position estimate (`p_IinG`) still diverges over the same 60-second stationary window — smoothly, not via the ZUPT chatter, from roughly 1e15 m to roughly 3.4e17 m. This means there is a second, independent numerical-stability issue elsewhere in the estimation pipeline (propagation and/or the MSCKF update are the natural suspects, given ZUPT is now provably not the vector) that we have not yet diagnosed. So: this patch appears to be a real fix for a real logic/numerics bug in the ZUPT updater specifically, but it is not, by itself, a fix for "the filter diverges on this platform." We're including it because it seems worth having regardless of the larger issue, and because the `LLT().solve()`-without-`.info()`-check pattern in particular seems like something worth checking for elsewhere in the codebase too.
+
 ## Ask
-Happy to provide the full config files, the complete console log from either repro, or run additional diagnostics if useful. Flagging primarily because a χ² gate silently accepting a value 1e15–1e17 past its own threshold seems like something worth knowing about regardless of platform, and we wanted to report it precisely rather than just noting "ZUPT doesn't work for us."
+Happy to provide the full config files, the complete console log from either repro, the 60-second patched-run log, or run additional diagnostics if useful. Flagging primarily because a χ² gate silently accepting a value 1e15–1e17 past its own threshold seems like something worth knowing about regardless of platform, and we wanted to report it precisely rather than just noting "ZUPT doesn't work for us." The attached patch is offered as-is for review/adoption at your discretion — it was tested on our platform only (aarch64, float32), not validated against the upstream double-precision build, and we make no claim it's the cleanest fix, only that it's a minimal, additive one that measurably closes the specific gap this report describes.

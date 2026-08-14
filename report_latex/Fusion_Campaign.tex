@@ -7791,6 +7791,85 @@ mode that reaches \code{inf} in under a second standing still has
 nothing left to test by moving.
 \end{trapbox}
 
+\subsection{A source patch: reading \code{UpdaterZeroVelocity.cpp} instead of just reporting it}
+\label{sec:sqrtvins-patch}
+
+The write-up mentioned above as ``drafted and ready to submit'' was
+finished by actually reading the file it describes, rather than
+stopping at the printed symptom. Two things stood out in
+\code{ov\_srvins/src/update/UpdaterZeroVelocity.cpp}:
+
+\begin{enumerate}
+\item The $\chi^2$ consistency check runs \code{S.llt().solve(res)}
+  without ever inspecting \code{.info()}. Eigen's documented
+  behaviour, if the \code{LLT} decomposition of the innovation
+  covariance $S$ fails (not positive-definite --- plausible under
+  single precision as terms accumulate), is to return silently from
+  \code{.solve()} with garbage rather than signalling failure.
+  Nothing downstream checks for it.
+\item In the disparity-only path, the reject condition is written
+  \code{if (!disparity\_passed \&\& (chi2 > thresh || vel > max\_vel))
+  reject;}. When \code{disparity\_passed} is true --- the common case
+  at rest, since disparity stays small while stationary --- the
+  entire $\chi^2$/velocity gate short-circuits out and the update is
+  accepted \emph{unconditionally}. The printed
+  \code{(chi2 inf < 0.000)} in \S\ref{sec:sqrtvins}'s log is cosmetic
+  in this branch: nothing ever compares against it.
+\end{enumerate}
+
+\begin{casestudy}{A minimal, additive guard, tested against the real symptom it targets}
+The patch adds an unconditional numerical-validity check ahead of the
+existing reject block, changing no tuning value or threshold:
+\begin{lstlisting}[language=C++]
+Eigen::LLT<MatX> llt_of_S(S);
+DataType chi2 = res.dot(llt_of_S.solve(res));
+bool chi2_numerically_valid = (llt_of_S.info() == Eigen::Success) &&
+                               std::isfinite(static_cast<double>(chi2)) &&
+                               (chi2 >= 0);
+...
+if (!chi2_numerically_valid) {
+  last_zupt_state_timestamp_ = 0.0;
+  last_zupt_count_ = 0;
+  PRINT_WARNING(RED "[ZUPT]: rejected -- chi2 numerically invalid "
+                    "(llt_success=%d, chi2=%.6e, disparity_passed=%d)\n" RESET, ...);
+  return false;
+}
+\end{lstlisting}
+Applied on the Pi's own \code{sqrtVINS} clone (\code{git diff}: one
+file, $38$ insertions, $1$ deletion --- attached in full as
+\code{docs/sqrtvins\_zupt\_numerical\_guard.patch}), rebuilt
+(\code{catkin build ov\_srvins}, $5$\,min\,$29$\,s, ``All $2$ packages
+succeeded''), and run live for $60$\,s against real stereo+IMU data,
+robot stationary, disparity-only path, \code{try\_zupt: true}: $588$
+updates correctly rejected as numerically invalid, $241$ correctly
+accepted with sane $\chi^2$ values, zero acceptances of an
+\code{inf}/garbage $\chi^2$. The specific bug this section opened
+with --- silent acceptance of an astronomically-out-of-threshold
+residual --- no longer reproduces, verified against the actual log,
+not inferred from the absence of a crash.
+\end{casestudy}
+
+\begin{trapbox}{The patch is real; it does not close the case}
+With every garbage ZUPT update now correctly rejected, the same
+$60$\,s stationary run still diverges: \code{p\_IinG} grows smoothly
+--- no longer via ZUPT chatter, since ZUPT is now provably not
+contributing it --- from roughly $10^{15}$\,m to roughly
+$3.4\times10^{17}$\,m over the window. That rules out the ZUPT
+updater as \emph{the} divergence source and narrows it to a second,
+independent numerical-stability issue elsewhere in the pipeline ---
+propagation or the MSCKF update are the natural suspects, since ZUPT
+is now demonstrably not the vector. That second issue has not been
+diagnosed: it would mean reading \code{Propagator.cpp},
+\code{UpdaterMSCKF.cpp} and \code{StateHelper.cpp} with the same
+discipline applied here, a distinct, larger piece of work not yet
+started. Per this investigation's own stated condition --- a driven
+test only once the estimator is stable at rest --- it is not: no
+driven test was run against the patched build, and none should be
+claimed as validated until the second source is found. The patch is
+offered to RPNG as a real, tested fix for the logic bug it targets,
+not as a fix for the platform's divergence as a whole.
+\end{trapbox}
+
 \section{The Carolus quaternion, traced to source: why sixteen trials were
 never going to converge on a general answer}
 \label{sec:quaternion}
@@ -9061,22 +9140,30 @@ on every telemetry tick.
     its boot device); the MMC-affinity question needs more statistical
     power than four $120$\,s windows gave it --- longer or more numerous
     runs, not a different protocol \\
-41 & \textbf{$\sqrt{\text{VINS}}$ on the Pi: installed and running, diverges
-    on a real driven lap, disparity-only ZUPT also checked and also fails}
-    (\S\ref{sec:sqrtvins}). Builds and runs at $30$--$70\,\mathrm{Hz}$ on
-    live sensor data, two real defects found and fixed (an undocumented
-    config schema, and \code{try\_zupt} causing a $10^{17}$-scale
-    $\chi^2$ gate failure on the IMU path --- deployed with it off). On
-    one recorded lab lap: MINS $1.02$\,m loop closure, PC openVINS
-    $541.7$\,m, $\sqrt{\text{VINS}}$ unbounded ($43\,742$\,m reported
-    distance for a $\sim\!20$\,m lap). The hoped-for middle ground,
-    disparity-only ZUPT (\code{zupt\_chi2\_multipler: 0}), was tested
-    at rest the same evening and is worse: \code{chi2 inf} within under
-    a second, not merely a large finite value &
-    the $\chi^2$ defect write-up (both ZUPT sub-modes) is drafted,
-    ready to submit to RPNG's issue tracker, not yet submitted; no
-    remaining ZUPT configuration is worth testing further on this
-    build --- next step, if pursued, is upstream, not local \\
+41 & \textbf{$\sqrt{\text{VINS}}$ on the Pi: root cause of the ZUPT
+    $\chi^2$ defect found and patched, the patch verified, the platform
+    still diverges} (\S\ref{sec:sqrtvins}, \S\ref{sec:sqrtvins-patch}).
+    Builds and runs at $30$--$70\,\mathrm{Hz}$ on live sensor data; on
+    one recorded lab lap, MINS $1.02$\,m loop closure, PC openVINS
+    $541.7$\,m, $\sqrt{\text{VINS}}$ unbounded. Reading
+    \code{UpdaterZeroVelocity.cpp} found the actual bug behind both
+    ZUPT sub-mode failures: an unchecked \code{LLT().solve()} plus a
+    reject condition the disparity-only path bypasses unconditionally
+    when stationary. A minimal additive patch (numerical-validity guard,
+    64-line diff, \code{docs/sqrtvins\_zupt\_numerical\_guard.patch})
+    was built and run live for $60$\,s: $588$ correct rejections, $241$
+    correct acceptances, zero \code{inf}/garbage $\chi^2$ accepted ---
+    the reported bug no longer reproduces. Same run, patch active: the
+    filter still diverges anyway, smoothly, $10^{15}\to3.4{\times}10^{17}$\,m
+    over $60$\,s, proving a second, separate numerical issue survives
+    outside the ZUPT updater &
+    the RPNG bug report is updated with the patch and this finding,
+    ready to submit, not yet submitted; the second divergence source
+    (propagation or the MSCKF update, not yet diagnosed) is the only
+    path left on this platform --- reading \code{Propagator.cpp} and
+    \code{UpdaterMSCKF.cpp} with the same discipline, not attempted;
+    no driven test follows until that source is found, per this
+    item's own at-rest-first condition \\
 \end{longtable}
 \end{center}
 
