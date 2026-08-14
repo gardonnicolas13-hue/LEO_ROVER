@@ -71,13 +71,17 @@
 /LEO_Rover_Navigation_System/MINS-master/mins/config/leo/*
 !/LEO_Rover_Navigation_System/MINS-master/mins/config/leo/*.yaml
 
-# ── 4b. docs/ : un seul fichier cite nommement par l'annexe D ──────────────
+# ── 4b. docs/ : fichiers nommement inclus, un par un ────────────────────────
 # Trou trouve par l'audit du 2026-08-03 : §D.10.3 dit « Follow
 # docs/protocole_calibration_terrain.md » et ce fichier n'a jamais ete
 # suivi. docs/ n'a jamais figure dans la liste d'inclusion du tout.
 !/docs/
 /docs/*
 !/docs/protocole_calibration_terrain.md
+# Rapport de bug pret a soumettre a rpng/sqrtVINS (2026-08-13) : garde une
+# trace versionnee, meme avant toute soumission externe (voir §12.20 du
+# rapport pour le contexte complet et les deux reproductions).
+!/docs/rpng_sqrtvins_zupt_bug_report.md
 
 # ── 5. data : les donnees derivees, pas les enregistrements bruts ──────────
 # Les .bag totalisent 760 Mo, dont un .bag.active de 506 Mo (enregistrement

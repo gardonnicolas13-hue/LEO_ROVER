@@ -542,7 +542,7 @@
       navmodes_srv_stat1_k: 'Loop closure — MINS',
       navmodes_srv_stat2_k: 'Loop closure — VINS (PC)',
       navmodes_srv_stat3_k: 'Loop closure — sqrtVINS (Pi)',
-      navmodes_srv_verdict: 'It runs in real time on the Pi as claimed — the part that failed was staying numerically stable through real motion, not speed. Two real defects found and fixed along the way; one config setting that is essential on this robot\'s live VINS above turned out to be exactly wrong for this filter instead. Not a third switchable mode: a documented result.',
+      navmodes_srv_verdict: 'It runs in real time on the Pi as claimed — the part that failed was staying numerically stable through real motion, not speed. A follow-up test tried the filter\'s other zero-velocity mode, hoping for a safer middle ground: it failed faster, not slower — the consistency check reached literal infinity in under a second. Both failure modes are now written up for the library\'s own maintainers. Not a third switchable mode: a documented result.',
       navmodes_srv_link_text: 'Full write-up, both defects, and the complete comparison →',
 
       navmodes_switch_title: 'Switching live',
@@ -1243,7 +1243,7 @@
       navmodes_srv_stat1_k: 'Fermeture de boucle — MINS',
       navmodes_srv_stat2_k: 'Fermeture de boucle — VINS (PC)',
       navmodes_srv_stat3_k: 'Fermeture de boucle — sqrtVINS (Pi)',
-      navmodes_srv_verdict: 'Il tourne en temps réel sur le Pi comme annoncé — ce qui a échoué, c\'est la stabilité numérique pendant un vrai mouvement, pas la vitesse. Deux vrais défauts trouvés et corrigés en cours de route ; un réglage essentiel sur le VINS en direct de ce robot ci-dessus s\'est révélé exactement inverse pour ce filtre. Pas un troisième mode commutable : un résultat documenté.',
+      navmodes_srv_verdict: 'Il tourne en temps réel sur le Pi comme annoncé — ce qui a échoué, c\'est la stabilité numérique pendant un vrai mouvement, pas la vitesse. Un test de suivi a essayé l\'autre mode de mise à jour à vitesse nulle du filtre, en espérant un compromis plus sûr : il a échoué plus vite, pas moins — le test de cohérence a atteint l\'infini littéral en moins d\'une seconde. Les deux modes d\'échec sont maintenant rédigés pour les mainteneurs de la bibliothèque. Pas un troisième mode commutable : un résultat documenté.',
       navmodes_srv_link_text: 'Article complet, les deux défauts, et le comparatif intégral →',
 
       navmodes_switch_title: 'Basculer en direct',

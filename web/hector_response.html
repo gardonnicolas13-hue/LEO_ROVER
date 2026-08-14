@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="icon" type="image/svg+xml" href="leo_icon.svg" />
 <title>LEO ROVER — Response to Pr. Gutierrez: Quaternion, Relocalization, Pose Control &amp; sqrtVINS</title>
-<script src="i18n.js?v=r24"></script>
+<script src="i18n.js?v=r25"></script>
 <script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
@@ -104,7 +104,7 @@
         <a href="index.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786664173" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786667162" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
         <a href="system.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
@@ -133,7 +133,7 @@
         <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786664173" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786667162" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
         <a href="system.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
@@ -159,13 +159,13 @@
       Guide PDF, page-referenced throughout.
     </p>
     <div class="mt-5 flex flex-wrap gap-3 text-[11px]">
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786664173#page=312" target="_blank" rel="noopener"
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786667162#page=312" target="_blank" rel="noopener"
          class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.18, p.312 — Quaternion</a>
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786664173#page=317" target="_blank" rel="noopener"
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786667162#page=317" target="_blank" rel="noopener"
          class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.19, p.317 — Relocalization</a>
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786664173#page=448" target="_blank" rel="noopener"
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786667162#page=448" target="_blank" rel="noopener"
          class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">Appendix D.15, p.448 — Pose control</a>
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786664173#page=318" target="_blank" rel="noopener"
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1786667162#page=318" target="_blank" rel="noopener"
          class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.20, p.318 — sqrtVINS</a>
     </div>
   </section>
@@ -406,12 +406,24 @@
           <strong>Exactly what the request itself predicted, and then some.</strong> Less accurate than MINS —
           expected, stated in the request, true of every camera+IMU-only estimator in this report. What
           wasn't expected: worse than the classic openVINS already running on the PC, on the identical lap.
-          The most defensible reading isn't "unusable" — it's that tonight's configuration, running without
+          The most defensible reading isn't "unusable" — it's that that evening's configuration, running without
           zero-velocity updates because the alternative crashed outright, wasn't enough to keep this specific
-          filter bounded through real, moderately dynamic motion on this hardware. Two concrete next steps,
-          neither attempted tonight: report the χ² defect upstream to RPNG with the reproduction above, and
-          re-test with <code>zupt_chi2_multipler: 0</code> (disparity-only zero-velocity updates) as a middle
-          ground never tried.
+          filter bounded through real, moderately dynamic motion on this hardware.
+        </div>
+
+        <h3>The hoped-for middle ground, tried the same evening: it isn't one</h3>
+        <p>The obvious follow-up — <code>zupt_chi2_multipler: 0</code>, gating on visual disparity instead of
+        IMU-derived velocity — was tested at rest immediately after. The deployed, stable config already
+        carried that setting; the entire change was <code>try_zupt: false → true</code>. Result, within under
+        a second:</p>
+        <div class="verdict-box verdict-no">
+          <code>[ZUPT]: accepted |v_IinG| = 203734831702474752.000 (chi2 inf < 0.000)</code><br/><br/>
+          Not a large finite χ² like the IMU-path failure above — literal floating-point infinity, against a
+          threshold that itself printed as <code>0.000</code>. Reverted immediately, config restored and
+          confirmed. Neither zero-velocity mode is usable on this build; a driven test of this path was not
+          attempted, since a mode reaching <code>inf</code> standing still has nothing left to test by moving.
+          A complete bug report covering both failure modes is written and ready to submit to RPNG's
+          issue tracker — the one step from the original two-item list still actually pending.
         </div>
       </div>
     </div>

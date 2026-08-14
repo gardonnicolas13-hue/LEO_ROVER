@@ -7764,14 +7764,32 @@ error). The most defensible reading is not ``$\sqrt{\text{VINS}}$ is
 unusable,'' it is ``the specific configuration deployed tonight,
 running without zero-velocity updates because the alternative crashed
 outright, was not enough to keep this filter bounded through a real,
-moderately dynamic lap on this hardware.'' Two candidate directions,
-neither attempted tonight: report Defect 2 upstream (RPNG's own issue
-tracker) with the exact reproduction above, since a $10^{17}$-scale
-$\chi^2$ acceptance is a defect in the library, not a tuning choice;
-and re-run the same lap with $\sqrt{\text{VINS}}$'s disparity-only ZUPT
-path (\code{zupt\_chi2\_multipler: 0}, untested tonight, distinct from
-the IMU-based path Defect 2 isolates) as a middle ground between ``no
-velocity anchoring at all'' and ``the exact setting that diverges.''
+moderately dynamic lap on this hardware.''
+
+\begin{trapbox}{The disparity-only path was tried, the same evening: worse, not better}
+Two candidate directions were named above as untried. The first, a
+write-up of Defect 2 for RPNG's own issue tracker, is drafted and ready
+to submit, now covering both ZUPT sub-modes below. The second, the
+disparity-only path (\code{zupt\_chi2\_multipler: 0}) as a middle
+ground between ``no velocity anchoring'' and ``the IMU-based setting
+that diverges,'' was tested at rest the same evening --- and is not a
+middle ground. The deployed, stable configuration already carried
+\code{zupt\_chi2\_multipler: 0}; the entire change tested was
+\code{try\_zupt: false} $\to$ \code{true}. Within roughly a dozen
+updates, well under one second, the filter reached
+\begin{center}
+\code{[ZUPT]: accepted |v\_IinG| = 203734831702474752.000 (chi2 inf < 0.000)}
+\end{center}
+--- not merely a large finite $\chi^2$ as in Defect 2's IMU-path
+capture, but literal floating-point infinity, against a printed
+threshold that itself collapsed to \code{0.000}, consistent with the
+consistency check's denominator vanishing rather than its numerator
+merely overflowing. Reverted immediately, config restored and
+confirmed. Neither ZUPT sub-mode is usable in this build; a real
+driven test of the disparity-only path was not attempted, since a
+mode that reaches \code{inf} in under a second standing still has
+nothing left to test by moving.
+\end{trapbox}
 
 \section{The Carolus quaternion, traced to source: why sixteen trials were
 never going to converge on a general answer}
@@ -9044,16 +9062,21 @@ on every telemetry tick.
     power than four $120$\,s windows gave it --- longer or more numerous
     runs, not a different protocol \\
 41 & \textbf{$\sqrt{\text{VINS}}$ on the Pi: installed and running, diverges
-    on a real driven lap} (\S\ref{sec:sqrtvins}). Builds and runs at
-    $30$--$70\,\mathrm{Hz}$ on live sensor data, two real defects found
-    and fixed (an undocumented config schema, and \code{try\_zupt}
-    causing a $10^{17}$-scale $\chi^2$ gate failure --- deployed with it
-    off). On one recorded lab lap: MINS $1.02$\,m loop closure, PC
-    openVINS $541.7$\,m, $\sqrt{\text{VINS}}$ unbounded ($43\,742$\,m
-    reported distance for a $\sim\!20$\,m lap) &
-    report the $\chi^2$ defect upstream (RPNG) with the reproduction in
-    \S\ref{sec:sqrtvins}; re-run with \code{zupt\_chi2\_multipler: 0}
-    (disparity-only ZUPT, untested) instead of fully disabled \\
+    on a real driven lap, disparity-only ZUPT also checked and also fails}
+    (\S\ref{sec:sqrtvins}). Builds and runs at $30$--$70\,\mathrm{Hz}$ on
+    live sensor data, two real defects found and fixed (an undocumented
+    config schema, and \code{try\_zupt} causing a $10^{17}$-scale
+    $\chi^2$ gate failure on the IMU path --- deployed with it off). On
+    one recorded lab lap: MINS $1.02$\,m loop closure, PC openVINS
+    $541.7$\,m, $\sqrt{\text{VINS}}$ unbounded ($43\,742$\,m reported
+    distance for a $\sim\!20$\,m lap). The hoped-for middle ground,
+    disparity-only ZUPT (\code{zupt\_chi2\_multipler: 0}), was tested
+    at rest the same evening and is worse: \code{chi2 inf} within under
+    a second, not merely a large finite value &
+    the $\chi^2$ defect write-up (both ZUPT sub-modes) is drafted,
+    ready to submit to RPNG's issue tracker, not yet submitted; no
+    remaining ZUPT configuration is worth testing further on this
+    build --- next step, if pursued, is upstream, not local \\
 \end{longtable}
 \end{center}
 
