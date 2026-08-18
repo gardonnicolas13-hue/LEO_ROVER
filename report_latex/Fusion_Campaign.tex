@@ -9054,25 +9054,28 @@ on every telemetry tick.
     \S\ref{sec:july27twotest}'s protocol, run \code{compare\_tests()}, and
     fill in every \code{\textbackslash todo\{\}} in
     \S\ref{sec:july27twotest} from its printed output \\
-36 & \textbf{Colour-camera geometry: three stacked defects, all fixed
-    2026-08-18, item still open pending validation}
+36 & \textbf{Colour-camera geometry: four stacked defects, fixed and
+    validated against a tape measure 2026-08-18, CLOSED}
     (\S\ref{sec:july30intrinsics}). The recorded defect stands: intrinsics
     from a $1280\times720$ calibration used on a $640\times480$ stream,
-    principal point \emph{outside} the image. Auditing the launch found
-    \textbf{two more nobody had noticed}: \code{fov=true} selected the
-    Astrobee FOV lens model (which reads only \code{distortion[0]} as its
-    $\omega$) although the D455 declares \code{plumb\_bob}; and
-    \code{distortion} was a \code{<param>} \emph{string}, so
-    \code{getParam} into a \code{vector<double>} failed silently and the
-    code fell back to its hard-coded $\{0.993591,0,0,0\}$ --- those
-    coefficients had \emph{never} been applied. Now factory intrinsics for
-    this exact profile, \code{fov=false}, and a real \code{<rosparam>} list,
-    all verified on the parameter server &
-    geometry is now \emph{plausible} where it was impossible, but this is
-    factory calibration, not a dedicated one, and no detection has been
-    validated against a measured distance. \textbf{Still no dimensional
-    metric from this camera} until a beacon at known range is checked.
-    Items 37 and 5 stay gated \\
+    principal point \emph{outside} the image. The launch audit found three
+    more, all silent: \code{fov=true} selected the Astrobee FOV lens model
+    (reading only \code{distortion[0]} as $\omega$) although the D455
+    declares \code{plumb\_bob}; and \code{distortion} \emph{and}
+    \code{known\_points} were both \code{<param>} \emph{strings}, so each
+    \code{getParam} into a \code{vector<double>} failed silently and fell
+    back to hard-coded defaults --- neither had \emph{ever} been applied.
+    Fixed: factory intrinsics for this exact profile, \code{fov=false},
+    and real \code{<rosparam>} lists. \textbf{Validated}: beacon at
+    $23''$ ($0.5842$\,m) to the tip of the LED protruding $55.5$\,mm ahead
+    of the cross plane; expected range to the beacon origin
+    $0.6397$\,m, measured $0.6393$\,m over $40$ samples
+    ($\sigma = 0.05$\,mm) --- \textbf{$0.4$\,mm, $0.06\,\%$} &
+    closed. One caution kept on the record: validated at a single range
+    ($\approx0.64$\,m) and a single measurement. A residual scale error
+    grows linearly with distance, so a second check near $2$\,m would be far
+    more sensitive and is the cheapest way to confirm this holds. Items 37
+    and 5 are ungated \\
 37 & \textbf{Beacon-anchored absolute error: architecture complete, never
     recorded} (\S\ref{sec:july30bridge}). \code{carolus\_tf\_bridge.py}
     publishes \code{/odom\_in\_beacon} and \code{/carolus\_in\_beacon},

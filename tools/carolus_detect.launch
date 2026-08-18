@@ -123,7 +123,27 @@
     <param name="fifo_on" value="true" />
 
     <!-- Known Beacon Points (géométrie des 4 LEDs : ±X, Y, Z) -->
-    <param name="known_points" value="0.0825 0.0 0.0 -0.0825 0.0 0.0 0.0 0.072 0.0 0.0 0.0 0.0555" />
+    <!-- Géométrie de la balise — RENDUE EXPLICITE le 2026-08-18.
+         Piège identique à celui de `distortion` : un `<param>` avec des
+         nombres séparés par des espaces produit une CHAÎNE, pas une liste.
+         `getParam("known_points", vector<double>)` (carolus_astrobee.cpp:121)
+         échouait donc en silence et le code retombait sur ses cibles par
+         défaut codées en dur (l.140-145).
+         MAIS ICI, ATTENTION, LE PIÈGE SE RETOURNE : la chaîne ignorée
+         déclarait P3 et P4 dans l'ORDRE INVERSE du défaut. C'est le défaut
+         qui s'appliquait, et c'est lui qui a été validé au ruban le
+         2026-08-18 (63,89 cm annoncés contre 63,97 cm mesurés, 0,8 mm
+         d'écart). « Réparer » la chaîne en liste sans regarder l'ordre
+         aurait donc CASSÉ la correspondance qui fonctionnait.
+         La liste ci-dessous reproduit donc l'ordre du DÉFAUT, pas celui de
+         l'ancienne chaîne. Vérifié après changement : distance inchangée.
+         Repère : origine au centre de la croix (P1,P2,P3 coplanaires) ;
+         P4 est la LED en saillie de 55,5 mm vers la caméra — c'est cet
+         écart qui explique la différence avec une mesure prise à sa pointe. -->
+    <rosparam param="known_points">[0.0825, 0.0, 0.0,
+                                    -0.0825, 0.0, 0.0,
+                                    0.0, 0.0, 0.0555,
+                                    0.0, 0.072, 0.0]</rosparam>
 
   </node>
 </launch>
