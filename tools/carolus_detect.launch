@@ -56,20 +56,56 @@
     <param name="nav_cam" value="true" />
     <param name="dock_cam" value="false" />
     <param name="fisheye" value="false" />
-    <param name="fov" value="true" />
+    <!-- fov=false CORRIGÉ le 2026-08-18. Ce drapeau ne choisit pas une
+         qualité, il choisit un MODÈLE D'OBJECTIF, et les deux n'interprètent
+         pas le même vecteur `distortion` :
+           fov=true  -> modèle FOV (Devernay-Faugeras). carolus_astrobee.cpp
+                        ne lit alors que distortion[0], comme coefficient ω
+                        (l.1254, appliqué l.1283 en tan(rd*ω)/...). C'est le
+                        modèle du NavCam Astrobee, très grand angle.
+           fov=false -> cv::undistortPoints, RADTAN à 4 coefficients (l.1045).
+         Or le D455 annonce lui-même `distortion_model: "plumb_bob"` dans son
+         camera_info, c'est-à-dire RADTAN. On était donc sur le mauvais modèle
+         pour cet objectif. -->
+    <param name="fov" value="false" />
     <param name="mono" value="false" />
 
     <!-- Robot Configuration -->
     <param name="bot_name" value="wannabee" />
 
-    <!-- Camera Intrinsic Parameters (À CALIBRER pour la couleur D455 640x480) -->
-    <param name="fx" value="644.1213" />
-    <param name="fy" value="645.2890" />
-    <param name="cx" value="643.4710" />
-    <param name="cy" value="372.5166" />
+    <!-- Camera Intrinsic Parameters — CORRIGÉ le 2026-08-18 (item 36).
+         Les valeurs précédentes (fx 644.12, fy 645.29, cx 643.47, cy 372.52)
+         venaient d'une calibration à 1280x720 et étaient appliquées telles
+         quelles au flux réellement publié, en 640x480 : le point principal
+         cx=643 tombait HORS d'une image large de 640 px. Et 1280x720 -> 640x480
+         n'est pas un simple facteur d'échelle (16:9 contre 4:3, champ de vision
+         différent), donc remettre les anciennes valeurs à l'échelle n'aurait
+         rien réparé.
+         Valeurs ci-dessous = calibration d'usine du D455 pour CE profil,
+         lue en direct sur /pc/camera/color/camera_info (K = [fx 0 cx; 0 fy cy;
+         0 0 1]). Elles sont par construction cohérentes avec les images que le
+         détecteur reçoit.
+         LIMITE ASSUMÉE : c'est la calibration d'usine, pas une calibration
+         dédiée de cet exemplaire. Elle rend la géométrie PLAUSIBLE (point
+         principal au centre, échelle focale juste) ; elle ne remplace pas une
+         validation à distance mesurée avant de publier une métrique absolue. -->
+    <param name="fx" value="380.147216796875" />
+    <param name="fy" value="379.1560974121094" />
+    <param name="cx" value="320.4045104980469" />
+    <param name="cy" value="243.71697998046875" />
 
-    <!-- Distortion Coefficients -->
-    <param name="distortion" value="-0.0606 0.0824 -0.0027 0.0009" />
+    <!-- Distortion Coefficients — CORRIGÉ le 2026-08-18.
+         L'ancienne forme `<param name="distortion" value="-0.0606 0.0824 ..."/>`
+         produisait une CHAÎNE de caractères. Le code fait
+         `getParam("distortion", std::vector<double>)` (l.196) : la lecture
+         échouait en silence, `size() != 4`, et il retombait sur son défaut
+         codé en dur {0.993591, 0, 0, 0} — le ω du NavCam Astrobee. Autrement
+         dit ces coefficients n'ont JAMAIS été appliqués. `<rosparam>` produit
+         une vraie liste de doubles.
+         Valeurs = les 4 premiers de D dans camera_info (plumb_bob ROS ordonne
+         [k1, k2, t1, t2, k3] et OpenCV attend [k1, k2, p1, p2] : mêmes 4
+         premiers, même ordre). k3 est écarté, le code n'accepte que 4. -->
+    <rosparam param="distortion">[-0.05786322057247162, 0.07023292034864426, -0.0005122012225911021, -0.0010943571105599403]</rosparam>
 
     <!-- Topic Names — nav_cam_topic REMAPPÉ sur le flux couleur republié PC -->
     <param name="dock_cam_topic" value="/hw/cam_dock" />

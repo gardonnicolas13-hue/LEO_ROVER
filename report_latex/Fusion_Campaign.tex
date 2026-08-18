@@ -9054,21 +9054,25 @@ on every telemetry tick.
     \S\ref{sec:july27twotest}'s protocol, run \code{compare\_tests()}, and
     fill in every \code{\textbackslash todo\{\}} in
     \S\ref{sec:july27twotest} from its printed output \\
-36 & \textbf{Colour-camera intrinsics do not match the operating stream}
-    (\S\ref{sec:july30intrinsics}), \textbf{BLOCKING}.
-    \code{carolus\_astrobee\_rex} runs with $f_x=644.12$, $c_x=643.47$,
-    $c_y=372.52$, calibrated at $1280\times720$, against a $640\times480$
-    stream whose own \code{camera\_info} reports $f_x=380.35$,
-    $c_x=320.40$, $c_y=243.72$. The principal point falls outside the
-    image; the two configurations differ in field of view
-    ($90^\circ$ versus $\approx80^\circ$) and are not related by any scale
-    factor. A target at the true image centre is reported $26.7^\circ$
-    off-axis (Eq.~\ref{eq:july30bearingerror}) &
-    re-run the colour intrinsic calibration at $640\times480$, the
-    resolution actually published, and load the result into the detector.
-    \textbf{No dimensional metric (absolute error, range, beacon
-    position) may be published from this camera until this is done.}
-    This gates items 37 and 5 \\
+36 & \textbf{Colour-camera geometry: three stacked defects, all fixed
+    2026-08-18, item still open pending validation}
+    (\S\ref{sec:july30intrinsics}). The recorded defect stands: intrinsics
+    from a $1280\times720$ calibration used on a $640\times480$ stream,
+    principal point \emph{outside} the image. Auditing the launch found
+    \textbf{two more nobody had noticed}: \code{fov=true} selected the
+    Astrobee FOV lens model (which reads only \code{distortion[0]} as its
+    $\omega$) although the D455 declares \code{plumb\_bob}; and
+    \code{distortion} was a \code{<param>} \emph{string}, so
+    \code{getParam} into a \code{vector<double>} failed silently and the
+    code fell back to its hard-coded $\{0.993591,0,0,0\}$ --- those
+    coefficients had \emph{never} been applied. Now factory intrinsics for
+    this exact profile, \code{fov=false}, and a real \code{<rosparam>} list,
+    all verified on the parameter server &
+    geometry is now \emph{plausible} where it was impossible, but this is
+    factory calibration, not a dedicated one, and no detection has been
+    validated against a measured distance. \textbf{Still no dimensional
+    metric from this camera} until a beacon at known range is checked.
+    Items 37 and 5 stay gated \\
 37 & \textbf{Beacon-anchored absolute error: architecture complete, never
     recorded} (\S\ref{sec:july30bridge}). \code{carolus\_tf\_bridge.py}
     publishes \code{/odom\_in\_beacon} and \code{/carolus\_in\_beacon},
