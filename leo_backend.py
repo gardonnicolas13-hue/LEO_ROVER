@@ -178,6 +178,21 @@ COMMAND_TOPIC     = "/mission/command"
 IMAGE_OUT_TOPIC   = "/mission/image_annotated"
 VISION_TOPIC      = "/vision/targets"       # real-time detection targets (JSON)
 
+# ── Tunnel public Cloudflare, pilotable depuis le cockpit (2026-08-18) ────────
+# Tuer `cloudflared` NE SUFFIT PAS à fermer l'exposition publique : le
+# watchdog le voit mort à la minute suivante (`pgrep -x cloudflared` dans
+# leo_watchdog.sh) et rejoue web/start_web.sh, qui le relance. La fermeture
+# doit donc être DÉCLARÉE, pas seulement exécutée — d'où ce drapeau sur
+# disque que le watchdog et start_web.sh consultent tous les deux avant de
+# relancer quoi que ce soit. Dans /tmp volontairement : un redémarrage du PC
+# efface le drapeau et rétablit l'exposition, ce qui est le comportement le
+# moins surprenant (on ne veut pas d'un site publiquement mort après un
+# reboot que personne ne relie à un clic d'il y a trois semaines).
+TUNNEL_FLAG       = "/tmp/leo_tunnel_off"
+TUNNEL_LOG        = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "logs", "cloudflared.log")
+_TUNNEL_POLL_TTL  = 3.0   # s — `pgrep` coûte un fork, la télémétrie tourne à 4 Hz
+
 # ── LED detection ─────────────────────────────────────────────────────────────
 LED_HUE_LOW   = 80
 LED_HUE_HIGH  = 135
@@ -5084,6 +5099,12 @@ class LeoBackend:
                       "series": {k: len(v) for k, v in c["sets"].items() if v},
                       "refus": c["refus"]},
             "cam_alive": bool(img_t) and (now - img_t) < CAM_ALIVE_TIMEOUT,
+            # `up` = cloudflared tourne ; `disabled` = fermeture DÉLIBÉRÉE
+            # (drapeau posé). Les deux sont nécessaires : « pas up » tout seul
+            # ne distingue pas un tunnel fermé exprès d'un tunnel planté que le
+            # watchdog est en train de relancer.
+            "tunnel": {"up": self._tunnel_up(),
+                       "disabled": os.path.exists(TUNNEL_FLAG)},
             "mode": self.mode,
             "auto_state": self.auto_state,
             "pose_source": self.pose_source,
@@ -5296,12 +5317,93 @@ class LeoBackend:
                 self._calib_cmd(cmd)
             elif action == "recover_camera":
                 self._recover_camera(hard=bool(cmd.get("hard", False)))
+            elif action == "tunnel":
+                self._tunnel_cmd(cmd)
             elif action == "heartbeat":
                 self._last_heartbeat_t = time.time()
                 self._hb_armed = True
                 self._hb_lost  = False
         except Exception as e:
             self._log(f"invalid command ({action}): {e}")
+
+    # ── Tunnel public Cloudflare : état et pilotage ─────────────────────────
+    def _tunnel_up(self, force=False):
+        """`cloudflared` tourne-t-il ? Mémorisé _TUNNEL_POLL_TTL s : la
+        télémétrie tourne à ~4 Hz et chaque appel coûte un fork."""
+        import subprocess
+        now = time.time()
+        if not force and now - getattr(self, "_tunnel_poll_t", 0.0) < _TUNNEL_POLL_TTL:
+            return getattr(self, "_tunnel_up_cache", False)
+        try:
+            up = subprocess.run(["pgrep", "-x", "cloudflared"],
+                                capture_output=True, timeout=4).returncode == 0
+        except Exception:
+            up = False
+        self._tunnel_poll_t   = now
+        self._tunnel_up_cache = up
+        return up
+
+    def _tunnel_cmd(self, cmd):
+        """Ouvre ou ferme l'exposition publique du site.
+
+        Le travail part dans un thread : `cloudflared` met 2-5 s à établir
+        ses connexions sortantes, et la boucle mission ne doit jamais
+        attendre ça (elle pilote un robot)."""
+        import subprocess, threading, shutil, signal as _sig
+        want = str(cmd.get("state", "")).lower()
+        if want not in ("open", "close"):
+            self._log(f"Commande tunnel ignorée (state={cmd.get('state')!r})")
+            return
+
+        def _worker():
+            try:
+                if want == "close":
+                    # 1) DÉCLARER d'abord. Si on tuait le process en premier,
+                    #    un tick de watchdog tombant dans l'intervalle verrait
+                    #    « cloudflared mort » sans drapeau et le relancerait.
+                    open(TUNNEL_FLAG, "w").close()
+                    pids = subprocess.run(["pgrep", "-x", "cloudflared"],
+                                          capture_output=True, text=True, timeout=5).stdout.split()
+                    for p in pids:
+                        try:
+                            os.kill(int(p), _sig.SIGTERM)
+                        except Exception:
+                            pass
+                    time.sleep(2.0)
+                    # Reste-t-il quelque chose ? SIGKILL en dernier recours.
+                    for p in subprocess.run(["pgrep", "-x", "cloudflared"],
+                                            capture_output=True, text=True,
+                                            timeout=5).stdout.split():
+                        try:
+                            os.kill(int(p), _sig.SIGKILL)
+                        except Exception:
+                            pass
+                    self._log("Tunnel public FERMÉ (le site reste servi en local)")
+                else:
+                    try:
+                        os.remove(TUNNEL_FLAG)
+                    except FileNotFoundError:
+                        pass
+                    if not self._tunnel_up(force=True):
+                        # Chemin absolu obligatoire : `cloudflared` vit dans
+                        # ~/.local/bin, absent du PATH minimal hérité quand ce
+                        # backend est lancé par cron/systemd (même piège que
+                        # start_web.sh, corrigé le 2026-07-20).
+                        cfd = shutil.which("cloudflared") or \
+                              os.path.expanduser("~/.local/bin/cloudflared")
+                        os.makedirs(os.path.dirname(TUNNEL_LOG), exist_ok=True)
+                        with open(TUNNEL_LOG, "ab") as log:
+                            subprocess.Popen([cfd, "tunnel", "run"],
+                                             stdout=log, stderr=log,
+                                             start_new_session=True)
+                        time.sleep(4.0)
+                    self._log("Tunnel public OUVERT" if self._tunnel_up(force=True)
+                              else "Tunnel public : démarrage demandé, pas encore établi")
+                self._tunnel_up(force=True)
+            except Exception as e:
+                self._log(f"Commande tunnel échouée ({want}) : {e}")
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     _CAM_RECOVER_COOLDOWN_S = 15.0
 

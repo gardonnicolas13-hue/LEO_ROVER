@@ -3348,6 +3348,26 @@ unit-tested before deployment and re-checked through the public tunnel
 afterwards.
 \end{trapbox}
 
+\noindent \textbf{Opening and closing that exposure from the cockpit.} The
+\emph{Public tunnel} control in Operations $\rightarrow$ Commands starts and
+stops \code{cloudflared} through the \code{tunnel} action of
+\code{leo\_backend.py}. Killing the process is \emph{not} enough on its own:
+\code{leo\_watchdog.sh} sees it dead within the minute and replays
+\code{web/start\_web.sh}, which brings it straight back --- the operator would
+conclude the button was broken. A closure therefore has to be \emph{declared},
+not merely executed, so the backend drops \code{/tmp/leo\_tunnel\_off} and both
+scripts consult it before restarting anything. The flag deliberately lives in
+\code{/tmp}: a reboot clears it and restores public access, which is the less
+surprising behaviour of the two (nobody wants a site silently dark because of
+a click three weeks earlier). The telemetry carries \code{up} and
+\code{disabled} separately, because ``not up'' alone cannot distinguish a
+deliberate closure from a crash the watchdog is already repairing --- the
+cockpit shows three states accordingly. Closing from a page itself loaded
+through the tunnel is allowed, but warns in as many words that this page is
+about to disconnect and that reopening will require the local address.
+Verified end to end: closed (public \code{530}, local \code{200}), still closed
+after $95$\,s and a full watchdog tick, then reopened (public \code{200}).
+
 \section{Troubleshooting and lessons learned}
 \label{ap:repro-trouble}
 This section is the distilled cost of the campaign. Each entry is a real

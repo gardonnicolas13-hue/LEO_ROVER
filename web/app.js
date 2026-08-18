@@ -868,6 +868,38 @@
       });
     }
 
+    /* ── Tunnel public Cloudflare (2026-08-18) ──────────────────────────────
+       TROIS états, pas deux, et la distinction compte pour l'opérateur :
+         up=true                -> exposé publiquement
+         up=false, disabled=true-> fermé volontairement (le drapeau est posé,
+                                   le watchdog ne le rouvrira pas)
+         up=false, disabled=false-> tombé tout seul ; le watchdog le relance
+                                   dans la minute, il ne faut donc PAS
+                                   présenter ça comme « fermé » ni proposer
+                                   un bouton « Ouvrir » qui ferait doublon.
+       L'état vient exclusivement de la télémétrie : le déduire de l'URL
+       courante mentirait dès qu'on regarde la page depuis le LAN. */
+    function updateTunnelBtn(t) {
+      const dot = $('tunnelDot'), lbl = $('tunnelState'),
+            btn = $('btnTunnel'), btnLbl = $('btnTunnelLabel');
+      if (!dot || !lbl || !btn || !btnLbl) return;
+      if (!t) {                       // backend trop ancien / pas encore reçu
+        btn.disabled = true;
+        return;
+      }
+      btn.disabled = false;
+      const up = !!t.up, off = !!t.disabled;
+      dot.className = 'block h-2 w-2 shrink-0 rounded-full ' +
+        (up ? 'bg-ok' : (off ? 'bg-alert' : 'bg-warn animate-pulse-glow'));
+      lbl.textContent = T(up ? 'ops_tunnel_open_state'
+                             : (off ? 'ops_tunnel_closed_state'
+                                    : 'ops_tunnel_recovering'));
+      lbl.className = 'text-xs font-semibold ' +
+        (up ? 'text-ok' : (off ? 'text-alert' : 'text-warn'));
+      btnLbl.textContent = T(up ? 'ops_tunnel_btn_close' : 'ops_tunnel_btn_open');
+      btn.dataset.want = up ? 'close' : 'open';
+    }
+
     /* ── Jeu de roues monté (2026-08-12) ────────────────────────────────────
        DÉCLARATIF : ce sélecteur n'écrit pas la cinématique du firmware (voir
        le commentaire dans ops.html et _load_drive_params côté backend). Il
@@ -1038,6 +1070,7 @@
       setTxt('modeBtnLabel', d.mode + ' → ' + (modeOrder[d.mode] || 'AUTO'));
       updatePoseSourceBtn(d.pose_source, d.pose_source_available, d.pose_source_pending);
       updateWheelBtn(d.wheels_cfg);
+      updateTunnelBtn(d.tunnel);
       /* Beacon LED reset / trajectory-export panels (2026-07-27) */
       updateLedCross(d.detection);
       updateRobotPoseInBeaconPanel(d);
@@ -2558,6 +2591,27 @@
         const next = btn.dataset.source;
         sendCommand({ action: 'set_pose_source', source: next });
         logLine('[NAV] pose source: requested ' + next + '…', 'text-violet-400');
+      }
+      else if (c === 'tunnel') {
+        // Le seul bouton du cockpit qui puisse couper la page qui l'affiche.
+        // `isTunnel()` dit si CETTE page est arrivée par le tunnel : si oui et
+        // qu'on ferme, la connexion en cours tombe et il faudra rouvrir depuis
+        // le réseau local. L'avertissement le dit en toutes lettres plutôt que
+        // de se contenter d'un « êtes-vous sûr ? » générique.
+        const want = btn.dataset.want || 'close';
+        const question = want === 'close'
+          ? (isTunnel() ? T('ops_tunnel_confirm_close_self') : T('ops_tunnel_confirm_close'))
+          : T('ops_tunnel_confirm_open');
+        if (!window.confirm(question)) return;
+        sendCommand({ action: 'tunnel', state: want });
+        logLine(T(want === 'close' ? 'ops_tunnel_log_closing'
+                                   : 'ops_tunnel_log_opening'),
+                want === 'close' ? 'text-alert' : 'text-ok');
+        // Retour visuel immédiat : cloudflared met quelques secondes à
+        // s'établir, et sans ça le bouton paraît inerte le temps que la
+        // télémétrie rattrape l'état réel.
+        btn.disabled = true;
+        setTimeout(() => { btn.disabled = false; }, 6000);
       }
       else if (c === 'wheel_type') {
         // Déclaration de matériel, pas une commande de pilotage : le robot ne

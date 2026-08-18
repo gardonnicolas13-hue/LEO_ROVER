@@ -119,7 +119,13 @@ else
 fi
 
 # --- 6) tunnel Cloudflare (cockpit.leo-rover-gardon.dev) ---
-if ! pgrep -x cloudflared > /dev/null 2>&1; then
+if [ -f /tmp/leo_tunnel_off ]; then
+  # Fermeture délibérée depuis le cockpit (bouton « Tunnel public »). Ce
+  # script est rejoué par le watchdog à chaque guérison web : sans cette
+  # garde il rouvrirait l'exposition publique que l'opérateur vient de
+  # fermer. Le drapeau est retiré par l'action `tunnel`/open du backend.
+  echo "[= ] cloudflared FERMÉ volontairement (/tmp/leo_tunnel_off) — non relancé"
+elif ! pgrep -x cloudflared > /dev/null 2>&1; then
   # Chemin absolu (2026-07-20) : `cloudflared` seul échouait sous cron/watchdog
   # (PATH minimal n'incluant pas ~/.local/bin) -> "No such file or directory"
   # silencieux dans cloudflared.log, tunnel public mort sans alerte visible.

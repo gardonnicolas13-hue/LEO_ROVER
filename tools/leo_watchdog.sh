@@ -47,7 +47,17 @@ web_down=0
 for p in 8000 8080 9090 9443; do
   port_ok "$p" || { note "port $p mort"; web_down=1; }
 done
-pgrep -x cloudflared > /dev/null 2>&1 || { note "cloudflared mort"; web_down=1; }
+# /tmp/leo_tunnel_off : fermeture DÉLIBÉRÉE du tunnel public depuis le cockpit
+# (bouton « Tunnel public », action `tunnel` de leo_backend.py). Sans cette
+# garde, la fermeture ne tiendrait pas une minute : ce test verrait
+# « cloudflared mort », déclencherait la relance de la pile web, et le tunnel
+# se rouvrirait tout seul — l'opérateur croirait le bouton cassé. Le drapeau
+# est dans /tmp à dessein : un redémarrage du PC rétablit l'exposition.
+if [ -f /tmp/leo_tunnel_off ]; then
+  :   # tunnel fermé exprès — ne pas le relancer, ne pas le signaler comme panne
+else
+  pgrep -x cloudflared > /dev/null 2>&1 || { note "cloudflared mort"; web_down=1; }
+fi
 
 # ── Sonde de NOYADE rosbridge — 9090 ET 9443 (2026-07-13, étendue 31/07) ────
 # Après une longue absence du master (robot hors WiFi), ou après un simple
