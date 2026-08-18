@@ -8,7 +8,7 @@
      · Publie  /mission/command  (std_msgs/String, JSON)
      · Écoute  /mission/telemetry (std_msgs/String, JSON ~10 Hz)
      · Écoute  /mission/log       (std_msgs/String)
-     · Écoute  /camera/imu/data_raw (sensor_msgs/Imu) — artificial horizon
+     · Écoute  /imu/data_clean (sensor_msgs/Imu) — artificial horizon
 
    Actions JSON envoyées :
      set_mode {mode}, stop, reset, clear_map, park,
@@ -440,9 +440,21 @@
         } catch (e) { /* ignore malformed */ }
       });
 
-      /* Optional IMU subscription — D455 /camera/imu/data_raw */
+      /* Horizon artificiel — SOURCE CORRIGÉE le 2026-08-18 (audit).
+         S'abonnait à /camera/imu/data_raw, l'IMU du D455 : ce topic n'a
+         JAMAIS eu de publieur sur ce robot, l'IMU de la caméra n'étant pas
+         activée au lancement (et l'activer coûterait de la bande passante
+         USB sur un lien déjà signalé comme saturable). Le panneau était donc
+         mort en permanence, sans qu'aucune erreur ne le signale — un abonné
+         ROS qui attend un topic jamais publié ne se plaint pas.
+         /imu/data_clean est l'IMU CORE2 assainie, celle dont se servent
+         réellement les estimateurs : même type sensor_msgs/Imu, 82,8 Hz
+         mesurés, vecteur gravité cohérent (9,70 m/s²). Le biais d'échelle
+         connu de cet accéléromètre est sans effet ici : roll et pitch se
+         déduisent de la DIRECTION de la gravité, qu'un facteur d'échelle
+         uniforme ne change pas. */
       try {
-        topics.imu = new ROSLIB.Topic({ ros, name: '/camera/imu/data_raw', messageType: 'sensor_msgs/Imu' });
+        topics.imu = new ROSLIB.Topic({ ros, name: '/imu/data_clean', messageType: 'sensor_msgs/Imu' });
         topics.imu.subscribe((m) => {
           const ax = m.linear_acceleration.x;
           const ay = m.linear_acceleration.y;
@@ -2117,7 +2129,7 @@
       const dot = $('imuStatusDot');
       const txt = $('imuStatusTxt');
       if (dot) dot.className = 'led-dot ' + (online ? 'text-emerald-400' : 'text-zinc-700');
-      if (txt) txt.textContent = online ? '/camera/imu/data_raw · ' + Math.round(1000 / (Date.now() - imuAge + 1)) + ' Hz' : '/camera/imu/data_raw';
+      if (txt) txt.textContent = online ? '/imu/data_clean · ' + Math.round(1000 / (Date.now() - imuAge + 1)) + ' Hz' : '/imu/data_clean';
 
       drawHorizon(imuRoll, imuPitch, online);
     }
