@@ -1,0 +1,7 @@
+[Unit]
+Description=Plafonne les journaux ROS (disque 30 Go, aucune rotation native)
+Documentation=man:systemd.timer(5)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cap_ros_logs.sh

@@ -1,0 +1,15 @@
+[Unit]
+# Timer et non cron : cron n'est pas installe sur ce Pi (verifie le
+# 2026-08-18 : /usr/bin/crontab absent, cron.service inactive), alors que
+# les timers systemd y tournent deja (man-db, apt-daily).
+Description=Plafonnement horaire des journaux ROS
+
+[Timer]
+OnCalendar=hourly
+# Rattrape l'execution manquee si le robot etait eteint a l'heure dite :
+# sans ca, un Pi rallume a 14h05 attendrait 15h00 pour son premier controle.
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

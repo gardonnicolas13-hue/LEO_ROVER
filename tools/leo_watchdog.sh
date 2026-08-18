@@ -13,6 +13,26 @@
 [ -f /tmp/leo_maintenance ] && exit 0
 
 TOUT=/home/lab272/TOUT
+
+# ── Plafond des journaux (2026-08-18, audit) ─────────────────────────────────
+# Aucun journal de ce projet n'avait de rotation, ni ici ni sur le robot.
+# Cote robot ca a failli couter la pile : disque a 97 %, 934 Mo de marge, et
+# leo.service etait alors en Restart=no (corrige le meme jour). Cote PC le
+# risque est moindre (231 Go libres) mais reel : navigation_master.log avait
+# atteint 621 Mo en 5 jours, et reprend ~84 Mo en quelques heures.
+# Place ICI, tout en haut : la garde doit tourner meme quand le robot est
+# injoignable (le sort anticipe plus bas), car les journaux continuent de
+# grossir pendant ce temps -- c'est meme la qu'ils grossissent le plus vite.
+# Tronquer et non supprimer : les fichiers sont tenus ouverts par des
+# processus vivants, les supprimer ne rendrait pas l'espace.
+for _f in "$TOUT"/logs/*.log; do
+  [ -f "$_f" ] || continue
+  _mo=$(( $(stat -c%s "$_f" 2>/dev/null || echo 0) / 1048576 ))
+  if [ "$_mo" -ge 200 ]; then
+    : > "$_f"
+    echo "$(date '+%F %T') journal tronque: $(basename "$_f") (${_mo} Mo)" >> "$TOUT/logs/watchdog.log"
+  fi
+done
 # Point de vérité réseau centralisé (2026-07-20) — voir tools/robot_env.sh :
 # ROBOT_HOST/ROS_MASTER_URI/ROS_IP viennent d'ici, plus jamais codés en dur.
 # shellcheck disable=SC1091

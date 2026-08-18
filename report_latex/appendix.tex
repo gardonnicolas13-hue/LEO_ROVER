@@ -4014,12 +4014,59 @@ pattern appears in that shell's own command line. Use explicit PIDs.
 
 \noindent \textbf{The decisive end-to-end test}, when several unrelated
 cockpit fields are blank at once, is to open the WebSocket yourself rather
-than to read JavaScript: connect to \code{ws://localhost:9090}, send
-\code{\{"op":"subscribe","topic":"/mission/telemetry",}
-\code{"type":"std\_msgs/String"\}} and wait. A
+than to read JavaScript: connect to \code{ws://localhost:9090} and send
+\begin{lstlisting}[language=bash]
+{"op":"subscribe","topic":"/mission/telemetry","type":"std_msgs/String"}
+\end{lstlisting}
+then wait. A
 \code{101 Switching Protocols} handshake \emph{followed by silence} means the
 transport is at fault, not the rendering. When several unrelated fields fail
 together it is never the view layer.
+
+\subsection{Nothing rotated any log, on either machine}
+\label{ap:repro-logrotate}
+Found by the audit of August 18 and worth stating plainly, because it had
+been quietly true since the beginning: \textbf{no log in this project had any
+rotation}, neither on the workstation nor on the robot, and nothing capped
+the systemd journal either.
+
+On the robot that was close to costing the stack. The $30$\,GB card was at
+$97\,\%$, \textbf{$934$\,MB free}: $2.8$\,GB of uncapped systemd journal,
+$3.9$\,GB of ROS logs across four finished sessions, and a single
+\code{rosmon.log} at $783$\,MB. And a full disk is not a slow degradation
+here --- it kills \code{leo.service}, which was still at \code{Restart=no},
+so the robot would have stayed powered and mute exactly as it did on July 21.
+Both halves are now fixed: \code{SystemMaxUse=200M} in
+\code{journald.conf}, a \code{cap-ros-logs} systemd timer truncating ROS logs
+hourly, and a \code{20-restart.conf} drop-in giving the unit
+\code{Restart=on-failure} with \code{StartLimitBurst=5} over $5$ minutes so a
+config that fails instantly cannot become a restart storm. Result:
+$97\,\% \rightarrow 79\,\%$, $934$\,MB $\rightarrow 6.1$\,GB free. All four
+files are versioned under \code{tools/robot/}, since a card reflash would
+otherwise lose them without trace.
+
+\begin{trapbox}{Two robot-side facts that break the obvious fix}
+\code{cron} \textbf{does not exist on this Pi}: \code{/usr/bin/crontab} is
+absent and \code{cron.service} is inactive, so a crontab entry fails
+silently --- the first attempt did exactly that. systemd timers, on the other
+hand, already run there (\code{man-db}, \code{apt-daily}), which is why the
+cap is a timer.
+
+And these logs must be \textbf{truncated, never deleted}: \code{rosmon.log}
+is held open continuously by \code{rosmon}, so unlinking it would not return
+the space while the process lives. Its descriptor carries \code{O\_APPEND}
+(flags \code{02402001}, checked before touching anything), which is what
+makes \code{truncate -s 0} safe: the writer resumes at the end of the emptied
+file, with no sparse hole and no phantom space.
+\end{trapbox}
+
+\noindent On the workstation the same gap was real but far less urgent
+($231$\,GB free): \code{navigation\_master.log} had reached $621$\,MB in five
+days and takes back $\sim\!84$\,MB in a few hours. The guard lives at the top
+of \code{leo\_watchdog.sh}, which cron already runs every minute --- placed
+\emph{before} the early exit taken when the robot is unreachable, because
+that is precisely when those logs grow fastest. It fired on its first pass,
+reclaiming $230$\,MB from \code{carolus\_detect.log}.
 
 \subsection{A checklist before any measurement campaign}
 \label{ap:repro-checklist}
