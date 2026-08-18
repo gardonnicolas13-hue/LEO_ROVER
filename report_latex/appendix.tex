@@ -3323,6 +3323,31 @@ $\sim79$ columns, so the phrase it was grepping for the page count could be
 split in two depending on document length; with \code{set -e} that killed the
 script before deployment.
 
+\begin{trapbox}{What that public tunnel was also publishing (audit, 2026-08-18)}
+\code{web/serve.py} subclassed \code{SimpleHTTPRequestHandler} and overrode
+only the cache headers --- so it served the \emph{whole} directory, directory
+indexes included, and that directory is on the public internet. Verified
+live, not assumed:
+\code{https://cockpit.leo-rover-gardon.dev/exports/} answered \code{200} with
+a browsable index of $104$ files ($17$\,MB of experiment data: \code{.mat},
+trajectory CSVs, figures), as did \code{models/} and \code{reports/}. Eight
+\code{.bak-cachefix-*.html} pages from July 29 --- complete, stale copies of
+the cockpit --- were being served next to the real ones, plus thirteen more
+backups whose names do \emph{not} begin with a dot
+(\code{ops.html.bak-avant-v4-161908}, \code{app.js.bak-casse-203841}), which
+is why a naive ``hide dotfiles'' rule is not enough.
+
+The fix keeps the deny list aligned with section 10 of \code{.gitignore}, on
+the principle that \textbf{what git refuses to archive, the server refuses to
+publish}: any path segment starting with a dot, or carrying \code{.bak},
+\code{.orig}, \code{.rej} or \code{.swp}, returns $404$; directory listing is
+disabled outright. \code{send\_head()} still serves \code{index.html}, so
+pages are untouched, and individual files under \code{exports/} remain
+reachable by direct URL --- only enumeration disappears. Sixteen cases were
+unit-tested before deployment and re-checked through the public tunnel
+afterwards.
+\end{trapbox}
+
 \section{Troubleshooting and lessons learned}
 \label{ap:repro-trouble}
 This section is the distilled cost of the campaign. Each entry is a real
@@ -3903,6 +3928,78 @@ publishes only when something happens: an empty topic proved nothing, and
 the same test on \code{/mission/telemetry} showed $50$ frames in $12$\,s. A
 silent topic is not a dead link. Choose a topic that is supposed to be noisy
 before concluding anything.
+
+\subsection{``The robot is on but completely invisible'': four faults stacked}
+\label{ap:repro-invisible}
+An outage on August 18 cost several hours and is worth reproducing in full,
+because the robot was healthy throughout: uptime $4$\,days $22$\,h, battery
+$12.3$\,V, $60.8\,^\circ$C with \code{throttled=0x0}, and
+\code{/firmware/wheel\_states} publishing at $15.8$\,Hz \emph{locally}. Four
+independent faults were stacked, and each one masked the next.
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{The rover falls back to its own access point.} When
+  \code{wlan\_int} fails to join the campus network it stays \code{UP} with
+  \emph{no address}, and the robot is then reachable only on \code{br0},
+  \code{10.0.0.1}, behind SSID \code{LeoRover-e138}. An ICMP sweep of all
+  $8192$ addresses of the campus \code{/19}, then a TCP sweep for ports $22$
+  and $11311$, found nothing at all --- and mDNS cannot help, because that
+  guest network blocks client-to-client multicast. \textbf{The test that
+  settles it in five seconds is \code{nmcli dev wifi list} on the
+  workstation}: if \code{LeoRover-e138} is there at full strength, stop
+  scanning. Note that \code{10.0.0.1} --- already the default in
+  \code{tools/robot\_env.sh} --- is in fact the \emph{most} robust address of
+  the three, since \code{br0} is up regardless of which network the robot did
+  or did not manage to join.
+\item \textbf{The saved Wi-Fi profile was pinned to a replaced dongle.}
+  \code{nmcli connection up LeoRover-e138} failed with a misleading message
+  naming \code{eno1}, because \code{connection.interface-name} still held the
+  name of the previous USB dongle. Cleared once and for all with
+  \code{nmcli connection modify LeoRover-e138 connection.interface-name ""}.
+\item \textbf{\code{/etc/ros/setup.bash} on the robot pins
+  \code{ROS\_IP="10.200.0.2"}}, the WireGuard address. This is the nastiest
+  of the four: once the rover is reachable over its access point the master
+  answers, \code{rostopic list} works and the topics \emph{exist}, yet every
+  robot-side node advertises a dead address, so no TCPROS connection can be
+  made and everything looks mute. Confirm with \code{lookupNode}: an URI of
+  the form \code{http://10.200.0.2:...} is the signature. The fix that avoids
+  restarting the robot's entire stack is a persistent route on the
+  workstation,
+  \code{nmcli connection modify LeoRover-e138 +ipv4.routes "10.200.0.2/32 10.0.0.1"};
+  the robot accepts packets addressed to its own \code{wg0} address arriving
+  on \code{br0} ($0\,\%$ loss measured).
+\item \textbf{Long-lived nodes keep publishing but never re-subscribe.}
+  After the network transition \code{serial\_node} still had every
+  \emph{outbound} connection alive (wheels, IMU, odometry) and \textbf{no
+  inbound \code{/cmd\_vel}} --- the operator's report was precisely ``the
+  commands no longer work'' while telemetry looked healthy. A brand-new
+  publisher did not attract it either. \code{rosbridge\_server} failed the
+  same way one layer up: the cockpit showed \code{ONLINE}, video ran (MJPEG
+  over plain HTTP, independent of rosbridge), and every telemetry-driven
+  field stayed blank --- \code{MISSION 00:00} against a backend counting
+  $462$\,s, and, most visibly, \emph{no button selected} in either the pose
+  source or the wheel selector. Both were cured by a targeted restart, the
+  same \code{rosmon} stop/start the watchdog already performs for the camera.
+\end{enumerate}
+
+\begin{trapbox}{Two measurement traps met while diagnosing this}
+\code{rostopic hz} buffers its output when redirected or piped: it prints
+nothing while data is flowing perfectly. Always confirm with
+\code{rostopic echo -n1} (add \code{--noarr} for images) before declaring a
+topic dead --- this alone produced a false ``camera mute'' diagnosis here.
+
+And \code{pkill -f "rosbridge\_websocket"} \textbf{kills its own shell}: the
+pattern appears in that shell's own command line. Use explicit PIDs.
+\end{trapbox}
+
+\noindent \textbf{The decisive end-to-end test}, when several unrelated
+cockpit fields are blank at once, is to open the WebSocket yourself rather
+than to read JavaScript: connect to \code{ws://localhost:9090}, send
+\code{\{"op":"subscribe","topic":"/mission/telemetry",}
+\code{"type":"std\_msgs/String"\}} and wait. A
+\code{101 Switching Protocols} handshake \emph{followed by silence} means the
+transport is at fault, not the rendering. When several unrelated fields fail
+together it is never the view layer.
 
 \subsection{A checklist before any measurement campaign}
 \label{ap:repro-checklist}

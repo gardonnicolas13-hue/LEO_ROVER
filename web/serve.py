@@ -24,6 +24,57 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 
 class NoHtmlCacheHandler(http.server.SimpleHTTPRequestHandler):
+    # ── Ce qui n'est PAS servi (audit du 2026-08-18) ────────────────────────
+    # `SimpleHTTPRequestHandler` sert TOUT le repertoire, listings compris, et
+    # ce repertoire est publie sur internet par le tunnel Cloudflare. L'audit a
+    # verifie en direct que `https://cockpit.leo-rover-gardon.dev/exports/`
+    # repondait 200 avec l'index navigable de 104 fichiers (17 Mo de donnees
+    # d'essai : .mat, CSV de trajectoires, figures), idem `models/`,
+    # `.bak-cdn-20260729/` et les huit pages `.bak-cachefix-*.html` du 29/07 —
+    # des copies perimees du cockpit, servies publiquement a cote des vraies.
+    # Deux regles suffisent a fermer ca sans rien casser :
+    #   1. tout segment de chemin commencant par un point -> 404 (les
+    #      sauvegardes du projet sont nommees `.bak-*`, cf. section 10 du
+    #      .gitignore, et ca couvre aussi un `.git` qui atterrirait ici) ;
+    #   2. plus aucun listing de repertoire -> 404. `send_head()` continue de
+    #      servir `index.html` quand il existe, donc `/` reste intact ; seuls
+    #      les repertoires SANS index deviennent muets, ce qui est exactement
+    #      le cas de exports/, models/, vendor/, fonts/, img/ et reports/.
+    #      Les fichiers qu'ils contiennent restent accessibles par leur URL
+    #      directe (le lien du rapport PDF, les polices, les scripts) : c'est
+    #      l'enumeration qui disparait, pas le service.
+    # Les motifs ci-dessous sont ceux de la section 10 du .gitignore, a
+    # dessein : ce que git refuse d'archiver, le serveur refuse de publier.
+    # Un point de depart « tout segment commencant par un point » ne suffit
+    # PAS — la convention du projet produit aussi des noms comme
+    # `ops.html.bak-avant-v4-161908` ou `app.js.bak-casse-203841`, qui sont
+    # des cockpits complets d'anciennes versions et ne commencent par aucun
+    # point. L'audit en a trouve 13 de cette forme, servis publiquement.
+    MOTIFS_REFUSES = (".bak", ".orig", ".rej", ".swp")
+
+    def _refuse(self, chemin):
+        for seg in chemin.split("/"):
+            if not seg:
+                continue
+            if seg.startswith("."):
+                return True
+            for motif in self.MOTIFS_REFUSES:
+                # couvre `x.bak`, `x.bak-horodatage` et `x.bak_horodatage`
+                if motif in seg and seg.split(motif, 1)[1][:1] in ("", "-", "_"):
+                    return True
+        return False
+
+    def send_head(self):
+        chemin = self.path.split("?")[0].split("#")[0]
+        if self._refuse(chemin):
+            self.send_error(404, "Not Found")
+            return None
+        return http.server.SimpleHTTPRequestHandler.send_head(self)
+
+    def list_directory(self, path):
+        self.send_error(404, "Not Found")
+        return None
+
     def end_headers(self):
         p = self.path.split("?")[0]
         # Le rapport est régénéré à chaque avancée : il doit être revalidé au
