@@ -455,6 +455,19 @@
       auto_state_wait:      'WAIT',
       auto_state_uturn:     'U·TURN',
       auto_state_obs:       'OBS·AVOID',
+      /* ─────────────────────────────────────────────────────────────────
+         Les cles log_* ci-dessous NE SONT PAS UTILISEES (audit 2026-08-18).
+         Ce n'est pas un oubli, c'est un etat constate et laisse tel quel :
+         leo_backend.py publie sur /mission/log du TEXTE BRUT deja redige en
+         francais (`self._log("Perte de balise : seuil %.1f s...")`), jamais
+         une cle. Le panneau Journal du cockpit affiche donc toujours du
+         francais, quelle que soit la langue choisie.
+         Les traduire vraiment demanderait de changer le PROTOCOLE du backend
+         (emettre une cle + des parametres au lieu d'une phrase) sur une
+         centaine d'appels, ce qui ne peut pas etre valide sans le robot.
+         Conserve plutot que supprime : c'est l'echafaudage exact dont une
+         future traduction aura besoin. A ne pas resignaler comme cle morte.
+         ───────────────────────────────────────────────────────────────── */
       log_patrol_start:     'Patrol started — scanning for beacon',
       log_lock_on:          'Locking on beacon — centering camera',
       log_odom_reset:       'Local odometry reset — global map preserved',
@@ -1226,6 +1239,19 @@
       auto_state_wait:      'ATTENTE',
       auto_state_uturn:     'DEMI-TOUR',
       auto_state_obs:       'ÉVASION OBS.',
+      /* ─────────────────────────────────────────────────────────────────
+         Les cles log_* ci-dessous NE SONT PAS UTILISEES (audit 2026-08-18).
+         Ce n'est pas un oubli, c'est un etat constate et laisse tel quel :
+         leo_backend.py publie sur /mission/log du TEXTE BRUT deja redige en
+         francais (`self._log("Perte de balise : seuil %.1f s...")`), jamais
+         une cle. Le panneau Journal du cockpit affiche donc toujours du
+         francais, quelle que soit la langue choisie.
+         Les traduire vraiment demanderait de changer le PROTOCOLE du backend
+         (emettre une cle + des parametres au lieu d'une phrase) sur une
+         centaine d'appels, ce qui ne peut pas etre valide sans le robot.
+         Conserve plutot que supprime : c'est l'echafaudage exact dont une
+         future traduction aura besoin. A ne pas resignaler comme cle morte.
+         ───────────────────────────────────────────────────────────────── */
       log_patrol_start:     'Patrouille lancée — recherche balise',
       log_lock_on:          'Verrouillage balise — centrage caméra',
       log_odom_reset:       'Odométrie locale reset — carte globale préservée',
