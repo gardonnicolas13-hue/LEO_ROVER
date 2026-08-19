@@ -131,6 +131,13 @@ __pycache__/
 # contient aussi des figures PDF necessaires a la compilation.
 !report_latex/main.pdf
 
+# Meme logique pour les metriques exportees par tools/compare_estimators.m :
+# report_latex/figures/report_metrics.tex est GENERE, mais il est destine a
+# etre \input par le rapport. Non versionne, un clone frais ne compilerait
+# plus. metrics_summary.json l'accompagne pour la tracabilite (memes chiffres,
+# lisibles par autre chose que LaTeX). Aucune regle ne les exclut : cette note
+# est la pour qu'on ne les « nettoie » pas en les prenant pour des artefacts.
+
 # ── 9b. Doublons perimes, cibles PAR NOM EXACT (jamais par *.pdf) ──────────
 # Trois fichiers retires de l'index le 31/07 (git rm --cached) sans jamais
 # recevoir de regle correspondante : ils revenaient en « Untracked » a

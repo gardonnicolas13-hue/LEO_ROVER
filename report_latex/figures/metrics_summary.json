@@ -1,0 +1,26 @@
+{
+  "generated": "2026-08-18 22:17:44",
+  "source_prefix": "data/trajectories/sqrtvins_compare_20260813_175957",
+  "temporal_overlap_pct": 99.998510075868353,
+  "any_synthetic": false,
+  "estimators": [
+    {
+      "name": "MINS",
+      "loop_closure_m": 1.0230471061476103,
+      "path_length_m": 65.259084196511338,
+      "divergence_ratio": 0.015676700320632158,
+      "samples": 32802,
+      "synthetic": false,
+      "file": "data/trajectories/sqrtvins_compare_20260813_175957_mins.csv"
+    },
+    {
+      "name": "openVINS",
+      "loop_closure_m": 541.68405581315176,
+      "path_length_m": 10937.909878344335,
+      "divergence_ratio": 0.049523543514069082,
+      "samples": 31889,
+      "synthetic": false,
+      "file": "data/trajectories/sqrtvins_compare_20260813_175957_vins.csv"
+    }
+  ]
+}

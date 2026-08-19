@@ -56,7 +56,8 @@ function compare_estimators(prefix, out_dir)
            'openVINS', 'vins', [0.13 0.83 0.93], '-'      % cyan   — convention cockpit
            'sqrtVINS', 'srv',  [0.92 0.70 0.03], '--' };  % ambre  — « testé, non déployé »
 
-  S = struct('name', {}, 'color', {}, 'style', {}, 'd', {});
+  S = struct('name', {}, 'color', {}, 'style', {}, 'd', {}, ...
+             'mock', {}, 'path', {});
   fprintf('\n=== compare_estimators — %s ===\n', prefix);
   for k = 1:size(spec, 1)
     path = sprintf('%s_%s.csv', prefix, spec{k,2});
@@ -66,9 +67,16 @@ function compare_estimators(prefix, out_dir)
       fprintf('  %-9s   %s\n', '', path);
       continue;
     end
+    mock = local_is_mock(path);
     S(end+1) = struct('name', spec{k,1}, 'color', spec{k,3}, ...
-                      'style', spec{k,4}, 'd', d); %#ok<AGROW>
-    fprintf('  %-9s : %6d échantillons\n', spec{k,1}, numel(d.t));
+                      'style', spec{k,4}, 'd', d, 'mock', mock, ...
+                      'path', path); %#ok<AGROW>
+    if mock
+      fprintf('  %-9s : %6d échantillons   [SYNTHÉTIQUE — ne mesure rien]\n', ...
+              spec{k,1}, numel(d.t));
+    else
+      fprintf('  %-9s : %6d échantillons\n', spec{k,1}, numel(d.t));
+    end
   end
   if isempty(S)
     error('compare_estimators:vide', 'Aucune série trouvée pour ce préfixe.');
@@ -80,11 +88,13 @@ function compare_estimators(prefix, out_dir)
   % mal, les métriques restent calculables mais ne comparent plus la même
   % chose — le dire ici plutôt que de laisser conclure sur des chiffres
   % silencieusement incomparables.
+  recouv = NaN;   % % de recouvrement temporel, NaN si une seule série
   if numel(S) > 1
     t0 = arrayfun(@(x) x.d.t(1),   S);
     t1 = arrayfun(@(x) x.d.t(end), S);
     inter = min(t1) - max(t0);              % durée du recouvrement commun
     union = max(t1) - min(t0);
+    if union > 0; recouv = 100 * max(inter, 0) / union; end
     if inter <= 0
       fprintf(['\n  ATTENTION : les séries ne se recouvrent PAS dans le temps.\n' ...
                '              Les comparer n''a pas de sens — vérifier qu''elles\n' ...
@@ -190,7 +200,128 @@ function compare_estimators(prefix, out_dir)
   catch
     print(fig, out, '-dpng', '-r150');   % MATLAB < R2020a
   end
-  fprintf('\n  figure : %s\n\n', out);
+  fprintf('\n  figure : %s\n', out);
+
+  % Export des métriques : la figure se regarde, le tableau se cite.
+  local_export(S, prefix, recouv, out_dir);
+end
+
+
+function tf = local_is_mock(path)
+% Une serie est-elle SYNTHETIQUE ? Deux marqueurs INDEPENDANTS, et il en
+% suffit d'un. La redondance est voulue : un fichier renomme perd le prefixe
+% mais garde son temoin, un fichier deplace seul perd son temoin mais garde le
+% prefixe.
+%
+% ASYMETRIE ASSUMEE. Le test est volontairement LARGE : un lot de test dont le
+% dossier porte un temoin voit TOUTES ses series marquees [MOCK], y compris
+% celles qui sont des copies de vraies mesures. C'est le bon sens de l'erreur.
+% Un [MOCK] de trop coute une seconde de perplexite ; un [MOCK] manquant met
+% un chiffre fabrique dans un rapport, presente comme une mesure. Ne pas
+% « corriger » ce comportement en le rendant plus permissif.
+  [dossier, nom] = fileparts(path);
+  tf = ~isempty(regexp(nom, '^MOCK[_-]', 'once'));          % marqueur 1 : le nom
+  if tf; return; end
+  base = regexprep(nom, '_(mins|vins|srv|fused|carolus|source)$', '');
+  temoin = fullfile(dossier, [base '.SYNTHETIC.txt']);      % marqueur 2 : le temoin
+  tf = exist(temoin, 'file') == 2;
+end
+
+
+function local_export(S, prefix, recouv, out_dir)
+% Ecrit les metriques dans deux formats, a cote de la figure :
+%   report_metrics.tex    tableau booktabs, \input-able depuis le rapport
+%   metrics_summary.json  memes chiffres, pour tout autre consommateur
+%
+% Deux formats et non un : le .tex sert a citer, le .json sert a relire. Un
+% tableau LaTeX est penible a reparser ; un JSON ne se compose pas.
+%
+% Une serie SYNTHETIQUE est marquee [MOCK] dans la colonne Source du tableau
+% ET par "synthetic": true dans le JSON. Un chiffre fabrique qui arriverait
+% dans le rapport sans etiquette serait pire que pas de chiffre du tout.
+  if isempty(S); return; end
+  horod = datestr(now, 'yyyy-mm-dd HH:MM:SS'); %#ok<TNOW1,DATST>
+  aucun_mock = ~any([S.mock]);
+
+  % ---- LaTeX ---------------------------------------------------------------
+  ftex = fullfile(out_dir, 'report_metrics.tex');
+  fid = fopen(ftex, 'w');
+  if fid < 0
+    fprintf('  (export LaTeX impossible : %s non inscriptible)\n', ftex);
+  else
+    fprintf(fid, '%% GENERE AUTOMATIQUEMENT par tools/compare_estimators.m — NE PAS EDITER.\n');
+    fprintf(fid, '%% Toute modification sera ecrasee au prochain lancement.\n');
+    fprintf(fid, '%% Source  : %s\n', local_tex(prefix));
+    fprintf(fid, '%% Genere  : %s\n', horod);
+    fprintf(fid, '%% Requiert booktabs et siunitx dans le preambule.\n');
+    if ~aucun_mock
+      fprintf(fid, '%%\n%% ATTENTION : au moins une serie est SYNTHETIQUE (colonne Source).\n');
+    end
+    fprintf(fid, '\\begin{tabular}{@{}lS[table-format=6.2]S[table-format=6.1]S[table-format=1.4]rl@{}}\n');
+    fprintf(fid, '\\toprule\n');
+    fprintf(fid, 'Estimator & {Loop closure (\\si{\\meter})} & {Path length (\\si{\\meter})} & {Ratio} & {Samples} & Source \\\\\n');
+    fprintf(fid, '\\midrule\n');
+    for k = 1:numel(S)
+      if S(k).mock
+        src = '\textbf{[MOCK]} synthetic';
+      else
+        src = 'measured';
+      end
+      fprintf(fid, '%s & %.2f & %.1f & %.4f & %d & %s \\\\\n', ...
+              S(k).name, S(k).close, S(k).len, S(k).close / max(S(k).len, eps), ...
+              numel(S(k).d.t), src);
+    end
+    fprintf(fid, '\\bottomrule\n\\end{tabular}\n');
+    if ~isnan(recouv)
+      fprintf(fid, '\n%% Recouvrement temporel entre series : %.1f %%\n', recouv);
+    end
+    fclose(fid);
+    fprintf('  metriques LaTeX : %s\n', ftex);
+  end
+
+  % ---- JSON ----------------------------------------------------------------
+  m = struct();
+  m.generated = horod;
+  m.source_prefix = prefix;
+  m.temporal_overlap_pct = recouv;      % NaN si une seule serie
+  m.any_synthetic = ~aucun_mock;
+  serie = struct('name', {}, 'loop_closure_m', {}, 'path_length_m', {}, ...
+                 'divergence_ratio', {}, 'samples', {}, 'synthetic', {}, 'file', {});
+  for k = 1:numel(S)
+    serie(end+1) = struct( ...
+      'name',             S(k).name, ...
+      'loop_closure_m',   S(k).close, ...
+      'path_length_m',    S(k).len, ...
+      'divergence_ratio', S(k).close / max(S(k).len, eps), ...
+      'samples',          numel(S(k).d.t), ...
+      'synthetic',        logical(S(k).mock), ...
+      'file',             S(k).path); %#ok<AGROW>
+  end
+  m.estimators = serie;
+  fjson = fullfile(out_dir, 'metrics_summary.json');
+  fid = fopen(fjson, 'w');
+  if fid < 0
+    fprintf('  (export JSON impossible : %s non inscriptible)\n', fjson);
+  else
+    fprintf(fid, '%s\n', jsonencode(m, 'PrettyPrint', true));
+    fclose(fid);
+    fprintf('  metriques JSON  : %s\n', fjson);
+  end
+  if ~aucun_mock
+    fprintf(['  ATTENTION : au moins une serie est SYNTHETIQUE, marquee [MOCK]\n' ...
+             '              dans le tableau. Ne pas citer ces chiffres.\n']);
+  end
+  fprintf('\n');
+end
+
+
+function t = local_tex(str)
+% Echappe ce qui casserait une compilation LaTeX dans un commentaire de chemin.
+  t = strrep(str, '\', '/');
+  t = strrep(t, '_', '\_');
+  t = strrep(t, '%', '\%');
+  t = strrep(t, '#', '\#');
+  t = strrep(t, '&', '\&');
 end
 
 
