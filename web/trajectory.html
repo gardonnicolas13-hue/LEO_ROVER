@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,6 +8,7 @@
 <!-- Couche commune des commandes (rayon, lumière rasante, retour au clic).
      Chargée AVANT le <style> de la page : les règles propres au cockpit
      ci-dessous restent prioritaires à spécificité égale. -->
+<script src="i18n.js?v=r29"></script>
 <link rel="stylesheet" href="mission.css?v=m2" />
 <style>
   /* ── JPL Mission Control — charbon, gris spatial, orange NASA, cyan ─────── */
@@ -47,6 +48,25 @@
                  letter-spacing: .06em; white-space: nowrap; }
   header nav a:hover { color: var(--txt); }
   header nav a.on { color: var(--txt); }
+  /* Capitales imposees par le CSS et non plus par le texte lui-meme
+     (2026-08-18) : les libelles viennent desormais d'i18n.js, ou ils sont
+     ecrits en casse normale et partages avec les autres pages ("Home",
+     "Operations"). Sans cette regle, la barre passerait en casse mixte ici
+     alors qu'elle est en capitales sur toute la page. */
+  header nav a { text-transform: uppercase; }
+
+  /* Selecteur de langue : mission.css ne fournit que le rayon et la
+     transition de .lang-btn, pas les couleurs -- sur cette page sombre les
+     boutons seraient rendus dans le style brut du navigateur. */
+  .langsel { display: flex; align-items: center; gap: 2px; margin-left: 12px;
+             border: 1px solid var(--line); border-radius: 6px; padding: 2px; }
+  .langsel .lang-btn {
+    background: transparent; border: 0; cursor: pointer;
+    font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+    color: var(--dim); padding: 3px 7px;
+  }
+  .langsel .lang-btn:hover { color: var(--txt); background: rgba(255,255,255,.05); }
+  .langsel .lang-btn.active { color: var(--cyan); background: rgba(34,211,238,.10); }
   /* ── Grille principale : HUD | carte | HUD ───────────────────────────────── */
   main { display: grid; grid-template-columns: 220px 1fr 220px; min-height: 0; }
   .hud { border-right: 1px solid var(--line); padding: 12px; overflow-y: auto;
@@ -170,30 +190,38 @@
   <h1>LEO ROVER · TRAJECTORY</h1>
   <span class="sub" id="wsstate">CONNECTING</span>
   <nav>
-    <a href="index.html">HOME</a>
-    <a href="ops.html">OPERATIONS</a>
-    <a href="logbook.html">LOGBOOK</a>
-    <a href="robot_description.html">ROBOT</a>
-    <a href="navigation_modes.html">NAV MODES</a>
-    <a href="trajectory.html" class="on">TRAJECTORY</a>
-    <a href="pid.html">PID</a>
-    <a href="audit.html">AUDIT</a>
-    <a href="hector_response.html">DERIVATIONS</a>
+    <a href="index.html"><span data-i18n="nav_home">HOME</span></a>
+    <a href="ops.html"><span data-i18n="nav_ops">OPERATIONS</span></a>
+    <a href="logbook.html"><span data-i18n="nav_log">LOGBOOK</span></a>
+    <a href="robot_description.html"><span data-i18n="nav_robot">ROBOT</span></a>
+    <a href="navigation_modes.html"><span data-i18n="nav_navmodes">NAV MODES</span></a>
+    <a href="trajectory.html" class="on"><span data-i18n="nav_trajectory">TRAJECTORY</span></a>
+    <a href="pid.html"><span data-i18n="nav_pid">PID</span></a>
+    <a href="audit.html"><span data-i18n="nav_audit">AUDIT</span></a>
+    <a href="hector_response.html"><span data-i18n="nav_deriv">DERIVATIONS</span></a>
   </nav>
+  <!-- Selecteur de langue (2026-08-18) : cette page etait la SEULE du menu
+       principal sans i18n -- contenu fige en francais, bascule FR/EN sans
+       effet. Meme mecanisme que les autres pages : I18N.set() memorise le
+       choix et rejoue apply() sur tous les [data-i18n]. -->
+  <span class="langsel">
+    <button type="button" class="lang-btn" data-lang="fr" onclick="if(window.I18N)I18N.set('fr')">FR</button>
+    <button type="button" class="lang-btn" data-lang="en" onclick="if(window.I18N)I18N.set('en')">EN</button>
+  </span>
 </header>
 <main>
   <!-- ── HUD gauche : navigation ─────────────────────────────────────────── -->
   <div class="hud">
-    <div class="tile"><div class="k">Pose source</div>
+    <div class="tile"><div class="k"><span data-i18n="traj_pose_source">Pose source</span></div>
       <div class="v" id="hMode" style="letter-spacing:.1em">—</div></div>
     <div class="modes">
       <button class="vins" id="btnVins">VINS</button>
       <button class="mins" id="btnMins">MINS</button>
     </div>
-    <div class="tile"><div class="k">Position X</div><div class="v" id="hX">—</div><div class="u">m · repère odom</div></div>
-    <div class="tile"><div class="k">Position Y</div><div class="v" id="hY">—</div><div class="u">m</div></div>
-    <div class="tile"><div class="k">Cap</div><div class="v" id="hYaw">—</div><div class="u">deg</div></div>
-    <div class="tile"><div class="k">Nodes AprilTag</div><div class="v" id="hTags">0</div><div class="u">détections confirmées</div></div>
+    <div class="tile"><div class="k"><span data-i18n="traj_pos_x">Position X</span></div><div class="v" id="hX">—</div><div class="u"><span data-i18n="traj_odom_frame">m · repère odom</span></div></div>
+    <div class="tile"><div class="k"><span data-i18n="traj_pos_y">Position Y</span></div><div class="v" id="hY">—</div><div class="u">m</div></div>
+    <div class="tile"><div class="k"><span data-i18n="traj_heading">Cap</span></div><div class="v" id="hYaw">—</div><div class="u">deg</div></div>
+    <div class="tile"><div class="k"><span data-i18n="traj_apriltag_nodes">Nodes AprilTag</span></div><div class="v" id="hTags">0</div><div class="u"><span data-i18n="traj_confirmed_det">détections confirmées</span></div></div>
 
     <!-- ── Sélecteur de test (2026-07-27) ────────────────────────────────────
          Étiquette le run en cours ("test1"/"test2") ET démarre un
@@ -205,15 +233,15 @@
          local — si le backend redémarre, l'enregistrement (déjà détaché)
          continue et le badge le montre dès la reconnexion. -->
     <div class="tile">
-      <div class="k-row"><div class="k">Test actif</div>
+      <div class="k-row"><div class="k"><span data-i18n="traj_active_test">Test actif</span></div>
         <button class="info-btn" id="btnTestHelp" title="Comment ça marche ?">ⓘ</button></div>
       <div class="modes" style="margin-top:4px">
         <button class="mins active" id="btnTest1" title="Étiquette d'export : test1_*">TEST 1</button>
         <button class="vins" id="btnTest2" title="Étiquette d'export : test2_*">TEST 2</button>
       </div>
-      <div id="recBadge" style="margin-top:6px;font-size:11px;letter-spacing:.08em;color:var(--dim)">— pas d'enregistrement —</div>
+      <div id="recBadge" style="margin-top:6px;font-size:11px;letter-spacing:.08em;color:var(--dim)"><span data-i18n="traj_no_recording">— pas d'enregistrement —</span></div>
       <button id="btnTrajReset" style="margin-top:6px;width:100%;font-family:var(--mono);font-size:11px;letter-spacing:.08em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer"
-              title="Annule l'enregistrement en cours et repart à zéro pour le même test">↺ RESET (essai raté)</button>
+              title="Annule l'enregistrement en cours et repart à zéro pour le même test"><span data-i18n="traj_reset">↺ RESET (essai raté)</span></button>
       <!-- ── Repère visuel "point de départ" (2026-08-05) ──────────────────
            Purement local à cette page, aucune commande robot : capture la
            pose affichée à l'instant du clic et l'épingle sur le tracé
@@ -222,7 +250,7 @@
            confondre avec "MARQUER LE DÉPART" du panneau Calibration terrain
            plus bas, qui est un tout autre protocole (calib_terrain.py). -->
       <button id="btnStartMark" style="margin-top:6px;width:100%;font-family:var(--mono);font-size:11px;letter-spacing:.08em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer"
-              title="Épingle la position actuelle sur le tracé, pour voir si le tour y revient">📍 MARQUER ICI (repère tracé)</button>
+              title="Épingle la position actuelle sur le tracé, pour voir si le tour y revient"><span data-i18n="traj_mark_here">📍 MARQUER ICI (repère tracé)</span></button>
       <!-- ── Recentrage vue sur l'origine (2026-08-05) ─────────────────────
            Distinct du repère ci-dessus : ça ne marque rien, ça déplace la
            CAMÉRA de la carte pour recadrer sur (0,0) -- utile quand le
@@ -230,14 +258,14 @@
            un grand tour. Fige temporairement l'auto-suivi ; se relâche tout
            seul au prochain Test 1/Test 2/Reset pour ne pas rester bloqué. -->
       <button id="btnRecenter" style="margin-top:6px;width:100%;font-family:var(--mono);font-size:11px;letter-spacing:.08em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer"
-              title="Tare l'affichage sur la position actuelle (odom et base_link coïncident au clic ; un vrai décalage revient dès que le robot bouge)">🎯 RECENTRER SUR 0,0 (tare)</button>
+              title="Tare l'affichage sur la position actuelle (odom et base_link coïncident au clic ; un vrai décalage revient dès que le robot bouge)"><span data-i18n="traj_recenter">🎯 RECENTRER SUR 0,0 (tare)</span></button>
     </div>
     <!-- ── Export MATLAB (2026-07-27) ──────────────────────────────────────
          Bouton bien visible dans le panneau gauche de la vue Trajectory.
          Déclenche l'export backend (poses BRUTES MINS+VINS -> CSV + .mat)
          puis télécharge le .mat dès qu'il est écrit. -->
-    <button id="btnExport" class="exp">⬇ EXPORT TO MATLAB</button>
-    <button id="btnPlot" class="exp plot" style="display:none">▶ TRACER DANS MATLAB</button>
+    <button id="btnExport" class="exp"><span data-i18n="traj_export_matlab">⬇ EXPORT TO MATLAB</span></button>
+    <button id="btnPlot" class="exp plot" style="display:none"><span data-i18n="traj_plot_matlab">▶ TRACER DANS MATLAB</span></button>
     <!-- ── Calibration terrain (2026-07-29) ────────────────────────────────
          Confronte ce que le robot CROIT parcourir a ce qu'il parcourt
          REELLEMENT, mesure au ruban par l'operateur. Version web de
@@ -247,29 +275,27 @@
          POURQUOI : jusqu'ici on comparait les capteurs ENTRE EUX, or les
          roues patinent aussi — un desaccord ne dit pas qui se trompe. -->
     <div class="tile" id="calibTile">
-      <div class="k">Calibration terrain</div>
+      <div class="k"><span data-i18n="traj_field_calib">Calibration terrain</span></div>
       <div class="modes" style="margin-top:4px">
         <button class="mins" id="cbRotG" title="Echelle du gyroscope, sens gauche">90° G</button>
         <button class="mins" id="cbRotD" title="Echelle du gyroscope, sens droite">90° D</button>
         <button class="vins" id="cbDro"  title="Echelle en translation">1 m</button>
       </div>
       <div id="cbState" style="margin-top:6px;font-size:11px;letter-spacing:.06em;color:var(--dim)">—</div>
-      <button id="cbAction" style="margin-top:6px;width:100%;font-family:var(--mono);font-size:13px;letter-spacing:.08em;padding:12px 0;background:var(--accent,#3fdc97);color:#04140d;border:0;border-radius:3px;cursor:pointer;font-weight:700">MARQUER LE DÉPART</button>
+      <button id="cbAction" style="margin-top:6px;width:100%;font-family:var(--mono);font-size:13px;letter-spacing:.08em;padding:12px 0;background:var(--accent,#3fdc97);color:#04140d;border:0;border-radius:3px;cursor:pointer;font-weight:700"><span data-i18n="traj_mark_start">MARQUER LE DÉPART</span></button>
       <div id="cbPreview" style="margin-top:6px;font-size:11px;font-family:var(--mono);color:var(--dim);white-space:pre-line"></div>
       <div id="cbInputRow" style="display:none;margin-top:6px;gap:4px">
-        <div style="font-size:10px;line-height:1.4;color:#ffb454;margin-bottom:4px">
-          Allez mesurer MAINTENANT. L'instant d'arrivée est figé — prenez le temps.
-        </div>
+        <div style="font-size:10px;line-height:1.4;color:#ffb454;margin-bottom:4px"><span data-i18n="traj_measure_now">Allez mesurer MAINTENANT. L'instant d'arrivée est figé — prenez le temps.</span></div>
         <input id="cbValue" type="number" step="0.1" inputmode="decimal"
                style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:16px;padding:10px;background:#0b0f0d;color:#e8f5ef;border:1px solid var(--line);border-radius:3px"
                placeholder="mesure réelle">
-        <button id="cbSubmit" style="margin-top:4px;width:100%;font-family:var(--mono);font-size:13px;letter-spacing:.08em;padding:10px 0;background:#3fdc97;color:#04140d;border:0;border-radius:3px;cursor:pointer;font-weight:700">VALIDER LA PASSE</button>
+        <button id="cbSubmit" style="margin-top:4px;width:100%;font-family:var(--mono);font-size:13px;letter-spacing:.08em;padding:10px 0;background:#3fdc97;color:#04140d;border:0;border-radius:3px;cursor:pointer;font-weight:700"><span data-i18n="traj_validate_pass">VALIDER LA PASSE</span></button>
       </div>
       <div id="cbRefus" style="display:none;margin-top:6px;font-size:11px;line-height:1.4;color:#ff6b6b;border-left:2px solid #ff6b6b;padding-left:6px"></div>
       <div id="cbResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-line;line-height:1.5"></div>
       <div style="margin-top:6px;display:flex;gap:4px">
-        <button id="cbUndo"  style="flex:1;font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer">↶ passe</button>
-        <button id="cbReset" style="flex:1;font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer">↺ tout</button>
+        <button id="cbUndo"  style="flex:1;font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer"><span data-i18n="traj_undo_pass">↶ passe</span></button>
+        <button id="cbReset" style="flex:1;font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer"><span data-i18n="traj_undo_all">↺ tout</span></button>
       </div>
     </div>
     <!-- Retour visuel de l'export (2026-07-29, retour opérateur « le bouton
@@ -279,7 +305,7 @@
     <div id="expNotice" style="display:none;margin-top:6px;font-size:11px;line-height:1.45;
                                padding:6px 8px;border-radius:3px;border-left:3px solid var(--dim)"></div>
     <div class="tile" id="expTile" style="display:none">
-      <div class="k">Buffer poses</div>
+      <div class="k"><span data-i18n="traj_pose_buffer">Buffer poses</span></div>
       <div class="v" id="hBuf" style="font-size:13px">MINS — · VINS —</div>
       <div class="u" id="hExp">—</div>
     </div>
@@ -299,12 +325,12 @@
   </div>
   <!-- ── HUD droit : télémétrie ──────────────────────────────────────────── -->
   <div class="hud right">
-    <div class="tile"><div class="k">Vitesse lin.</div><div class="v" id="hVlin">—</div><div class="u">m/s</div></div>
-    <div class="tile"><div class="k">Vitesse ang.</div><div class="v" id="hVang">—</div><div class="u">rad/s</div></div>
-    <div class="tile"><div class="k">Cadence pose</div><div class="v" id="hHz">—</div>
+    <div class="tile"><div class="k"><span data-i18n="traj_lin_speed">Vitesse lin.</span></div><div class="v" id="hVlin">—</div><div class="u">m/s</div></div>
+    <div class="tile"><div class="k"><span data-i18n="traj_ang_speed">Vitesse ang.</span></div><div class="v" id="hVang">—</div><div class="u">rad/s</div></div>
+    <div class="tile"><div class="k"><span data-i18n="traj_pose_rate">Cadence pose</span></div><div class="v" id="hHz">—</div>
       <div class="u" id="hGap">Hz</div></div>
-    <div class="tile"><div class="k">Signal WS</div><div class="v" id="hPing">—</div><div class="u">ms aller-retour</div></div>
-    <div class="tile"><div class="k">Points trail</div><div class="v" id="hPts">0</div><div class="u">fenêtre 3000</div></div>
+    <div class="tile"><div class="k"><span data-i18n="traj_ws_signal">Signal WS</span></div><div class="v" id="hPing">—</div><div class="u"><span data-i18n="traj_ms_rtt">ms aller-retour</span></div></div>
+    <div class="tile"><div class="k"><span data-i18n="traj_trail_points">Points trail</span></div><div class="v" id="hPts">0</div><div class="u"><span data-i18n="traj_window_3000">fenêtre 3000</span></div></div>
   </div>
 </main>
 
@@ -317,61 +343,54 @@
      suivre. -->
 <div id="helpBackdrop">
   <div id="helpPanel">
-    <button class="close" id="btnHelpClose">✕ FERMER</button>
-    <h3>COMMENT MARCHE TEST 1 / TEST 2</h3>
+    <button class="close" id="btnHelpClose"><span data-i18n="traj_close">✕ FERMER</span></button>
+    <h3><span data-i18n="traj_help_title">COMMENT MARCHE TEST 1 / TEST 2</span></h3>
 
-    <h4>Le mécanisme</h4>
-    <p>Cliquer <b>TEST 1</b> ou <b>TEST 2</b> fait deux choses en même temps :
-      ça étiquette la prochaine prise, et ça démarre un enregistrement
-      <code>rosbag</code> lancé <b>détaché</b> du navigateur, côté PC. Ce
+    <h4><span data-i18n="traj_mech">Le mécanisme</span></h4>
+    <p><span data-i18n="traj_clicking">Cliquer</span><b>TEST 1</b> ou <b>TEST 2</b><span data-i18n="traj_does_two">fait deux choses en même temps :
+      ça étiquette la prochaine prise, et ça démarre un enregistrement</span><code>rosbag</code><span data-i18n="traj_launched">lancé</span><b><span data-i18n="traj_detached">détaché</span></b><span data-i18n="traj_detach_why">du navigateur, côté PC. Ce
       détachement est le point important : le buffer de trajectoire du site
       est perdu à chaque redémarrage du backend (ça arrive : surchauffe,
       chien de garde, estimateur qui plante) — l'enregistrement détaché, lui,
-      continue d'écrire sur disque même si le site se coupe.</p>
-    <p><b>MINS et openVINS sont TOUJOURS capturés ensemble</b>, quel que soit
+      continue d'écrire sur disque même si le site se coupe.</span></p>
+    <p><b><span data-i18n="traj_both_always">MINS et openVINS sont TOUJOURS capturés ensemble</span></b><span data-i18n="traj_both_why">, quel que soit
       le bouton actif à l'écran. Le choix Test&nbsp;1/Test&nbsp;2 ne change
       que le préfixe des fichiers à l'export, jamais ce qui est enregistré.
       Si un enregistrement est en cours et que tu cliques sur l'autre test, le
       site demande confirmation, termine et sauvegarde le premier, puis
-      démarre le second.</p>
+      démarre le second.</span></p>
 
-    <h4>Export vers MATLAB</h4>
-    <p>Le bouton <b>EXPORT TO MATLAB</b> écrit
-      <code>web/exports/test1_mins.csv</code>, <code>test1_vins.csv</code> et
-      <code>test1.mat</code> (idem pour Test 2), et si MATLAB tourne sur le
-      PC, ouvre automatiquement le tracé MINS-vs-openVINS de <i>ce</i> tour.
+    <h4><span data-i18n="traj_export_title">Export vers MATLAB</span></h4>
+    <p><span data-i18n="traj_the_button">Le bouton</span><b>EXPORT TO MATLAB</b><span data-i18n="traj_writes">écrit</span><code>web/exports/test1_mins.csv</code>, <code>test1_vins.csv</code> et
+      <code>test1.mat</code><span data-i18n="traj_export_tail">(idem pour Test 2), et si MATLAB tourne sur le
+      PC, ouvre automatiquement le tracé MINS-vs-openVINS de</span><i>ce</i><span data-i18n="traj_export_tail2">tour.
       Refaire un export sous la même étiquette écrase le précédent : refaire
-      un essai raté remplace, ça n'accumule pas de variantes.</p>
+      un essai raté remplace, ça n'accumule pas de variantes.</span></p>
 
-    <h4>Le protocole "rectangle mesuré"</h4>
-    <p>Pour comparer les deux estimateurs à une vraie mesure au ruban, pas
-      seulement entre eux :</p>
+    <h4><span data-i18n="traj_rect_title">Le protocole "rectangle mesuré"</span></h4>
+    <p><span data-i18n="traj_rect_intro">Pour comparer les deux estimateurs à une vraie mesure au ruban, pas
+      seulement entre eux :</span></p>
     <ol>
-      <li>Marquer un rectangle au sol (ruban), dimensions mesurées, pas à
-        l'œil.</li>
-      <li><b>TEST 1</b> → faire le tour du rectangle → <b>EXPORT</b>. (la
-        trace MINS de ce tour sera celle qu'on retient)</li>
-      <li><b>TEST 2</b> → un second tour, indépendant → <b>EXPORT</b>. (la
-        trace openVINS de celui-là sera retenue)</li>
-      <li>Depuis un terminal sur le PC — aucun bouton du site ne fait encore
-        ça :
-        <ul>
-          <li><code>compare_tests('web/exports/test1', 'web/exports/test2')</code>
-            — accord entre les deux tours (déjà existant)</li>
-          <li><code>plot_rectangle_test('web/exports/test1', L, l, 'mins')</code>
-            — écart en % contre les dimensions mesurées (nouveau)</li>
+      <li><span data-i18n="traj_rect_step1">Marquer un rectangle au sol (ruban), dimensions mesurées, pas à
+        l'œil.</span></li>
+      <li><b>TEST 1</b><span data-i18n="traj_rect_lap">→ faire le tour du rectangle →</span><b>EXPORT</b><span data-i18n="traj_rect_mins">. (la
+        trace MINS de ce tour sera celle qu'on retient)</span></li>
+      <li><b>TEST 2</b><span data-i18n="traj_rect_lap2">→ un second tour, indépendant →</span><b>EXPORT</b><span data-i18n="traj_rect_vins">. (la
+        trace openVINS de celui-là sera retenue)</span></li>
+      <li><span data-i18n="traj_terminal">Depuis un terminal sur le PC — aucun bouton du site ne fait encore
+        ça :</span><ul>
+          <li><code>compare_tests('web/exports/test1', 'web/exports/test2')</code><span data-i18n="traj_cmp_desc">— accord entre les deux tours (déjà existant)</span></li>
+          <li><code>plot_rectangle_test('web/exports/test1', L, l, 'mins')</code><span data-i18n="traj_rect_desc">— écart en % contre les dimensions mesurées (nouveau)</span></li>
         </ul>
       </li>
     </ol>
 
-    <p class="dim">Explications complètes, avec les commandes exactes et le
-      pourquoi de chaque choix :</p>
+    <p class="dim"><span data-i18n="traj_full_expl">Explications complètes, avec les commandes exactes et le
+      pourquoi de chaque choix :</span></p>
     <a class="rlink" target="_blank" rel="noopener"
-       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787092393#page=450">
-      → Rapport, Annexe D : protocole complet (p.448 imprimée)</a><br>
+       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787101418#page=450"><span data-i18n="traj_link_appd">→ Rapport, Annexe D : protocole complet (p.448 imprimée)</span></a><br>
     <a class="rlink" target="_blank" rel="noopener"
-       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787092393#page=261">
-      → Rapport, §12.12.7 : un vrai exemple chiffré, déjà fait le 29/07 (p.259 imprimée)</a>
+       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787101418#page=261"><span data-i18n="traj_link_1212">→ Rapport, §12.12.7 : un vrai exemple chiffré, déjà fait le 29/07 (p.259 imprimée)</span></a>
   </div>
 </div>
 
@@ -1185,5 +1204,9 @@
   requestAnimationFrame(draw);
 })();
 </script>
+<!-- Application des traductions APRES le script de la page : i18n.js
+     n'applique rien tout seul (il n'expose que window.I18N), et le DOM
+     doit etre complet quand apply() balaie les [data-i18n]. -->
+<script>if (window.I18N) I18N.apply();</script>
 </body>
 </html>

@@ -4079,6 +4079,21 @@ reclaiming $230$\,MB from \code{carolus\_detect.log}.
 \item \code{ps -o etime= -p \$(pgrep -f run\_subscribe\_msckf)}, openVINS
   older than the intended run duration, i.e.\ it has not respawned.
 \item Battery on mains, or voltage noted; yaw performance depends on it.
+\item \textbf{Clock offset between the two machines}, if the robot has been
+  running on its own access point. Measured August 18: the robot ran
+  $+0.16$\,s ahead of the workstation and \code{NTPSynchronized} was
+  \code{no} --- on the fallback AP it reaches no time server, and this Pi has
+  no RTC. The drift was measured over $16.7$\,min at $+12.3$\,ms
+  ($\sigma=4.4$\,ms, so significant), i.e.\ $\approx\!+1$\,s per day. Nothing
+  was broken by it at that magnitude --- TF resolved $20/20$ across the
+  PC/robot boundary and no extrapolation warning appears in any log --- but
+  it accumulates for as long as the robot stays off the campus network, and
+  it clears itself the moment \code{wlan\_int} rejoins it. Check it without
+  SSH round-trip noise by reading the age of a robot-stamped message from the
+  workstation:
+\begin{lstlisting}[language=bash]
+rostopic echo -n1 /firmware/wheel_states   # comparer stamp et date du PC
+\end{lstlisting}
 \end{enumerate}
 
 \noindent If any of these fails, the data you are about to record will not
