@@ -40,6 +40,12 @@ except ImportError:
 TOPIC_MAP = {
     "/mins/imu/odom":              ("mins",    "odom"),
     "/ov_msckf/odomimu":           ("vins",    "odom"),
+    # AJOUTE le 2026-08-18. Produit <base>_srv.csv, meme format que les deux
+    # autres, pour que compare_tests.m puisse aligner les trois series. Un bag
+    # anterieur ne contient pas ce topic : le writer etant ouvert
+    # PARESSEUSEMENT (voir _writer_for plus bas), aucun fichier vide n'est cree
+    # et la relecture des anciens bags reste inchangee.
+    "/ov_srvins/odomimu":          ("srv",     "odom"),
     "/robot_pose_fused":           ("fused",   "odom"),
     # /pose = sortie REELLE de carolus_astrobee (carolus_astrobee.cpp:362,
     # geometry_msgs/PoseStamped). C'est aussi le topic nomme explicitement par

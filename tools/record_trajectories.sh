@@ -42,6 +42,16 @@ BAG="$OUTDIR/${BASENAME}_${STAMP}"
 TOPICS=(
   /mins/imu/odom                 # MINS   (nav_msgs/Odometry)
   /ov_msckf/odomimu              # VINS   (nav_msgs/Odometry)
+  # AJOUTE le 2026-08-18 — troisieme estimateur, et correction d'une erreur
+  # d'analyse. L'essai du 13/08 n'a produit aucune trace sqrtVINS, et le
+  # rapport l'expliquait par « le topic n'a jamais atteint le processus rosbag
+  # du PC malgre une publication locale confirmee sur le Pi ». La relecture du
+  # bag ce jour (rosbag info) dit autre chose : il ne contient QUE cinq topics,
+  # et /ov_srvins/odomimu n'y figure pas du tout — pas « present mais vide »,
+  # jamais demande. La cause n'etait donc pas reseau : ce script ne
+  # l'enregistrait simplement pas. Sans cette ligne, aucune analyse MATLAB a
+  # trois estimateurs n'est possible.
+  /ov_srvins/odomimu             # sqrtVINS (nav_msgs/Odometry), tourne SUR le Pi
   /robot_pose_fused              # source active servie (nav_msgs/Odometry)
   /leo_navigation/pose_source    # "VINS"|"MINS" au fil du temps (std_msgs/String)
   /pose                          # fix balise CAROLUS (geometry_msgs/PoseStamped)
@@ -58,13 +68,19 @@ TOPICS=(
 # ── Vérif de présence des estimateurs (avertissement, pas blocage) ───────────
 echo ""
 echo "  [record_trajectories] cible : $BAG.bag"
-for t in /mins/imu/odom /ov_msckf/odomimu; do
+for t in /mins/imu/odom /ov_msckf/odomimu /ov_srvins/odomimu; do
   if timeout -k 3 6 rostopic info "$t" >/dev/null 2>&1; then
     echo "    ✓ $t publié"
   else
     echo "    ⚠ $t ABSENT — la trace correspondante sera vide dans le bag"
     [ "$t" = /ov_msckf/odomimu ] && \
       echo "      (VINS : conduis quelques secondes pour l'initialiser, puis relance)"
+    # sqrtVINS ne fait PAS partie de la pile lancée par le PC : il tourne sur le
+    # Pi, à la demande. Son absence est donc le cas NORMAL, pas une anomalie —
+    # le message le dit, sinon l'avertissement ci-dessus inquiète pour rien.
+    [ "$t" = /ov_srvins/odomimu ] && \
+      echo "      (sqrtVINS : normal s'il n'a pas été lancé — il vit sur le Pi," && \
+      echo "       pas dans la pile PC. Le bag restera à deux estimateurs.)"
   fi
 done
 

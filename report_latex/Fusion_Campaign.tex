@@ -7721,11 +7721,23 @@ $\sqrt{\text{VINS}}$ (Pi, cam+IMU) & (diverged before capture$^\ast$) & $x,y,z$ 
 \bottomrule
 \end{tabular}
 \end{table}
-\noindent $^\ast$\code{/ov\_srvins/odomimu} never reached the PC-side
+\noindent $^\ast$\textbf{Correction, 2026-08-18.} This footnote previously
+read that \code{/ov\_srvins/odomimu} ``never reached the PC-side
 \code{rosbag record} process despite confirmed local publication on the
-Pi at the time recording started; the divergence is instead reconstructed
-directly from $\sqrt{\text{VINS}}$'s own node log, timestamped and
-un-editable after the fact.
+Pi'' --- an explanation formed during the session and never checked
+afterwards. Re-reading the bag settles it: \code{rosbag info} lists
+\emph{five} topics, and that one is not among them. Not recorded-and-empty,
+\textbf{never requested}. \code{tools/record\_trajectories.sh} simply did
+not carry \code{/ov\_srvins/odomimu} in its topic list, so no network
+explanation was ever needed. The line is added, with a preflight check that
+treats its absence as normal rather than alarming, since \code{sqrtVINS}
+runs on the Pi on demand and not as part of the PC stack. The divergence
+figures quoted above remain reconstructed from
+$\sqrt{\text{VINS}}$'s own node log, timestamped and un-editable after the
+fact --- that part was never in doubt. This is the third time in this
+campaign that an explanation given live proved wrong on re-reading; the
+lesson is recorded in \S\ref{ap:repro-checklist}'s neighbourhood and holds
+here too.
 
 $\sqrt{\text{VINS}}$'s own log lets the divergence be dated precisely
 against distance travelled, not just against a final number:
