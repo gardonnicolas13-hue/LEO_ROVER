@@ -1,15 +1,17 @@
 % GENERE AUTOMATIQUEMENT par tools/compare_estimators.m — NE PAS EDITER.
 % Toute modification sera ecrasee au prochain lancement.
 % Source  : data/trajectories/sqrtvins\_compare\_20260813\_175957
-% Genere  : 2026-08-18 22:17:44
+% Genere  : 2026-08-18 22:39:34
 % Requiert booktabs et siunitx dans le preambule.
-\begin{tabular}{@{}lS[table-format=6.2]S[table-format=6.1]S[table-format=1.4]rl@{}}
+\begin{tabular}{@{}lS[table-format=6.2]S[table-format=6.1]S[table-format=1.4]S[table-format=+1.2]S[table-format=1.3]rl@{}}
 \toprule
-Estimator & {Loop closure (\si{\meter})} & {Path length (\si{\meter})} & {Ratio} & {Samples} & Source \\
+Estimator & {Loop closure (\si{\meter})} & {Path length (\si{\meter})} & {Ratio} & {$n$} & {$R^2$} & {Samples} & Source \\
 \midrule
-MINS & 1.02 & 65.3 & 0.0157 & 32802 & measured \\
-openVINS & 541.68 & 10937.9 & 0.0495 & 31889 & measured \\
+MINS & 1.02 & 65.3 & 0.0157 & -0.01 & 0.000 & 32802 & measured \\
+openVINS & 541.68 & 10937.9 & 0.0495 & 3.25 & 0.850 & 31889 & measured \\
 \bottomrule
 \end{tabular}
 
 % Recouvrement temporel entre series : 100.0 %
+% n = exposant de d(t) ~ t^n (log-log). n~2 accelerometre, n~3 biais gyro constant, n>=4 biais qui derive.
+% Calcule par tools/drift_exponent.py. R2 faible => ajustement peu fiable.

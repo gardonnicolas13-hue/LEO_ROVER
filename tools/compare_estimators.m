@@ -203,7 +203,13 @@ function compare_estimators(prefix, out_dir)
   fprintf('\n  figure : %s\n', out);
 
   % Export des métriques : la figure se regarde, le tableau se cite.
-  local_export(S, prefix, recouv, out_dir);
+  % Exposants de dérive : calculés par tools/drift_exponent.py, PAS ici. Le
+  % même calcul écrit deux fois divergerait tôt ou tard ; on invoque donc
+  % l'outil qui fait autorité et on lit son JSON. S'il est indisponible (pas
+  % de python3, script absent), l'export se fait SANS ces colonnes plutôt que
+  % d'échouer : la chaîne doit rester modulaire.
+  expo = local_exponents(prefix);
+  local_export(S, prefix, recouv, out_dir, expo);
 end
 
 
@@ -228,7 +234,46 @@ function tf = local_is_mock(path)
 end
 
 
-function local_export(S, prefix, recouv, out_dir)
+function expo = local_exponents(prefix)
+% Invoque tools/drift_exponent.py et lit son JSON. Renvoie une struct indexee
+% par nom d'estimateur, ou une struct vide si l'outil n'a pas pu tourner.
+%
+% Pourquoi passer par le script Python plutot que de refaire l'ajustement ici :
+% ce calcul existe deja, teste et valide contre les valeurs trouvees a la main.
+% Le reecrire en MATLAB creerait une seconde implementation qui divergerait de
+% la premiere sans que personne ne s'en apercoive -- exactement le defaut
+% corrige le 2026-08-18 sur les tests des gardes gyro.
+  expo = struct();
+  ici = fileparts(mfilename('fullpath'));
+  script = fullfile(ici, 'drift_exponent.py');
+  if exist(script, 'file') ~= 2
+    fprintf('  (exposants ignores : %s introuvable)\n', script);
+    return;
+  end
+  tmp = [tempname '.json'];
+  cmd = sprintf('python3 "%s" "%s" --json "%s"', script, prefix, tmp);
+  [st, out] = system(cmd);
+  if st ~= 0
+    fprintf('  (exposants ignores : drift_exponent.py a echoue)\n');
+    if ~isempty(out); fprintf('    %s\n', strtrim(out)); end
+    return;
+  end
+  if exist(tmp, 'file') ~= 2
+    fprintf('  (exposants ignores : aucun JSON produit)\n');
+    return;
+  end
+  try
+    txt = fileread(tmp);
+    d = jsondecode(txt);
+    if isfield(d, 'estimators'); expo = d.estimators; end
+  catch e
+    fprintf('  (exposants ignores : JSON illisible — %s)\n', e.message);
+  end
+  delete(tmp);
+end
+
+
+function local_export(S, prefix, recouv, out_dir, expo)
 % Ecrit les metriques dans deux formats, a cote de la figure :
 %   report_metrics.tex    tableau booktabs, \input-able depuis le rapport
 %   metrics_summary.json  memes chiffres, pour tout autre consommateur
@@ -257,9 +302,10 @@ function local_export(S, prefix, recouv, out_dir)
     if ~aucun_mock
       fprintf(fid, '%%\n%% ATTENTION : au moins une serie est SYNTHETIQUE (colonne Source).\n');
     end
-    fprintf(fid, '\\begin{tabular}{@{}lS[table-format=6.2]S[table-format=6.1]S[table-format=1.4]rl@{}}\n');
+    fprintf(fid, '\\begin{tabular}{@{}lS[table-format=6.2]S[table-format=6.1]S[table-format=1.4]S[table-format=+1.2]S[table-format=1.3]rl@{}}\n');
     fprintf(fid, '\\toprule\n');
-    fprintf(fid, 'Estimator & {Loop closure (\\si{\\meter})} & {Path length (\\si{\\meter})} & {Ratio} & {Samples} & Source \\\\\n');
+    fprintf(fid, ['Estimator & {Loop closure (\\si{\\meter})} & {Path length (\\si{\\meter})} & ' ...
+                  '{Ratio} & {$n$} & {$R^2$} & {Samples} & Source \\\\\n']);
     fprintf(fid, '\\midrule\n');
     for k = 1:numel(S)
       if S(k).mock
@@ -267,14 +313,20 @@ function local_export(S, prefix, recouv, out_dir)
       else
         src = 'measured';
       end
-      fprintf(fid, '%s & %.2f & %.1f & %.4f & %d & %s \\\\\n', ...
+      % n et R2 : {} quand l'exposant est indisponible — une cellule vide dit
+      % « pas mesure », un 0 dirait « mesure a zero ». siunitx accepte {}.
+      [ntxt, r2txt] = local_expo_txt(expo, S(k).name);
+      fprintf(fid, '%s & %.2f & %.1f & %.4f & %s & %s & %d & %s \\\\\n', ...
               S(k).name, S(k).close, S(k).len, S(k).close / max(S(k).len, eps), ...
-              numel(S(k).d.t), src);
+              ntxt, r2txt, numel(S(k).d.t), src);
     end
     fprintf(fid, '\\bottomrule\n\\end{tabular}\n');
     if ~isnan(recouv)
       fprintf(fid, '\n%% Recouvrement temporel entre series : %.1f %%\n', recouv);
     end
+    fprintf(fid, ['%% n = exposant de d(t) ~ t^n (log-log). n~2 accelerometre, '...
+                  'n~3 biais gyro constant, n>=4 biais qui derive.\n']);
+    fprintf(fid, '%% Calcule par tools/drift_exponent.py. R2 faible => ajustement peu fiable.\n');
     fclose(fid);
     fprintf('  metriques LaTeX : %s\n', ftex);
   end
@@ -286,7 +338,8 @@ function local_export(S, prefix, recouv, out_dir)
   m.temporal_overlap_pct = recouv;      % NaN si une seule serie
   m.any_synthetic = ~aucun_mock;
   serie = struct('name', {}, 'loop_closure_m', {}, 'path_length_m', {}, ...
-                 'divergence_ratio', {}, 'samples', {}, 'synthetic', {}, 'file', {});
+                 'divergence_ratio', {}, 'samples', {}, 'synthetic', {}, ...
+                 'drift_exponent', {}, 'drift_r_squared', {}, 'file', {});
   for k = 1:numel(S)
     serie(end+1) = struct( ...
       'name',             S(k).name, ...
@@ -295,6 +348,8 @@ function local_export(S, prefix, recouv, out_dir)
       'divergence_ratio', S(k).close / max(S(k).len, eps), ...
       'samples',          numel(S(k).d.t), ...
       'synthetic',        logical(S(k).mock), ...
+      'drift_exponent',   local_expo_val(expo, S(k).name, 'exponent'), ...
+      'drift_r_squared',  local_expo_val(expo, S(k).name, 'r_squared'), ...
       'file',             S(k).path); %#ok<AGROW>
   end
   m.estimators = serie;
@@ -312,6 +367,33 @@ function local_export(S, prefix, recouv, out_dir)
              '              dans le tableau. Ne pas citer ces chiffres.\n']);
   end
   fprintf('\n');
+end
+
+
+function [ntxt, r2txt] = local_expo_txt(expo, nom)
+% Cellules LaTeX pour n et R2. Renvoie '{}' -- cellule VIDE au sens siunitx --
+% quand l'exposant n'a pas pu etre calcule. Ecrire 0 a la place dirait
+% « mesure a zero », ce qui est faux et trompeur ; vide dit « pas mesure ».
+  ntxt = '{}'; r2txt = '{}';
+  cle = matlab.lang.makeValidName(nom);
+  if isstruct(expo) && isfield(expo, cle)
+    e = expo.(cle);
+    if isfield(e, 'exponent');  ntxt  = sprintf('%.2f', e.exponent);  end
+    if isfield(e, 'r_squared'); r2txt = sprintf('%.3f', e.r_squared); end
+  end
+end
+
+
+function v = local_expo_val(expo, nom, champ)
+% Valeur numerique pour le JSON, NaN si indisponible. NaN et non 0, meme
+% raison que ci-dessus : l'absence de mesure doit rester distinguable d'une
+% mesure nulle une fois le fichier relu par un tiers.
+  v = NaN;
+  cle = matlab.lang.makeValidName(nom);
+  if isstruct(expo) && isfield(expo, cle)
+    e = expo.(cle);
+    if isfield(e, champ); v = e.(champ); end
+  end
 end
 
 

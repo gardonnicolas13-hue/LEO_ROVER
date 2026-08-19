@@ -33,8 +33,16 @@ SEGMENTATION
 ENTRÉE
     <chemin>.bag        lit directement les topics d'odométrie du bag
     <préfixe>           lit <préfixe>_mins.csv / _vins.csv / _srv.csv
+
+SORTIE MACHINE
+    --json <fichier>    écrit les exposants au format JSON. C'est par là que
+                        compare_estimators.m les récupère pour les joindre à
+                        son tableau : le calcul reste ici, en un seul
+                        exemplaire, plutôt que d'être réécrit en MATLAB où il
+                        divergerait tôt ou tard de cette version.
 """
 import csv
+import json
 import math
 import os
 import sys
@@ -143,6 +151,15 @@ def main():
     est_bag = arg.endswith('.bag')
     print("\n=== drift_exponent — %s ===" % arg)
     print("  d(t) ~ t^n, ajuste en log-log\n")
+    sortie_json = None
+    if '--json' in sys.argv:
+        i = sys.argv.index('--json')
+        if i + 1 >= len(sys.argv):
+            print("  --json exige un chemin de fichier")
+            return 2
+        sortie_json = sys.argv[i + 1]
+    resultats = {}
+
     vu = 0
     for nom, suf, topic in SERIES:
         pts = depuis_bag(arg, topic) if est_bag else depuis_csv(arg, suf)
@@ -164,9 +181,32 @@ def main():
             print("      segment %d : %5.1f s, d_final %9.1f m,  n = %.2f"
                   "  R2 = %.3f%s" % (i, duree, dfin, pente, r2, fiab))
             print("                  %s" % interprete(pente))
+            resultats.setdefault(nom, []).append(
+                {'segment': i, 'duration_s': duree, 'final_distance_m': dfin,
+                 'exponent': pente, 'r_squared': r2, 'fit_points': npts,
+                 'interpretation': interprete(pente)})
     if not vu:
         print("  aucune serie lue — verifier le chemin")
         return 1
+
+    if sortie_json:
+        # Le segment RETENU est le plus long : c'est celui qui porte le plus
+        # d'information sur la derive. Les autres restent disponibles dans
+        # `segments`, pour qu'un segment court et bruite ne devienne jamais LE
+        # chiffre cite sans qu'on puisse le verifier.
+        resume = {}
+        for nom, segs in resultats.items():
+            principal = max(segs, key=lambda x: x['duration_s'])
+            resume[nom] = {'exponent': principal['exponent'],
+                           'r_squared': principal['r_squared'],
+                           'segment_used': principal['segment'],
+                           'n_segments': len(segs),
+                           'interpretation': principal['interpretation'],
+                           'segments': segs}
+        with open(sortie_json, 'w', encoding='utf8') as fh:
+            json.dump({'source': arg, 'estimators': resume}, fh,
+                      indent=2, ensure_ascii=False)
+        print("  exposants JSON : %s" % sortie_json)
     print()
     return 0
 
