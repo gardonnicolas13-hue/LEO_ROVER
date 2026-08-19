@@ -1,4 +1,19 @@
 <launch>
+
+  <!-- ── Recalibration periodique du biais gyro (2026-08-18) ──────────────────
+       Exposes en <arg> et non figes en <param> pour qu'un essai se lance SANS
+       toucher au code :
+         roslaunch leo_navigation navigation_master.launch gyro_recal_period:=60
+       navigation_master.launch relaie ces trois arguments ; sans ce relais ils
+       seraient inatteignables depuis la commande reellement utilisee.
+       Defaut 0.0 = DESACTIVE. Ce chemin alimente les DEUX estimateurs et le
+       pilotage, et le mecanisme n'a jamais tourne sur le robot : il s'active
+       pour un essai supervise, pas par defaut. Voir l'en-tete de
+       imu_sanitizer.py pour la mesure qui le motive (derive en t^3/t^4). -->
+  <arg name="gyro_recal_period"    default="0.0"/>
+  <arg name="gyro_recal_max_delta" default="0.02"/>
+  <arg name="wheel_still_time"     default="3.0"/>
+
   <!-- LEO Rover — supervision layer: the 5 PC-side scripts that must
        self-heal without tearing down the rest of the stack. respawn="true"
        on all of them, deliberately WITHOUT required="true" — required would
@@ -87,6 +102,11 @@
          d'échelle et biais d'axe -> calibration 6 positions à faire pour
          valider. Mettre 1.0 pour désactiver. -->
     <param name="accel_scale" value="1.1186"/>
+    <!-- Relayes depuis les <arg> ci-dessus : modifiables en ligne de
+         commande, jamais a editer ici pour un essai. -->
+    <param name="gyro_recal_period"    value="$(arg gyro_recal_period)"/>
+    <param name="gyro_recal_max_delta" value="$(arg gyro_recal_max_delta)"/>
+    <param name="wheel_still_time"     value="$(arg wheel_still_time)"/>
   </node>
 
   <node name="carolus_vicon_bridge" pkg="leo_navigation" type="carolus_vicon_bridge.py"

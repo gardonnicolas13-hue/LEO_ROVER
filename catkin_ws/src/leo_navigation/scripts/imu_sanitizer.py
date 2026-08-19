@@ -141,6 +141,40 @@ from sensor_msgs.msg import Imu as SensorImu
 from std_srvs.srv import Trigger
 
 
+
+def evaluer_recal(means, stds, bias_actuel, immobile_depuis,
+                  max_std, max_delta, still_time):
+    """Décide si un biais gyro fraîchement mesuré doit remplacer l'actuel.
+
+    Fonction PURE : pas de ROS, pas d'état, pas d'horloge. Elle existe pour
+    que le nœud ET les tests exercent EXACTEMENT le même code. Un test qui
+    réimplémenterait ces règles ne prouverait rien : il vérifierait sa propre
+    copie, et une divergence entre les deux passerait inaperçue.
+
+    Renvoie (accepte, motif) — motif toujours renseigné, y compris en cas
+    d'acceptation, pour que le journal dise pourquoi et pas seulement quoi.
+
+    L'ordre des gardes n'est pas indifférent : on écarte d'abord ce qui est le
+    moins coûteux à établir (le robot bougeait-il ?) avant ce qui demande une
+    statistique.
+    """
+    if immobile_depuis is None:
+        return False, "aucune donnée roue — l'immobilité n'est pas établie"
+    if immobile_depuis < still_time:
+        return False, ("robot arrêté depuis %.1f s seulement (%.1f s exigées)"
+                       % (immobile_depuis, still_time))
+    pire_std = max(stds)
+    if pire_std > max_std:
+        return False, ("écart-type %.4f > %.4f rad/s : ça tourne encore "
+                       "(robot soulevé ?)" % (pire_std, max_std))
+    delta = max(abs(means[i] - bias_actuel[i]) for i in range(3))
+    if delta > max_delta:
+        return False, ("écart %.4f > %.4f rad/s : une dérive thermique est "
+                       "lente, ce saut vient d'une mesure prise en mouvement"
+                       % (delta, max_delta))
+    return True, "écart %.4f rad/s, dérive plausible" % delta
+
+
 class ImuSanitizer(object):
     def __init__(self):
         self.gyro_limit = rospy.get_param("~gyro_limit", 35.0)
@@ -352,25 +386,24 @@ class ImuSanitizer(object):
         self._recal_buf = []
         self._next_recal_t = now + self.gyro_recal_period
 
-        if max(stds) > self.gyro_cal_max_std:
-            rospy.loginfo("[imu_sanitizer] recalib gyro ignorée (écart-type "
-                          "%.4f > %.4f rad/s)", max(stds), self.gyro_cal_max_std)
-            return
-        delta = max(abs(means[i] - self.gyro_bias[i]) for i in range(3))
-        if delta > self.gyro_recal_max_delta:
-            rospy.logwarn("[imu_sanitizer] recalib gyro REFUSÉE : écart %.4f > "
-                          "%.4f rad/s. Une dérive thermique est lente ; un saut "
-                          "pareil vient d'une mesure prise en mouvement. Biais "
-                          "conservé.", delta, self.gyro_recal_max_delta)
+        # Décision déléguée à evaluer_recal() : le nœud et les tests doivent
+        # exercer le MÊME code, sinon un test ne valide que sa propre copie.
+        accepte, motif = evaluer_recal(
+            means, stds, self.gyro_bias, immo,
+            self.gyro_cal_max_std, self.gyro_recal_max_delta,
+            self.wheel_still_time)
+        if not accepte:
+            rospy.logwarn("[imu_sanitizer] recalib gyro REFUSÉE — %s. "
+                          "Biais conservé.", motif)
             return
         import math as _m
         old = list(self.gyro_bias)
         self.gyro_bias = means
         rospy.logwarn("[imu_sanitizer] recalib gyro APPLIQUÉE après %.0f s "
-                      "d'arrêt : [%.5f %.5f %.5f] (|b|=%.3f deg/s), écart %.4f "
-                      "rad/s — remplace [%.5f %.5f %.5f]",
-                      immo, means[0], means[1], means[2],
-                      _m.degrees(_m.sqrt(sum(v * v for v in means))), delta, *old)
+                      "d'arrêt (%s) : [%.5f %.5f %.5f] (|b|=%.3f deg/s) — "
+                      "remplace [%.5f %.5f %.5f]",
+                      immo, motif, means[0], means[1], means[2],
+                      _m.degrees(_m.sqrt(sum(v * v for v in means))), *old)
 
     def _check_freeze(self, raw_vals):
         if raw_vals == self._prev_vals:

@@ -1,4 +1,13 @@
 <launch>
+
+  <!-- Relais des arguments de recalibration gyro vers navigation_supervision.
+       Sans ce relais, `roslaunch ... navigation_master.launch
+       gyro_recal_period:=60` serait accepte en silence et n'aurait AUCUN effet :
+       roslaunch ne propage pas les arguments a un <include> tout seul. -->
+  <arg name="gyro_recal_period"    default="0.0"/>
+  <arg name="gyro_recal_max_delta" default="0.02"/>
+  <arg name="wheel_still_time"     default="3.0"/>
+
   <!-- LEO Rover — single entry point for the full navigation stack:
        sensors -> MINS -> pose_selector -> /robot_pose_fused -> cockpit switch.
 
@@ -29,5 +38,9 @@
   <!-- The 5 respawn-supervised scripts: imu_sanitizer, carolus_vicon_bridge,
        wheel_remap, pose_selector, leo_backend. Any one of these can die and
        restart on its own without taking down MINS or the rest of the stack. -->
-  <include file="$(find leo_navigation)/launch/navigation_supervision.launch"/>
+  <include file="$(find leo_navigation)/launch/navigation_supervision.launch">
+    <arg name="gyro_recal_period"    value="$(arg gyro_recal_period)"/>
+    <arg name="gyro_recal_max_delta" value="$(arg gyro_recal_max_delta)"/>
+    <arg name="wheel_still_time"     value="$(arg wheel_still_time)"/>
+  </include>
 </launch>
