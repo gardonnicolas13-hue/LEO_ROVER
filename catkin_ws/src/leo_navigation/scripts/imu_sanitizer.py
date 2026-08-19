@@ -104,6 +104,28 @@ PARAMS
   ~gyro_cal_samples    (default 400 ~ 5 s at 80 Hz)
   ~gyro_cal_max_std    (default 0.01 rad/s — above this the robot is rotating,
                         the auto-calibration is rejected and the params stand)
+  ~gyro_recal_period   (default 0.0 = OFF — seconds between periodic re-estimations
+                        of the gyro bias while the robot is stopped. The startup
+                        auto-calibration runs ONCE; a MEMS bias drifts with
+                        temperature and the Pi heats up. Measured evidence, not
+                        conjecture: openVINS drift on the 13/08 lap grows as
+                        t^3.25 and t^4.26 over its two segments. An accelerometer
+                        SCALE error would give t^2; t^3 is the signature of an
+                        attitude error growing linearly, i.e. an uncompensated
+                        constant gyro bias, and t^4 of a bias drifting on its own.
+                        MINS on the same recording sits at t^-0.01 — its wheels
+                        anchor it, so it never showed the problem.
+                        OFF by default: this path feeds BOTH estimators and the
+                        driving, and it could not be validated on the robot.
+                        Enable it for a supervised run first.)
+  ~gyro_recal_max_delta (default 0.02 rad/s — a bias that jumps more than this is
+                        not drifting, it was measured during motion. Rejected.)
+  ~wheel_topic         (default /firmware/wheel_states — the stationarity signal.
+                        Wheel encoders, not gyro variance alone: a biased gyro
+                        turning at constant rate has LOW variance and would pass
+                        a variance-only test.)
+  ~wheel_still_eps     (default 0.01 — |wheel velocity| below this counts as stopped)
+  ~wheel_still_time    (default 3.0 s of confirmed standstill before re-measuring)
   ~freeze_samples      (default 200 — consecutive identical samples => frozen)
   ~freeze_autoreset    (default true — call /firmware/reset_board on freeze)
   ~freeze_reset_cooldown (default 60.0 s between two auto-resets)
@@ -114,6 +136,7 @@ import threading
 
 import rospy
 from leo_msgs.msg import Imu as LeoImu
+from leo_msgs.msg import WheelStates
 from sensor_msgs.msg import Imu as SensorImu
 from std_srvs.srv import Trigger
 
@@ -142,6 +165,37 @@ class ImuSanitizer(object):
         self.gyro_autocal = bool(rospy.get_param("~gyro_autocal", True))
         self.gyro_cal_samples = int(rospy.get_param("~gyro_cal_samples", 400))
         self.gyro_cal_max_std = float(rospy.get_param("~gyro_cal_max_std", 0.01))
+        # ── Recalibration PÉRIODIQUE du biais gyro (2026-08-18) ──────────────
+        # Pourquoi : l'auto-calibration ci-dessus ne tourne QU'UNE FOIS, au
+        # démarrage (_cal_done passe à True et n'en redescend jamais). Or un
+        # biais de gyro MEMS dérive avec la température, et le Pi chauffe.
+        # L'analyse des trajectoires enregistrées le confirme plutôt qu'elle ne
+        # le suppose : la dérive d'openVINS croît en t^3,25 et t^4,26 sur les
+        # deux segments du roulage du 13/08. Une erreur d'ÉCHELLE accéléromètre
+        # donnerait t^2 (accélération constante doublement intégrée) ; t^3
+        # est la signature d'une erreur d'attitude qui croît linéairement,
+        # c'est-à-dire d'un biais gyro constant non compensé, et t^4 celle d'un
+        # biais qui dérive lui-même. MINS, sur le même enregistrement, reste à
+        # t^-0,01 : ses roues l'ancrent, il ne voit pas le problème.
+        #
+        # DÉSACTIVÉ PAR DÉFAUT (période = 0). Ce chemin alimente les DEUX
+        # estimateurs et le pilotage ; il n'a pas pu être validé sur le robot,
+        # injoignable au moment de l'écriture. L'activer demande un essai
+        # supervisé — voir l'en-tête du module.
+        self.gyro_recal_period = float(rospy.get_param("~gyro_recal_period", 0.0))
+        # Garde-fou : un biais qui « sauterait » de plus de ça n'est pas un
+        # biais qui dérive, c'est une mesure prise pendant un mouvement.
+        self.gyro_recal_max_delta = float(rospy.get_param("~gyro_recal_max_delta", 0.02))
+        # Immobilité EXIGÉE par les roues, pas seulement par la variance gyro :
+        # un gyro biaisé tournant à vitesse constante a une variance faible et
+        # passerait le test de variance seul. Les roues, elles, ne mentent pas
+        # sur l'immobilité.
+        self.wheel_topic = rospy.get_param("~wheel_topic", "/firmware/wheel_states")
+        self.wheel_still_eps = float(rospy.get_param("~wheel_still_eps", 0.01))
+        self.wheel_still_time = float(rospy.get_param("~wheel_still_time", 3.0))
+        self._last_motion_t = None      # None = aucune donnée roue reçue
+        self._next_recal_t = None
+        self._recal_buf = []
         self._cal_buf = []          # échantillons gyro bruts pour l'auto-calib
         self._cal_done = not self.gyro_autocal
         self.frame_id = rospy.get_param("~frame_id", "imu_frame")
@@ -172,6 +226,12 @@ class ImuSanitizer(object):
 
         self.pub = rospy.Publisher(out_topic, SensorImu, queue_size=20)
         rospy.Subscriber(in_topic, LeoImu, self._cb, queue_size=50, tcp_nodelay=True)
+        if self.gyro_recal_period > 0.0:
+            rospy.Subscriber(self.wheel_topic, WheelStates, self._cb_wheels,
+                             queue_size=10, tcp_nodelay=True)
+            rospy.logwarn("[imu_sanitizer] recalibration gyro PÉRIODIQUE active "
+                          "(%.0f s, immobilité confirmée par %s)",
+                          self.gyro_recal_period, self.wheel_topic)
         rospy.loginfo("[imu_sanitizer] %s (leo_msgs/Imu) -> %s (sensor_msgs/Imu), "
                        "gyro_limit=%.1f accel_limit=%.1f accel_scale=%.4f",
                        in_topic, out_topic, self.gyro_limit, self.accel_limit,
@@ -231,6 +291,86 @@ class ImuSanitizer(object):
                       "remplace [%.5f %.5f %.5f]",
                       int(n), means[0], means[1], means[2],
                       _m.degrees(_m.sqrt(sum(v * v for v in means))), *old)
+
+    def _cb_wheels(self, m):
+        """Horodate le dernier instant où une roue tournait. C'est tout ce dont
+        la recalibration a besoin : savoir depuis combien de temps le robot est
+        VRAIMENT arrêté. Volontairement passif — ce rappel ne calibre rien, il
+        ne fait qu'observer, pour que la calibration reste pilotée par le flux
+        IMU et par lui seul."""
+        try:
+            bouge = any(abs(v) > self.wheel_still_eps for v in m.velocity)
+        except Exception:
+            return
+        now = rospy.get_time()
+        if bouge or self._last_motion_t is None:
+            self._last_motion_t = now
+
+    def _immobile_depuis(self):
+        """Durée d'immobilité confirmée par les roues, ou None si on ne sait
+        pas. Ne JAMAIS renvoyer « immobile » faute de données : sans message
+        roue, on ignore l'état, et ignorer n'est pas savoir."""
+        if self._last_motion_t is None:
+            return None
+        return rospy.get_time() - self._last_motion_t
+
+    def _try_recal(self, gx, gy, gz):
+        """Recalibration périodique du biais gyro, à l'arrêt.
+
+        Trois conditions cumulatives, et aucune n'est redondante :
+          1. les ROUES confirment l'arrêt depuis ~wheel_still_time — un gyro
+             biaisé tournant à vitesse constante aurait une variance faible et
+             tromperait le seul test de variance ;
+          2. l'écart-type gyro reste sous le même seuil qu'au démarrage — les
+             roues peuvent être à l'arrêt pendant qu'on soulève le robot ;
+          3. le nouveau biais ne s'écarte pas de plus de ~gyro_recal_max_delta
+             de l'actuel — une dérive thermique est lente ; un saut brutal
+             signale une mesure prise pendant un mouvement, pas une dérive.
+        Si l'une échoue, l'ancien biais est CONSERVÉ. Le défaut de cette
+        fonction doit être de ne rien faire, jamais d'adopter une valeur
+        douteuse : elle alimente les deux estimateurs et le pilotage.
+        """
+        now = rospy.get_time()
+        if self._next_recal_t is None:
+            self._next_recal_t = now + self.gyro_recal_period
+            return
+        if now < self._next_recal_t:
+            return
+        immo = self._immobile_depuis()
+        if immo is None or immo < self.wheel_still_time:
+            self._recal_buf = []          # le robot bouge : on repart de zéro
+            return
+
+        self._recal_buf.append((gx, gy, gz))
+        if len(self._recal_buf) < self.gyro_cal_samples:
+            return
+
+        n = float(len(self._recal_buf))
+        means = [sum(s[i] for s in self._recal_buf) / n for i in range(3)]
+        stds = [(sum((s[i] - means[i]) ** 2 for s in self._recal_buf) / n) ** 0.5
+                for i in range(3)]
+        self._recal_buf = []
+        self._next_recal_t = now + self.gyro_recal_period
+
+        if max(stds) > self.gyro_cal_max_std:
+            rospy.loginfo("[imu_sanitizer] recalib gyro ignorée (écart-type "
+                          "%.4f > %.4f rad/s)", max(stds), self.gyro_cal_max_std)
+            return
+        delta = max(abs(means[i] - self.gyro_bias[i]) for i in range(3))
+        if delta > self.gyro_recal_max_delta:
+            rospy.logwarn("[imu_sanitizer] recalib gyro REFUSÉE : écart %.4f > "
+                          "%.4f rad/s. Une dérive thermique est lente ; un saut "
+                          "pareil vient d'une mesure prise en mouvement. Biais "
+                          "conservé.", delta, self.gyro_recal_max_delta)
+            return
+        import math as _m
+        old = list(self.gyro_bias)
+        self.gyro_bias = means
+        rospy.logwarn("[imu_sanitizer] recalib gyro APPLIQUÉE après %.0f s "
+                      "d'arrêt : [%.5f %.5f %.5f] (|b|=%.3f deg/s), écart %.4f "
+                      "rad/s — remplace [%.5f %.5f %.5f]",
+                      immo, means[0], means[1], means[2],
+                      _m.degrees(_m.sqrt(sum(v * v for v in means))), delta, *old)
 
     def _check_freeze(self, raw_vals):
         if raw_vals == self._prev_vals:
@@ -295,6 +435,12 @@ class ImuSanitizer(object):
             # l'écraserait à zéro au redémarrage suivant.
             if not self._cal_done:
                 self._try_autocal(m.gyro_x, m.gyro_y, m.gyro_z)
+            elif self.gyro_recal_period > 0.0:
+                # Même remarque que pour l'auto-calibration ci-dessus : on
+                # accumule les valeurs BRUTES, avant retrait du biais. Mesurer
+                # sur le signal déjà débiaisé donnerait ≈ 0 et écraserait le
+                # biais au lieu de le corriger.
+                self._try_recal(m.gyro_x, m.gyro_y, m.gyro_z)
             s = self.accel_scale
             b = self.gyro_bias
             g = self.gyro_scale
