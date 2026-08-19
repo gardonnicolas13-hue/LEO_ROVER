@@ -47,24 +47,56 @@ function compare_estimators(prefix, out_dir)
   if ~exist(out_dir, 'dir'); mkdir(out_dir); end
 
   % Ordre volontaire : MINS d'abord, c'est la référence de ce projet.
-  spec = { 'MINS',     'mins', [0.95 0.42 0.21]     % orange — convention cockpit
-           'openVINS', 'vins', [0.13 0.83 0.93]     % cyan   — convention cockpit
-           'sqrtVINS', 'srv',  [0.92 0.70 0.03] };  % ambre  — « testé, non déployé »
+  % 4e colonne : le STYLE DE TRAIT, et il n'est pas décoratif. L'orange de MINS
+  % et l'ambre de sqrtVINS sont proches en teinte (constaté en relisant la
+  % figure à trois séries) : à l'œil ils se confondent par endroits, et en
+  % niveaux de gris — un rapport imprimé — ils deviennent identiques. Un style
+  % distinct rend la figure lisible sans dépendre de la couleur.
+  spec = { 'MINS',     'mins', [0.95 0.42 0.21], '-'      % orange — convention cockpit
+           'openVINS', 'vins', [0.13 0.83 0.93], '-'      % cyan   — convention cockpit
+           'sqrtVINS', 'srv',  [0.92 0.70 0.03], '--' };  % ambre  — « testé, non déployé »
 
-  S = struct('name', {}, 'color', {}, 'd', {});
+  S = struct('name', {}, 'color', {}, 'style', {}, 'd', {});
   fprintf('\n=== compare_estimators — %s ===\n', prefix);
   for k = 1:size(spec, 1)
     path = sprintf('%s_%s.csv', prefix, spec{k,2});
-    d = local_read_pose(path);
+    [d, why] = local_read_pose(path);
     if isempty(d)
-      fprintf('  %-9s : ABSENT (%s)\n', spec{k,1}, path);
+      fprintf('  %-9s : INDISPONIBLE — %s\n', spec{k,1}, why);
+      fprintf('  %-9s   %s\n', '', path);
       continue;
     end
-    S(end+1) = struct('name', spec{k,1}, 'color', spec{k,3}, 'd', d); %#ok<AGROW>
+    S(end+1) = struct('name', spec{k,1}, 'color', spec{k,3}, ...
+                      'style', spec{k,4}, 'd', d); %#ok<AGROW>
     fprintf('  %-9s : %6d échantillons\n', spec{k,1}, numel(d.t));
   end
   if isempty(S)
     error('compare_estimators:vide', 'Aucune série trouvée pour ce préfixe.');
+  end
+
+  % ---- Cohérence temporelle entre séries -----------------------------------
+  % Les trois estimateurs doivent avoir vu LA MÊME fenêtre de temps ; c'est la
+  % prémisse qui rend la comparaison recevable. Si deux séries se recouvrent
+  % mal, les métriques restent calculables mais ne comparent plus la même
+  % chose — le dire ici plutôt que de laisser conclure sur des chiffres
+  % silencieusement incomparables.
+  if numel(S) > 1
+    t0 = arrayfun(@(x) x.d.t(1),   S);
+    t1 = arrayfun(@(x) x.d.t(end), S);
+    inter = min(t1) - max(t0);              % durée du recouvrement commun
+    union = max(t1) - min(t0);
+    if inter <= 0
+      fprintf(['\n  ATTENTION : les séries ne se recouvrent PAS dans le temps.\n' ...
+               '              Les comparer n''a pas de sens — vérifier qu''elles\n' ...
+               '              viennent bien du même enregistrement.\n']);
+    elseif union > 0 && inter / union < 0.9
+      fprintf(['\n  ATTENTION : recouvrement temporel partiel (%.0f %% de la\n' ...
+               '              fenêtre totale). Les métriques portent sur des\n' ...
+               '              portions differentes du trajet.\n'], 100 * inter / union);
+      for k = 1:numel(S)
+        fprintf('              %-9s t = %8.1f .. %8.1f s\n', S(k).name, t0(k), t1(k));
+      end
+    end
   end
 
   % ---- Métriques -----------------------------------------------------------
@@ -100,7 +132,7 @@ function compare_estimators(prefix, out_dir)
     % centaines de points ne se rasterise pas correctement dans ce MATLAB
     % headless — les sections plates disparaissent en silence (bug trouvé le
     % 2026-07-27, présent dans plot_trajectories.m depuis le début).
-    h(end+1) = plot(ax1, d.x, d.y, '-', 'Color', c, 'LineWidth', 1.8, ...
+    h(end+1) = plot(ax1, d.x, d.y, S(k).style, 'Color', c, 'LineWidth', 1.8, ...
                     'Marker', '.', 'MarkerSize', 3); %#ok<AGROW>
     plot(ax1, d.x(1),   d.y(1),   'o', 'Color', c, 'MarkerFaceColor', c, 'MarkerSize', 7);
     plot(ax1, d.x(end), d.y(end), 's', 'Color', c, 'MarkerFaceColor', c, 'MarkerSize', 8);
@@ -143,7 +175,7 @@ function compare_estimators(prefix, out_dir)
     % sur seize décades dont treize ne portaient que du bruit numérique — la
     % zone utile, entre 1 m et 40 km, se retrouvait écrasée en haut du cadre.
     % Un millimètre est la plus petite distance qui ait un sens ici.
-    plot(ax2, d.t - d.t(1), max(dist, 1e-3), '-', 'Color', S(k).color, ...
+    plot(ax2, d.t - d.t(1), max(dist, 1e-3), S(k).style, 'Color', S(k).color, ...
          'LineWidth', 1.6, 'Marker', '.', 'MarkerSize', 3);
   end
   set(ax2, 'YScale', 'log');
@@ -162,21 +194,63 @@ function compare_estimators(prefix, out_dir)
 end
 
 
-function s = local_read_pose(path)
-% Lit un CSV de pose bag_to_csv.py (11 colonnes, en-tête sur 1 ligne) :
-% t,x,y,z,qx,qy,qz,qw,roll_rad,pitch_rad,yaw_rad. Renvoie [] si absent/vide —
-% une série manquante doit être annoncée par l'appelant, pas planter ici.
-  s = [];
-  if exist(path, 'file') ~= 2; return; end
+function [s, why] = local_read_pose(path)
+% Lit un CSV de pose bag_to_csv.py. Renvoie s=[] et une RAISON explicite en
+% cas d'echec.
+%
+% Pourquoi une raison et pas juste [] : jusqu'au 2026-08-18 tout echec etait
+% rapporte « ABSENT », y compris un fichier present mais tronque ou dont
+% l'en-tete avait change. Un fichier corrompu et un fichier inexistant
+% demandent des gestes opposes — refaire la conversion dans un cas, refaire la
+% capture dans l'autre — et les confondre fait perdre du temps.
+%
+% Format attendu : 11 colonnes, en-tete sur 1 ligne
+%   t,x,y,z,qx,qy,qz,qw,roll_rad,pitch_rad,yaw_rad
+  s = []; why = '';
+  if exist(path, 'file') ~= 2
+    why = 'fichier absent'; return;
+  end
   fid = fopen(path, 'r');
-  if fid < 0; return; end
-  fgetl(fid);
+  if fid < 0
+    why = 'illisible (droits ?)'; return;
+  end
+  entete = fgetl(fid);
+  if ~ischar(entete)
+    fclose(fid); why = 'fichier vide'; return;
+  end
+  cols = strsplit(strtrim(entete), ',');
+  attendu = {'t','x','y','z','qx','qy','qz','qw','roll_rad','pitch_rad','yaw_rad'};
+  if numel(cols) ~= numel(attendu)
+    fclose(fid);
+    why = sprintf('en-tete a %d colonnes, 11 attendues', numel(cols)); return;
+  end
+  manquants = setdiff(attendu, cols);
+  if ~isempty(manquants)
+    fclose(fid);
+    why = sprintf('champs manquants dans l''en-tete : %s', strjoin(manquants, ', '));
+    return;
+  end
   C = textscan(fid, '%f%f%f%f%f%f%f%f%f%f%f', 'Delimiter', ',', ...
                'CollectOutput', true, 'EmptyValue', NaN);
   fclose(fid);
-  if isempty(C) || isempty(C{1}); return; end
+  if isempty(C) || isempty(C{1})
+    why = 'en-tete seul, aucune donnee'; return;
+  end
   M = C{1};
-  if size(M, 1) < 2 || size(M, 2) < 11; return; end
+  if size(M, 2) < 11
+    why = sprintf('%d colonnes de donnees, 11 attendues', size(M, 2)); return;
+  end
+  if size(M, 1) < 2
+    why = sprintf('%d ligne(s) de donnees, 2 minimum', size(M, 1)); return;
+  end
+  bons = all(isfinite(M(:, 1:3)), 2);      % t, x, y exploitables
+  if ~any(bons)
+    why = 'aucune ligne exploitable (t/x/y non finis)'; return;
+  end
+  if ~all(bons)
+    fprintf('    (%d ligne(s) non finies ecartees)\n', sum(~bons));
+    M = M(bons, :);
+  end
   s.t = M(:,1); s.x = M(:,2); s.y = M(:,3); s.z = M(:,4);
   s.qx = M(:,5); s.qy = M(:,6); s.qz = M(:,7); s.qw = M(:,8);
   s.roll = M(:,9); s.pitch = M(:,10); s.yaw = M(:,11);
