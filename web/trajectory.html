@@ -8,7 +8,7 @@
 <!-- Couche commune des commandes (rayon, lumière rasante, retour au clic).
      Chargée AVANT le <style> de la page : les règles propres au cockpit
      ci-dessous restent prioritaires à spécificité égale. -->
-<script src="i18n.js?v=r31"></script>
+<script src="i18n.js?v=r32"></script>
 <link rel="stylesheet" href="mission.css?v=m2" />
 <style>
   /* ── JPL Mission Control — charbon, gris spatial, orange NASA, cyan ─────── */
@@ -85,6 +85,9 @@
   }
   .modes button.vins.active { color: var(--cyan);  border-color: var(--cyan);  box-shadow: inset 0 0 12px rgba(34,211,238,.12); }
   .modes button.mins.active { color: var(--orange); border-color: var(--orange); box-shadow: inset 0 0 12px rgba(255,107,53,.15); }
+  /* Ambre : meme convention que le reste du site pour sqrtVINS (« teste, non
+     deploye »). Distincte de l'orange MINS pour rester lisible cote a cote. */
+  .modes button.srv.active  { color: #eab308; border-color: #eab308; box-shadow: inset 0 0 12px rgba(234,179,8,.15); }
   .modes button:disabled { opacity: .35; cursor: not-allowed; }
   /* mission.css apporte à toutes les commandes du site un retour au clic et un
      rayon de 6 px. Ce cockpit conserve en revanche sa géométrie franche : dans
@@ -236,8 +239,17 @@
       <div class="k-row"><div class="k"><span data-i18n="traj_active_test">Test actif</span></div>
         <button class="info-btn" id="btnTestHelp" title="Comment ça marche ?">ⓘ</button></div>
       <div class="modes" style="margin-top:4px">
-        <button class="mins active" id="btnTest1" title="Étiquette d'export : test1_*">TEST 1</button>
-        <button class="vins" id="btnTest2" title="Étiquette d'export : test2_*">TEST 2</button>
+        <!-- Correspondance test <-> estimateur RETENU (2026-08-19, demande
+             operateur) : test1 = openVINS, test2 = MINS, test3 = sqrtVINS.
+             RAPPEL : les trois estimateurs sont enregistres ENSEMBLE a chaque
+             essai, quel que soit le bouton actif. Le bouton ne choisit pas quel
+             estimateur tourne — il choisit l'etiquette de fichier, donc quelle
+             trace on RETIENT de ce tour-la. Pour comparer les trois sur UN meme
+             tour, voir tools/compare_estimators.m ; ces trois slots servent a
+             comparer trois tours DISTINCTS. -->
+        <button class="vins active" id="btnTest1" title="Étiquette d'export : test1_* — trace openVINS retenue">TEST 1</button>
+        <button class="mins" id="btnTest2" title="Étiquette d'export : test2_* — trace MINS retenue">TEST 2</button>
+        <button class="srv" id="btnTest3" title="Étiquette d'export : test3_* — trace sqrtVINS retenue">TEST 3</button>
       </div>
       <div id="recBadge" style="margin-top:6px;font-size:11px;letter-spacing:.08em;color:var(--dim)"><span data-i18n="traj_no_recording">— pas d'enregistrement —</span></div>
       <button id="btnTrajReset" style="margin-top:6px;width:100%;font-family:var(--mono);font-size:11px;letter-spacing:.08em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer"
@@ -776,17 +788,26 @@
     refreshTestUI();
     sendCmd({ action: "set_test", test, finalize: true });
   }
+  /* Slots d'essai. Estimateur RETENU de chacun : test1 openVINS,
+     test2 MINS, test3 sqrtVINS (2026-08-19). */
+  var TESTS = ["test1", "test2", "test3"];
   function refreshTestUI() {
-    $("btnTest1").classList.toggle("active", currentTest === "test1");
-    $("btnTest2").classList.toggle("active", currentTest === "test2");
+    /* Boucle plutot que N lignes : ajouter un slot ne doit demander qu'une
+       entree dans TESTS, jamais de retoucher cette fonction. */
+    TESTS.forEach(function (t) {
+      var b = $("btn" + t.charAt(0).toUpperCase() + t.slice(1));
+      if (b) b.classList.toggle("active", currentTest === t);
+    });
   }
-  $("btnTest1").onclick = () => selectTest("test1");
-  $("btnTest2").onclick = () => selectTest("test2");
+  TESTS.forEach(function (t) {
+    var b = $("btn" + t.charAt(0).toUpperCase() + t.slice(1));
+    if (b) b.onclick = function () { selectTest(t); };
+  });
   $("btnTrajReset").onclick = () => {
     if (!confirm("JETER l'enregistrement en cours" +
                  (activeRec ? " (" + activeRec.test.toUpperCase() + ")" : "") +
                  " sans le sauvegarder ?\n\n" +
-                 "Après le reset, clique Test 1 ou Test 2 pour démarrer le prochain essai.")) return;
+                 "Après le reset, clique Test 1, 2 ou 3 pour démarrer le prochain essai.")) return;
     viewFrozen = false; originOffset = null;
     /* Le tracé affiché est accumulé ICI (trail.push, sur chaque pose reçue),
        pas côté backend : sans ce vidage, "traj_reset" nettoyait les buffers
