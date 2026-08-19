@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="icon" type="image/svg+xml" href="leo_icon.svg" />
 <title>LEO ROVER — Operations Cockpit</title>
-<script src="i18n.js?v=r30"></script>
+<script src="i18n.js?v=r31"></script>
 <script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
@@ -465,9 +465,35 @@
               <span id="poseSourceArmedVINS" class="hidden text-[10px] font-normal normal-case tracking-normal opacity-80" data-i18n="ops_pose_source_armed">armed — will switch as soon as it publishes</span>
             </button>
           </div>
+          <!-- Troisieme estimateur : sqrtVINS. DELIBEREMENT INERTE (2026-08-18).
+               En pleine largeur SOUS la paire, et non comme troisieme colonne :
+               la disposition doit dire d'elle-meme que les deux du haut sont
+               permutables et que celui-ci ne l'est pas.
+               Deux verrous independants, tous deux reels :
+                 1. PROTOCOLE — pose_selector.py declare SOURCES = ("VINS",
+                    "MINS") et expose ~set_source en std_srvs/SetBool. Un
+                    booleen ne peut pas porter trois etats : une troisieme
+                    source demande de changer le type de service, la machine
+                    a etats du selecteur, leo_backend et app.js.
+                 2. MESURE — sur le tour de labo enregistre, sqrtVINS diverge
+                    sans borne (43 742 m rapportes pour ~20 m reels). Le
+                    /robot_pose_fused produit par le selecteur alimente le mode
+                    AUTO et l'approche balise : y injecter cet estimateur
+                    serait dangereux, pas seulement faux.
+               Le bouton existe malgre tout parce que masquer un troisieme
+               estimateur reellement installe et teste donnerait une image
+               fausse du systeme. Il est visible, explique, et inerte. -->
+          <button type="button" id="poseSourceBtnSRV" disabled
+                  data-i18n-title="ops_pose_source_srv_tip"
+                  class="mt-2 flex w-full cursor-not-allowed items-center justify-center gap-1.5 rounded-xl border border-dashed border-white/10 bg-white/[.02] px-3 py-2 text-sm font-semibold text-zinc-600">
+            <span id="poseSourceDotSRV" class="block h-2 w-2 shrink-0 rounded-full bg-zinc-700"></span>
+            <span>sqrtVINS</span>
+            <span class="rounded-full bg-white/5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500"
+                  data-i18n="ops_pose_source_srv_badge">unavailable</span>
+          </button>
           <a href="navigation_modes.html" class="mt-1.5 flex items-center justify-center gap-1 text-[11px] text-zinc-600 transition hover:text-accent">
             <i data-lucide="info" class="h-3 w-3"></i>
-            <span data-i18n="ops_pose_source_learn_more">What's the difference between VINS and MINS?</span>
+            <span data-i18n="ops_pose_source_learn_more">How do MINS, openVINS and sqrtVINS compare?</span>
           </a>
 
           <!-- Jeu de roues monté (2026-08-12) — DÉCLARATIF.
