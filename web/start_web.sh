@@ -109,6 +109,19 @@ else
   echo "[ok] interface web        :8000  -> http://$ROS_IP:8000/index.html"
 fi
 
+# --- 4bis) enregistrement des reperes edites (tf_validator.html) ---
+# SEPARE de :8000 a dessein. Le port 8000 est publie sur internet par le
+# tunnel Cloudflare ; une route d'ecriture y serait ouverte a tous, et un
+# filtrage par IP ne servirait a rien puisque cloudflared se connecte lui-meme
+# en boucle locale. Ce serveur-ci ecoute sur 127.0.0.1 UNIQUEMENT : la
+# sauvegarde marche depuis le PC et echoue a distance, ce qui est voulu.
+if ss -ltn 2>/dev/null | grep -q "127.0.0.1:8010"; then
+  echo "[= ] sauvegarde repères    :8010 déjà active — INTACTE"
+else
+  nohup python3 "$HERE/../tools/tf_save_server.py" > "$LOGDIR/tf_save_server.log" 2>&1 &
+  echo "[ok] sauvegarde repères    :8010  (boucle locale uniquement)"
+fi
+
 # --- 5) calibration_monitor ---
 if pgrep -f "calibration_monitor.py" > /dev/null 2>&1; then
   echo "[= ] calibration_monitor déjà actif"

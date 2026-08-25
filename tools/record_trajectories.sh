@@ -63,6 +63,12 @@ TOPICS=(
                                  #   pour ne pas casser la relecture des bags
                                  #   anterieurs.
   /firmware/wheel_odom           # odométrie roues brute (référence)
+  # AJOUTE le 2026-08-19 : sans lui, impossible de dire APRES COUP si un arret
+  # a ete reconnu comme tel. Les journaux du noeud sont volatils (purges avec
+  # /var/ros/log, ce qui vient d'arriver) alors que le bag reste ; l'etat ZUPT
+  # doit donc vivre DANS le bag, a cote des trajectoires qu'il est cense
+  # expliquer. Topic latche : le premier message arrive des l'abonnement.
+  /imu_sanitizer/is_stationary   # std_msgs/Bool — arret confirme roues+accel
 )
 
 # ── Vérif de présence des estimateurs (avertissement, pas blocage) ───────────

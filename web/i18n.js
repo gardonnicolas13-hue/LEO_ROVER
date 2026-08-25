@@ -91,6 +91,7 @@
       nav_audit:            'Audit',
       nav_deriv:            'Findings',
       nav_system:           'System',
+      nav_tfval:            'TF Validator',
       /* ── Page System & vocabulaire (2026-08-12) ─────────────────────── */
       sys_kicker:      '// system reference · read this first',
       sys_title:       'How the whole thing works',
@@ -907,6 +908,7 @@
       nav_audit:            'Audit',
       nav_deriv:            'Résultats',
       nav_system:           'Système',
+      nav_tfval:            'TF Validator',
       /* ── Page Système & vocabulaire (2026-08-12) ────────────────────── */
       sys_kicker:      '// référence système · à lire en premier',
       sys_title:       'Comment tout cela fonctionne',

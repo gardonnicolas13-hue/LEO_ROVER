@@ -29,6 +29,13 @@ IMUYAML="$DIR/${BASE}-imu.yaml"
 
 source /opt/ros/noetic/setup.bash
 source /home/lab272/TOUT/kalibr_ws/devel/setup.bash
+# Sourcer setup.bash ne met PAS devel/lib/<pkg> sur PATH -- seul `rosrun`
+# resout ce repertoire. Ce script appelle les binaires Kalibr directement
+# (kalibr_calibrate_cameras, kalibr_calibrate_imu_camera), pas via rosrun,
+# donc PATH doit etre etendu explicitement (trouve le 2026-08-20 : le bag du
+# 28/07 n'avait jamais pu etre traite pour cette raison, workspace absent en
+# plus a l'epoque).
+export PATH="$PATH:/home/lab272/TOUT/kalibr_ws/devel/lib/kalibr"
 
 [ -f "$BAG" ]    || { echo "bag introuvable : $BAG" >&2; exit 1; }
 [ -f "$TARGET" ] || { echo "mire introuvable : $TARGET" >&2; exit 1; }

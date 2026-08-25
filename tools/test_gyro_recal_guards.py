@@ -38,7 +38,7 @@ sys.modules['std_srvs.srv'].Trigger = object
 
 RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(RACINE, 'catkin_ws', 'src', 'leo_navigation', 'scripts'))
-from imu_sanitizer import evaluer_recal          # noqa: E402  (après les bouchons)
+from imu_sanitizer import evaluer_recal, evaluer_recal_accel_scale   # noqa: E402
 
 # Réglages par défaut du nœud, repris tels quels.
 MAX_STD, MAX_DELTA, STILL = 0.01, 0.02, 3.0
@@ -96,6 +96,33 @@ CAS = [
 ]
 
 
+# ── Recalibration d'échelle accéléro (2026-08-20) ────────────────────────────
+# Mêmes réglages que le nœud par défaut : gravité locale 9.790 (Melbourne FL),
+# échelle actuelle 1.1186 (mesurée 2026-07-28), borne 3% relative.
+G, S, MAX_DELTA_REL = 9.790, 1.1186, 0.03
+
+# (nom, norme BRUTE mesurée, acceptation attendue)
+CAS_ACCEL = [
+    ("dérive thermique plausible",
+     8.76, True),
+
+    ("échelle identique (aucun changement)",
+     G / S, True),
+
+    ("saut brutal — mouvement contaminé",
+     15.0, False),
+
+    ("norme nulle — mesure aberrante",
+     0.0, False),
+
+    ("écart juste SOUS la borne (~2.97%)",
+     8.505, True),
+
+    ("écart juste AU-DESSUS de la borne (~3.57%)",
+     8.45, False),
+]
+
+
 def main():
     print("  Gardes de recalibration gyro — %d cas\n" % len(CAS))
     echecs = 0
@@ -115,11 +142,27 @@ def main():
                    'ACCEPTE' if obtenu else 'refuse'))
         print("        motif : %s" % motif)
 
+    print("\n  Gardes de recalibration ÉCHELLE ACCÉLÉRO — %d cas\n" % len(CAS_ACCEL))
+    for nom, norme, attendu in CAS_ACCEL:
+        obtenu, motif, nouvelle = evaluer_recal_accel_scale(norme, S, G, MAX_DELTA_REL)
+        ok = (obtenu == attendu)
+        if not ok:
+            echecs += 1
+        print("  %s  %-48s %s" % ('ok  ' if ok else 'ECHEC',
+                                  nom,
+                                  'ACCEPTE' if obtenu else 'refuse'))
+        if not ok:
+            print("        attendu %s, obtenu %s" %
+                  ('ACCEPTE' if attendu else 'refuse',
+                   'ACCEPTE' if obtenu else 'refuse'))
+        print("        motif : %s" % motif)
+
+    total = len(CAS) + len(CAS_ACCEL)
     print()
     if echecs:
-        print("  %d cas en ECHEC sur %d" % (echecs, len(CAS)))
+        print("  %d cas en ECHEC sur %d" % (echecs, total))
         return 1
-    print("  %d/%d cas conformes" % (len(CAS), len(CAS)))
+    print("  %d/%d cas conformes" % (total, total))
     return 0
 
 
