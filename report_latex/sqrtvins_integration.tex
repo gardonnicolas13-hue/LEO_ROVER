@@ -1,0 +1,976 @@
+\section{Square-root filtering on the LEO rover: theory, a logic defect, and a three-estimator bench}
+\label{sec:sqrtvinsint}
+
+This section continues Sec.~\ref{sec:sqrtvins}, which recorded the discovery
+of the defects on the Raspberry Pi build. What follows is the resolution work:
+the mathematics that motivates the filter, the two source-level corrections,
+the optical defect that neither correction addressed, and the state of the
+bench at the time of writing. The two sections are sequential, not
+contradictory --- where they disagree numerically, the figures here supersede,
+and the divergence is dated.
+
+\subsection{Why a square-root form at all}
+\label{ssec:sqrtwhy}
+
+A standard EKF propagates the covariance $\mathbf{P}\in\mathbb{R}^{n\times n}$
+directly. Two properties make this fragile on an embedded platform. First,
+$\mathbf{P}$ must remain symmetric positive semi-definite (PSD), but nothing in
+the update equations enforces it: round-off alone can produce a negative
+eigenvalue, after which the filter is no longer a filter. Second, its condition
+number
+%
+\begin{equation}
+  \kappa(\mathbf{P}) \;=\; \frac{\lambda_{\max}(\mathbf{P})}{\lambda_{\min}(\mathbf{P})}
+  \label{eq:cond}
+\end{equation}
+%
+grows as the estimate becomes sharp in some directions and loose in others ---
+precisely what happens in VINS, where scale and yaw are weakly observable while
+the camera constrains the rest tightly.
+
+The square-root filter (SRF) stores instead an upper-triangular factor
+$\mathbf{U}$ with
+%
+\begin{equation}
+  \mathbf{U}^{\top}\mathbf{U} \;=\; \mathbf{P}.
+  \label{eq:chol}
+\end{equation}
+%
+Two consequences follow immediately, and they are the whole argument.
+
+\paragraph{Positive semi-definiteness becomes structural, not hoped for.}
+For any $\mathbf{x}\in\mathbb{R}^{n}$,
+%
+\begin{equation}
+  \mathbf{x}^{\top}\mathbf{P}\,\mathbf{x}
+  \;=\; \mathbf{x}^{\top}\mathbf{U}^{\top}\mathbf{U}\mathbf{x}
+  \;=\; \lVert \mathbf{U}\mathbf{x} \rVert_{2}^{2} \;\geq\; 0 .
+  \label{eq:psd}
+\end{equation}
+%
+The quadratic form is a squared norm. \emph{Whatever} numerical damage
+$\mathbf{U}$ suffers, the $\mathbf{P}$ it represents cannot be indefinite. The
+EKF has no equivalent guarantee: it must produce a PSD matrix through
+arithmetic that does not enforce it.
+
+\paragraph{The conditioning is halved, in the exact sense.}
+Since the singular values of $\mathbf{U}$ are the square roots of the
+eigenvalues of $\mathbf{P}$,
+%
+\begin{equation}
+  \kappa(\mathbf{U}) \;=\; \sqrt{\kappa(\mathbf{P})} .
+  \label{eq:kappa}
+\end{equation}
+%
+In floating point with $t$ mantissa bits, a linear solve on a matrix of
+condition number $\kappa$ loses on the order of $\log_{2}\kappa$ significant
+bits. Writing $t_{\mathrm{eff}}$ for the bits that survive,
+%
+\begin{equation}
+  t_{\mathrm{eff}}^{\mathrm{EKF}} \approx t - \log_{2}\kappa(\mathbf{P}),
+  \qquad
+  t_{\mathrm{eff}}^{\mathrm{SRF}} \approx t - \log_{2}\kappa(\mathbf{U})
+                                      = t - \tfrac{1}{2}\log_{2}\kappa(\mathbf{P}).
+  \label{eq:bits}
+\end{equation}
+%
+The SRF loses \emph{half} as many bits, which is the same as saying it behaves
+as though its mantissa were twice as long. Concretely, with the
+$\lambda_{\min}=3.28\times10^{-9}$ measured in Table~\ref{tab:pdcheck} and a
+$\lambda_{\max}$ of order $10^{-2}$, $\kappa(\mathbf{P})\sim3\times10^{6}$:
+a covariance-form filter would surrender $\log_{2}(3\times10^{6})\approx21$ of
+the $24$ mantissa bits of an IEEE-754 \texttt{float}, leaving three. The
+square-root form surrenders about eleven and keeps thirteen. This is the
+quantitative content of the upstream claim that $\sqrt{\text{VINS}}$ runs in
+32-bit single precision, and it is why the initial diagnosis of this project
+--- that the divergence was a precision problem --- was a reasonable
+hypothesis before it was refuted (Sec.~\ref{ssec:retract}).
+
+\paragraph{Measured on this robot.} Table~\ref{tab:pdcheck} reports the minimum
+eigenvalue of the published $6\times6$ pose covariance, sampled over a 25\,s
+window (2\,105 messages), all three estimators fed \emph{bit-identical} inputs.
+
+\begin{table}[htbp]
+\centering
+\caption{Covariance health, measured on the live bench. Symmetry is
+$\lVert \mathbf{P}-\mathbf{P}^{\top}\rVert_{\max}$; $\lambda_{\min}$ is over
+the whole window.}
+\label{tab:pdcheck}
+\begin{tabular}{lccc}
+\hline
+Estimator & symmetry & $\lambda_{\min}$ & PSD held \\
+\hline
+MINS      & $4.9\times10^{-17}$ & $1.14\times10^{-4}$ & yes \\
+openVINS  & $8.1\times10^{-20}$ & $4.33\times10^{-6}$ & yes \\
+$\sqrt{\text{VINS}}$ & $3.7\times10^{-20}$ & $\mathbf{3.28\times10^{-9}}$ & yes \\
+\hline
+\end{tabular}
+\end{table}
+
+The square-root filter operates three to five orders of magnitude closer to
+singularity than the other two and \emph{still} never loses definiteness. That
+is Eq.~\eqref{eq:psd} observed rather than asserted.
+
+\subsubsection{Propagation without ever forming \texorpdfstring{$\mathbf{P}$}{P}}
+
+The factor is propagated without the covariance ever being assembled. Given the
+state transition $\boldsymbol{\Phi}_{k-1}$ and process noise
+$\mathbf{W}_{k-1}=\mathbf{W}_{k-1}^{\top/2}\mathbf{W}_{k-1}^{1/2}$, the
+covariance recursion
+$\mathbf{P}_{k|k-1}=\boldsymbol{\Phi}\mathbf{P}_{k-1|k-1}\boldsymbol{\Phi}^{\top}+\mathbf{W}$
+is realised by stacking and triangularising:
+%
+\begin{equation}
+  \begin{bmatrix}
+    \mathbf{W}_{k-1}^{1/2} \\[2pt]
+    \mathbf{U}_{k-1|k-1}\boldsymbol{\Phi}_{k-1}^{\top}
+  \end{bmatrix}
+  \;\stackrel{\mathrm{QR}}{=}\;
+  \mathbf{Q}_{k-1}
+  \begin{bmatrix} \mathbf{U}_{k|k-1} \\ \mathbf{0} \end{bmatrix}.
+  \label{eq:qrprop}
+\end{equation}
+%
+Because $\mathbf{Q}$ is orthonormal, $\mathbf{Q}^{\top}\mathbf{Q}=\mathbf{I}$
+and the product of the stack with itself is preserved exactly:
+$\mathbf{U}_{k|k-1}^{\top}\mathbf{U}_{k|k-1}
+=\boldsymbol{\Phi}\mathbf{U}^{\top}\mathbf{U}\boldsymbol{\Phi}^{\top}+\mathbf{W}
+=\mathbf{P}_{k|k-1}$. The covariance is never squared and never inverted, which
+is where an EKF spends most of its conditioning budget.
+
+\emph{This is also the recursion whose noise block was defective in this
+package} --- see Sec.~\ref{sssec:rank3}: the $\mathbf{W}^{1/2}$ of
+Eq.~\eqref{eq:qrprop} was assembled rank-deficient, and because QR preserves
+$\mathbf{U}^{\top}\mathbf{U}$ exactly, it preserved the defect exactly too.
+
+\subsection{The ZUPT update, and a logic defect that made it unusable}
+\label{ssec:zupt}
+
+\subsubsection{What a zero-velocity update does}
+
+At a genuine standstill the true body velocity is zero, which is a measurement
+free of charge. With state error $\tilde{\mathbf{x}}$ and measurement Jacobian
+$\mathbf{H}$, the residual is simply
+%
+\begin{equation}
+  \mathbf{r} \;=\; \mathbf{0} - {}^{G}\hat{\mathbf{v}}_{I}
+  \;=\; -\,\mathbf{H}\tilde{\mathbf{x}} + \mathbf{n},
+  \qquad \mathbf{n}\sim\mathcal{N}(\mathbf{0},\mathbf{R}).
+  \label{eq:zuptres}
+\end{equation}
+%
+Whether this residual is \emph{consistent} with the current state and its
+uncertainty is decided by the Mahalanobis distance
+%
+\begin{equation}
+  \chi^{2} \;=\; \mathbf{r}^{\top}\,
+  \bigl(\mathbf{H}\mathbf{P}\mathbf{H}^{\top} + \mathbf{R}\bigr)^{-1}\mathbf{r},
+  \label{eq:zuptchi2}
+\end{equation}
+%
+accepted when $\chi^{2} < \gamma\,\chi^{2}_{0.95}(\dim\mathbf{r})$.
+
+\subsubsection{The defect}
+
+The package gates the \emph{rejection} as follows
+(\texttt{UpdaterZeroVelocity.cpp}, as cloned):
+
+\begin{verbatim}
+// We need to pass the chi2 and not be above our velocity threshold
+if (!disparity_passed && (chi2 > options_.chi2_multipler * chi2_check ||
+                          state->imu->vel().norm() > zupt_max_velocity_)) {
+  ... reject ...
+}
+\end{verbatim}
+
+The leading \verb|!disparity_passed &&| governs the \emph{entire} rejection.
+Once the image-disparity test passes, neither $\chi^{2}$ nor the velocity bound
+is ever evaluated. The comment one line above states the intended semantics
+--- \emph{``We need to pass the chi2''} --- and the code does the opposite.
+
+Measured on this rover with the gate fully enabled
+(\texttt{zupt\_chi2\_multipler:~1}, threshold correctly computed at $65.171$),
+robot stationary: \textbf{290 updates accepted, 0 rejected}, with
+$\chi^{2}=1.34\times10^{57}$ and $\lVert\mathbf{v}\rVert=1.0\times10^{23}$\,m/s.
+The thresholds were correct; they were simply never consulted. Position
+diverged to $2.06\times10^{15}$\,m.
+
+\subsubsection{The correction, and why the two guards are not symmetric}
+
+The two tests answer different questions, and only one of them may legitimately
+be overridden.
+
+\begin{itemize}
+  \item The \textbf{velocity bound} reads the filter's \emph{own} estimate
+        ${}^{G}\hat{\mathbf{v}}_{I}$. It is therefore circular: once the filter
+        diverges, that estimate is wrong, and the bound would block the only
+        mechanism able to recover it. Breaking that circularity with an
+        independent witness --- image disparity, which does not depend on the
+        state --- is exactly what the disparity test is for. \emph{This
+        override is legitimate and was kept.}
+  \item The \textbf{$\chi^{2}$ test} of Eq.~\eqref{eq:zuptchi2} asks whether the
+        measurement is consistent with the state and its covariance. A value of
+        $10^{57}$ says the update is nonsense; applying it injects that
+        nonsense into the state. No external witness can make an inconsistent
+        update acceptable. \emph{This override must not exist.}
+\end{itemize}
+
+\begin{verbatim}
+const bool chi2_over = (options_.chi2_multipler > 0) &&
+                       (chi2 > options_.chi2_multipler * chi2_check);
+const bool vel_over  = state->imu->vel().norm() > zupt_max_velocity_;
+
+if (chi2_over || (!disparity_passed && vel_over)) { ... reject ... }
+\end{verbatim}
+
+The documented \texttt{chi2\_multipler:~0} (``disparity only'') semantics are
+preserved: with $0$ the \emph{threshold} is not applied. A non-finite
+$\chi^{2}$ is rejected in every mode, since \texttt{nan} does not mean
+``excellent measurement'', it means ``$\chi^{2}$ not computable''.
+
+\subsubsection{Why the disparity override collapses at kinematic extremes}
+\label{sssec:plafond}
+
+The corrected condition is still a disjunction in which one term remains
+gated. Writing $C$ for ``$\chi^{2}$ exceeds threshold'', $V$ for
+``$\lVert\mathbf{v}\rVert$ exceeds \texttt{zupt\_max\_velocity}'' and $D$
+for ``disparity passed'', the reject predicate is
+%
+\begin{equation}
+  \mathcal{R} \;=\; C \;\vee\; (\lnot D \wedge V),
+  \label{eq:reject}
+\end{equation}
+%
+against the original $\mathcal{R}_{0} = \lnot D \wedge (C \vee V)$. The
+correction moved $C$ out of the gate, which was necessary and sufficient for the
+$\chi^{2}$ pathology. It deliberately left $V$ inside, on the argument that
+$V$ is \emph{circular}: it reads
+${}^{G}\hat{\mathbf{v}}_{I}$, the filter's own estimate, so a diverged filter
+reports a false $V$ and would veto the only mechanism able to recover it. The
+disparity test breaks that circularity with a witness computed from images
+alone, independent of the state.
+
+That argument is sound on a bounded domain and fails outside it. Let
+$v_{\text{phys}}$ be the platform's physical maximum. For
+$\lVert\mathbf{v}\rVert \lesssim v_{\text{phys}}$, a true $V$ is genuinely
+ambiguous --- the filter may be right or wrong --- and deferring to an
+independent witness is the correct arbitration. For
+$\lVert\mathbf{v}\rVert \ggg v_{\text{phys}}$ there is no ambiguity left to
+arbitrate: the proposition ``this rover travels at
+$922\,\mathrm{m\,s^{-1}}$'' has prior probability zero, and no image-domain
+evidence can raise it. Deferring to $D$ there is not arbitration, it is
+abdication.
+
+The measurement that forced the point: filter at
+$\lVert\mathbf{v}\rVert=922.79\,\mathrm{m\,s^{-1}}$,
+\texttt{zupt\_max\_velocity} set to $1.5$, and \textbf{zero rejections
+logged}. $D$ held --- the scene looked static --- so $V$ was never consulted.
+That is $3500\times$ the rover's measured maximum of
+$0.264\,\mathrm{m\,s^{-1}}$ (Table~\ref{tab:vmax}).
+
+The remedy is a term outside the lattice: an unconditional predicate evaluated
+before Eq.~\eqref{eq:reject},
+%
+\begin{equation}
+  \mathcal{A} \;=\; \lnot\,\mathrm{finite}\bigl(\lVert\mathbf{v}\rVert\bigr)
+             \;\vee\; \lVert\mathbf{v}\rVert > v_{\max}^{\mathrm{abs}},
+  \qquad v_{\max}^{\mathrm{abs}} = 3.0\,\mathrm{m\,s^{-1}},
+  \label{eq:absolu}
+\end{equation}
+%
+with $\mathcal{R}' = \mathcal{A} \vee \mathcal{R}$. The finiteness clause is
+not decoration: \texttt{nan} fails every ordinary comparison, so
+$\texttt{nan} > x$ evaluates false and a \texttt{nan} velocity would slip
+through a bare inequality --- \texttt{nan} does not mean ``small'', it means
+``not computable''.
+
+\begin{table}[htbp]
+\centering
+\caption{Choosing $v_{\max}^{\mathrm{abs}}$. The rover's true maximum is
+measured by MINS, which is wheel-anchored and therefore the only estimator
+entitled to state it.}
+\label{tab:vmax}
+\begin{tabular}{lcl}
+\hline
+quantity & value & source \\
+\hline
+rover maximum, measured        & $0.264\,\mathrm{m\,s^{-1}}$ & MINS, wheel-anchored \\
+\texttt{zupt\_max\_velocity} & $1.5\,\mathrm{m\,s^{-1}}$   & tunable, YAML \\
+$v_{\max}^{\mathrm{abs}}$     & $3.0\,\mathrm{m\,s^{-1}}$   & \textbf{compiled in, $11\times$ margin} \\
+observed at failure            & $922.79\,\mathrm{m\,s^{-1}}$ & $3500\times$ the maximum \\
+\hline
+\end{tabular}
+\end{table}
+
+$v_{\max}^{\mathrm{abs}}$ is a compile-time constant, not a YAML field, and
+that is a deliberate design decision rather than an oversight: a safety bound
+that a configuration file can disarm is not a safety bound. Raising it for a
+faster platform should cost a code change and a rebuild, which leaves a trace
+in version control.
+
+\paragraph{What this bound does not do.} It does not make a diverged filter
+converge. ZUPT is precisely the mechanism that pulls
+$\lVert\mathbf{v}\rVert$ back toward zero; refusing it cannot help recovery,
+and in isolation makes it marginally worse. Its value is different and real:
+it prevents an update computed from a corrupted covariance from injecting
+further error into the state, and --- the reason that actually justifies the
+code --- it converts a silent failure into a logged one. The diagnosis
+reported here cost hours precisely because the filter diverged while
+\emph{accepting} every update without a word.
+
+\begin{table}[htbp]
+\centering
+\caption{Effect of the guard correction. Same build, same configuration, same
+stationary robot; only the boolean changed.}
+\label{tab:zuptfix}
+\begin{tabular}{lcc}
+\hline
+ & before & after \\
+\hline
+$\lVert {}^{G}\mathbf{v}_{I}\rVert$ & $1.0\times10^{23}$\,m/s & $0.030$\,m/s \\
+$\chi^{2}$ (threshold $65.171$)     & $1.34\times10^{57}$ & $1.1$ -- $1.5$ \\
+final position                      & $2.06\times10^{15}$\,m & $0.019$\,m \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsubsection{A second, independent defect: a rank-deficient noise block}
+\label{sssec:rank3}
+
+\texttt{StateHelper::propagate\_zero\_motion()} augments the square-root
+covariance with the bias random-walk noise. It allocates \emph{six} noise rows
+and then writes both $3\times3$ blocks to \emph{the same} rows $0$--$2$, leaving
+rows $3$--$5$ zero. Writing $\mathbf{W}^{1/2}$ for that block and using the fact
+that $\mathbf{W}=\mathbf{W}^{1/2\top}\mathbf{W}^{1/2}$ is invariant under the QR
+that follows, the implied noise covariance becomes
+%
+\begin{equation}
+  \mathbf{W}_{\text{bug}} =
+  \begin{bmatrix}
+    \sigma_{wb}^{2}\Delta t\,\mathbf{I}_{3} & \sigma_{wb}\sigma_{ab}\Delta t\,\mathbf{I}_{3}\\[2pt]
+    \sigma_{wb}\sigma_{ab}\Delta t\,\mathbf{I}_{3} & \sigma_{ab}^{2}\Delta t\,\mathbf{I}_{3}
+  \end{bmatrix},
+  \qquad
+  \operatorname{rank}\mathbf{W}_{\text{bug}} = 3 ,
+  \label{eq:wbug}
+\end{equation}
+%
+instead of the correct block-diagonal, full-rank
+$\mathbf{W}=\Delta t\,\operatorname{diag}(\sigma_{wb}^{2}\mathbf{I}_{3},
+\sigma_{ab}^{2}\mathbf{I}_{3})$.
+
+Two things make this defect hard to see. The diagonal --- the per-axis
+variances --- is \emph{unchanged}, so nothing looks wrong on inspection. And
+the spurious off-diagonal asserts a correlation
+$\rho = \sigma_{wb}\sigma_{ab}/(\sigma_{wb}\sigma_{ab}) $ of exactly one
+between the gyroscope and accelerometer bias random walks, which are physically
+independent. Numerically, with the deployed $\sigma$ values, each update
+injects $\rho \approx 0.044$.
+
+The consequence matches the observation exactly. At rest, ZUPT constrains
+angular rate directly, so $\mathbf{b}_{g}$ is well observed and corrected; the
+spurious coupling pours every such correction into $\mathbf{b}_{a}$, which is
+nearly unobservable at rest and which nothing pulls back. Measured before
+correction: $\mathbf{b}_{a} = (-1.47\times10^{5},\,1.11\times10^{4},\,
+3.69\times10^{4})$\,m/s$^{2}$ --- seven orders of magnitude outside anything
+physical --- while $\mathbf{b}_{g}=(-0.0023,\,0.0009,\,-0.0080)$\,rad/s
+remained perfectly sane and the attitude quaternion stayed stable.
+
+The same augmentation is performed \emph{correctly} some one hundred lines away
+in \texttt{UpdaterZeroVelocity.cpp}, where the analogous matrix is built
+block-diagonal and full-rank. Two implementations of one computation had
+diverged. The fix aligns the second on the first.
+
+\paragraph{Honesty note.} This correction was applied \emph{first} and did not,
+on its own, stop the divergence. Whether it is necessary \emph{in addition to}
+the guard correction has not been isolated; only that it is independently wrong
+and that the correct form already existed in the same package. Both are in
+place in every measurement reported here.
+
+\subsection{Retracting the single-precision hypothesis}
+\label{ssec:retract}
+
+The initial hypothesis attributed the divergence to the upstream default
+\texttt{USE\_FLOAT=ON}, which types every vector and matrix --- including the
+square-root factor itself --- as \texttt{float}. The package was rebuilt in
+double precision (\texttt{-DUSE\_FLOAT=OFF}, no source modification, the CMake
+\texttt{option()} accepting a command-line value) and \textbf{the defect
+reproduced identically}. The hypothesis is therefore refuted: the failure was
+one of logic, not of arithmetic. Double precision did contribute one thing ---
+it turned unreadable numerical garbage ($\chi^{2}=\texttt{inf}$) into a legible
+state that named the corrupted vector.
+
+\subsection{The optical trap: motion blur, and why neither correction touched it}
+\label{ssec:flou}
+
+Both source-level corrections were real, and neither addressed the failure that
+actually ends a drive. On the dynamic run of 2026-08-21 the two pure
+visual-inertial filters lost their entire visual channel within two seconds of
+the wheels turning, and only then fabricated velocity.
+
+\begin{table}[htbp]
+\centering
+\caption{Feature collapse at motion onset. Wheels start at $t=219.0$\,s.
+\texttt{feat} is the width of the \texttt{points\_msckf} cloud, i.e.\ features
+actually consumed by the update --- not features detected.}
+\label{tab:collapse}
+\begin{tabular}{rrrrrrr}
+\hline
+$t$ (s) & wheels & MINS $\lVert v\rVert$ & oV $\lVert v\rVert$ & $\sqrt{}$ $\lVert v\rVert$ & feat oV & feat $\sqrt{}$ \\
+\hline
+218.5 & 0.000 & 0.026 & 0.002 & 0.197 & --- & 0.0 \\
+\textbf{219.0} & \textbf{1.359} & 0.035 & 0.019 & 0.197 & \textbf{11.0} & 4.9 \\
+219.5 & 3.219 & 0.035 & 0.078 & 0.311 & 4.8 & 6.8 \\
+220.0 & 3.362 & 0.047 & 0.258 & 0.730 & 1.0 & 2.1 \\
+220.5 & 3.147 & 0.028 & 0.623 & 1.316 & 0.1 & 0.4 \\
+\textbf{221.0} & 3.147 & 0.025 & \textbf{1.139} & \textbf{2.041} & \textbf{0.0} & \textbf{0.0} \\
+224.0 & 3.147 & 0.047 & 6.309 & 8.529 & 0.2 & 1.6 \\
+\hline
+\end{tabular}
+\end{table}
+
+The ordering in Table~\ref{tab:collapse} settles causality: features fall from
+$11.0$ to $0.0$ over $219.0$--$221.0$\,s, and the velocities rise
+\emph{afterwards}, in step. Deprived of measurements, both filters do what any
+VIO does --- integrate the IMU --- and the accelerometer bias error becomes a
+phantom velocity by double integration. MINS holds
+$0.02$--$0.07\,\mathrm{m\,s^{-1}}$ throughout because its wheels anchor it.
+This is not a filter defect. It is a perception failure.
+
+\subsubsection{The three suspects, and how two were eliminated}
+
+\paragraph{Network --- eliminated by measurement.} \texttt{tools/audit\_flux\_images.py},
+45\,s, sensor timestamps (never arrival times, which would fold WiFi jitter
+into the sensor's):
+
+\begin{verbatim}
+infra1   675 images / 45.0 s -> 15.01 Hz (nominal 15)
+         dt median 66.7 ms | jitter 0.0 ms (0.0 %) | min 66.7 max 66.7
+         GAPS: 0 -> 0 frames lost | reversals 0 | duplicates 0
+infra2   identical
+STEREO   cam0<->cam1 offset: median 0.00 ms | max 0.00 ms
+\end{verbatim}
+
+Zero jitter, zero loss, zero reordering, exact stereo synchrony. The image
+path is unrelated to the $40\,\%$ IMU jitter measured separately: they are
+different transports.
+
+\paragraph{KLT parameters --- eliminated by arithmetic.} The tracker's reach is
+set by \texttt{win\_size}$=15$ and \texttt{pyr\_levels}$=5$ (compiled in, not
+configurable), giving a search radius of
+$(\texttt{win\_size}/2)\cdot 2^{\texttt{pyr\_levels}} = 240$\,px. The
+inter-frame image displacement induced by body rotation is
+%
+\begin{equation}
+  \Delta u \;=\; \frac{\omega\,f}{f_{\mathrm{cam}}},
+  \label{eq:interframe}
+\end{equation}
+%
+with $f=336.37$\,px the focal length and $f_{\mathrm{cam}}=15$\,Hz the frame
+rate. At the measured peak $\omega=0.631\,\mathrm{rad\,s^{-1}}$ this is
+$14.1$\,px --- a factor $17$ inside the tracker's reach. Likewise
+\texttt{track\_frequency}$=31$\,Hz exceeds the $15.01$\,Hz publication rate, so
+every frame is processed and the setting is not a limiter.
+
+\subsubsection{Motion blur: the surviving suspect, modelled}
+
+A point feature imaged during an exposure of duration $t_{\mathrm{exp}}$ while
+the body rotates at $\omega$ is smeared across
+%
+\begin{equation}
+  b \;=\; \omega \, t_{\mathrm{exp}} \, f
+  \label{eq:blur}
+\end{equation}
+%
+pixels. Equation~\eqref{eq:blur} is the small-angle limit of the exact
+projection and is accurate to better than $1\,\%$ for
+$\omega t_{\mathrm{exp}} \ll 1$, amply satisfied here.
+
+The measured configuration made $t_{\mathrm{exp}}$ large for a reason that is
+documented elsewhere in this report: the IR projector is switched off
+(\texttt{laser\_power}$=0$) because its dot pattern polluted the calibration
+checkerboard and the beacon LEDs. Without the projector the infrared scene is
+dim, and auto-exposure compensates the only way it can --- by opening the
+shutter. The camera reported $t_{\mathrm{exp}}=33\,000\,\mu\mathrm{s}$: the
+shutter stands open for $33$\,ms of a $66.7$\,ms frame period, half the time.
+
+\begin{table}[htbp]
+\centering
+\caption{Motion blur from Eq.~\eqref{eq:blur}, $f=336.37$\,px, $\omega$
+measured by MINS. Compare with \texttt{min\_px\_dist}$=20$\,px and with the
+gradient support of a FAST corner at \texttt{fast\_threshold}$=30$.}
+\label{tab:blur}
+\begin{tabular}{lccc}
+\hline
+$\omega$ & $t_{\mathrm{exp}}=33$\,ms & $t_{\mathrm{exp}}=8$\,ms & reduction \\
+\hline
+$0.154\,\mathrm{rad\,s^{-1}}$ (median) & $1.7$\,px & $0.41$\,px & $4.1\times$ \\
+$0.631\,\mathrm{rad\,s^{-1}}$ (peak)   & $7.0$\,px & $1.70$\,px & $4.1\times$ \\
+\hline
+\end{tabular}
+\end{table}
+
+A $7$\,px smear does not merge neighbouring features --- they are kept
+$20$\,px apart --- but it flattens the intensity gradient that a FAST corner
+detector is built to find, and \texttt{fast\_threshold}$=30$ demands a sharp
+one. The corner does not move; it stops being a corner.
+
+\subsubsection{Capping the exposure, and what it cost}
+
+This ROS wrapper exposes no auto-exposure \emph{limit}: the available controls
+are \texttt{enable\_auto\_exposure}, \texttt{exposure} and \texttt{gain}.
+Capping is therefore impossible; the exposure must be fixed manually, which
+also fixes the gain. Applied: $t_{\mathrm{exp}}=8\,000\,\mu\mathrm{s}$ with
+\texttt{gain} raised $16\rightarrow64$ to compensate the $4.1\times$ loss of
+light.
+
+\begin{table}[htbp]
+\centering
+\caption{Effect of the exposure cap, both filters freshly restarted, robot
+stationary. The improvement is measured \emph{at rest}, where there is no
+motion blur to remove --- the in-motion case remains untested.}
+\label{tab:expcap}
+\begin{tabular}{lcc}
+\hline
+ & $t_{\mathrm{exp}}=33$\,ms & $t_{\mathrm{exp}}=8$\,ms \\
+\hline
+$\sqrt{\text{VINS}}$ features/update & $12.00$ & $\mathbf{72.00}$ \\
+non-empty updates & $100\,\%$ & $100\,\%$ \\
+frame rate & $15.01$\,Hz, 0 loss & $15.01$\,Hz, 0 loss \\
+mean luminance & --- & $64.9/255$, $0\,\%$ black, $0\,\%$ clipped \\
+\hline
+\end{tabular}
+\end{table}
+
+Six times more features, and Table~\ref{tab:expcap} understates the intended
+benefit because it was taken at rest, where Eq.~\eqref{eq:blur} gives $b=0$
+and a shorter exposure can only cost light. The gain most plausibly comes from
+chassis micro-vibration, which a $33$\,ms shutter integrates and an $8$\,ms one
+does not.
+
+\paragraph{The operational cost, stated plainly.} Exposure is now fixed. A
+rover crossing from a lit area into a dark one has nothing left to compensate:
+the image will clip or black out. In a laboratory at constant illumination
+this is immaterial; outdoors, or between rooms, it must be re-validated. This
+is a real regression in robustness accepted in exchange for a real gain in
+feature yield, not a free improvement.
+
+\subsection{Bench architecture}
+\label{ssec:archi}
+
+Three estimators run \emph{concurrently} on identical inputs. This is the
+condition that makes any comparison meaningful: at different inputs, a
+difference in output would measure the plumbing rather than the mathematics.
+
+\begin{verbatim}
+ ROBOT -- Raspberry Pi 4B, ROS 1 Noetic         PC -- x86-64, ROS 1 Noetic
+ =====================================         ==================================
+
+ D455 stereo IR --+                             +--> /pc/camera/infra1/image_rect_raw
+   laser_power=0  |  /camera/infra{1,2}  WiFi   |    /pc/camera/infra2/image_rect_raw
+   t_exp  = 8 ms  +-----------------------------+         |      |      |
+   gain   = 64    |  15.01 Hz, 0 loss, 0 jitter |         |      |      |
+ -----------------+                             +-->      |      |      |
+                                                          |      |      |
+ CORE2 IMU ---> /firmware/imu                             |      |      |
+                     |                                    |      |      |
+               imu_sanitizer.py                           |      |      |
+               | accel_scale 1.1186                       |      |      |
+               | gyro bias subtracted                     |      |      |
+               | glitch + freeze guards                   |      |      |
+               +---> /imu/data_clean --------------------->      |      |
+                                                          |      |      |
+ Wheel encoders --> /firmware/wheel_states                 |      |      |
+                     |                                    |      |      |
+               wheel_remap.py                             |      |      |
+               +---> /joint_states_mins ------------->    |      |      |
+                                       |                  |      |      |
+                    +------------------+--+  +------------+--+  ++------+------+
+                    |      M I N S        |  |   openVINS    |  |   sqrtVINS   |
+                    | wheel + visual +    |  |   MSCKF / EKF |  |   SR-MSCKF   |
+                    | inertial            |  |   keeps P     |  |   U'U = P    |
+                    |                     |  |               |  |              |
+                    | UpdaterWheel   YES  |  | wheels:  NO   |  | wheels:  NO  |
+                    | Z UNOBSERVABLE      |  |               |  | lmin 3.3e-9  |
+                    +----------+----------+  +-------+-------+  +------+-------+
+                               |                     |                 |
+                               |          ZUPT GUARDS (pure VIO only)  |
+                               |          +----------+-----------------+------+
+                               |          | A  |v| > 3.0 m/s  => HARD REJECT  |
+                               |          |    compiled in, not overridable   |
+                               |          | B  chi2 > threshold => reject     |
+                               |          | C  |v| > 1.5 m/s => reject ONLY   |
+                               |          |    if disparity fails  (YAML)     |
+                               |          +----------+-----------------+------+
+                               |                     |                 |
+                /mins/imu/odom |   /ov_msckf/odomimu |  /sqrtvins/odomimu
+                     /tf_mins  |          /tf_vins   |     /tf_sqrtvins
+                               +---------+-----------+-----------------+
+                                         |
+                    +--------------------+----------------------+
+                    |             pose_selector.py              |
+                    |  SetPoseSource -- 3 states, typed service |
+                    |  -- GUARD ------------------------------  |
+                    |  first sample > MAX_INITIAL_JUMP_M (5 m)  |
+                    |     => source NOT selectable, logged      |
+                    |  SE(3) correction at switch => no jump    |
+                    +------+----------------------------+-------+
+                           |                            |
+                  /robot_pose_fused             export_matlab.py
+                           |                            |
+                    leo_backend.py                  .mat + CSV
+                           |                      | t  SENSOR timestamp
+                    rosbridge :9090               | p, q, v, omega
+                           |                      | P_pose, P_twist  6x6
+                           v                      |   FLATTENED to 36 columns
+                    Web cockpit                   |   ROS row-major  =>
+                    | ops.html      (3 modes)     |   MATLAB is column-major:
+                    | trajectory    (3 traces)    |   P = reshape(...,6,6)'
+                    | tf_validator  (3 views)     |        ^ transpose MANDATORY
+                                                  | sigma3   3-sigma bounds
+                                                  | feat_n   features consumed
+                                                  | wheels   independent witness
+\end{verbatim}
+
+Three points deserve emphasis.
+
+\paragraph{Only MINS is wheel-anchored.} It alone consumes
+\texttt{/joint\_states\_mins}. The two visual-inertial filters receive the
+stereo pair and the IMU and nothing else. Any comparison of drift must state
+this: it is not a like-for-like contest but a measurement of what wheel
+odometry buys.
+
+\paragraph{Separate TF trees.} Each estimator publishes to its own
+(\texttt{/tf\_mins}, \texttt{/tf\_vins}, \texttt{/tf\_sqrtvins}). Sharing
+\texttt{/tf} would have three filters writing competing transforms for the same
+frame pair, and the tree would be silently incoherent.
+
+\paragraph{A guard between the estimators and the control path.}
+\texttt{pose\_selector} refuses to make a source selectable whose first sample
+lies farther than \texttt{MAX\_INITIAL\_JUMP\_M} $=5$\,m from its origin. This
+is not decoration: \texttt{/robot\_pose\_fused} feeds AUTO mode and beacon
+approach. During this audit the guard rejected $\sqrt{\text{VINS}}$ at
+$65.95$\,m while the robot was stationary, and logged the reason
+explicitly --- see Sec.~\ref{ssec:etat}.
+
+\subsection{State of the three estimators at the time of writing}
+\label{ssec:etat}
+
+\begin{table}[htbp]
+\centering
+\caption{Robot stationary, wheel-confirmed, identical inputs.}
+\label{tab:etat3}
+\begin{tabular}{lccl}
+\hline
+Estimator & distance from origin & wheel-anchored & selectable as pose source \\
+\hline
+MINS                 & $0.202$\,m  & yes & yes \\
+openVINS             & $0.075$\,m  & no  & yes \\
+$\sqrt{\text{VINS}}$ & $65.95$\,m  & no  & \textbf{no --- refused by the guard} \\
+\hline
+\end{tabular}
+\end{table}
+
+$\sqrt{\text{VINS}}$ has improved by seventeen orders of magnitude and is now a
+filter that runs, publishes well-formed covariances, and maintains
+positive-definiteness under Eq.~\eqref{eq:psd}. It is \emph{not} yet an
+estimator whose output may be trusted for navigation on this platform, and the
+bench says so by refusing it rather than by degrading silently.
+
+\subsection{Instrumenting the update: where features are actually lost}
+\label{ssec:etages}
+
+Every figure in the two subsections that follow rests on a measurement that
+the package could not produce as shipped. \texttt{UpdaterMSCKF.cpp} contains
+\emph{no} diagnostic output --- no \texttt{PRINT\_ALL}, no
+\texttt{PRINT\_DEBUG} --- and its single feature counter is commented out.
+Running the node at \texttt{verbosity: ALL} therefore reveals nothing about
+this stage, which is why an earlier attempt to instrument it returned an empty
+capture.
+
+Five counters were added, one at each \texttt{erase} of the pipeline, in the
+order they execute: features removed for having fewer than two usable
+measurements; triangulation failure; refinement failure; Jacobian failure;
+reprojection failure; and $\chi^{2}$ rejection. A single line is emitted per
+update:
+
+\begin{verbatim}
+[MSCKF-ETAGES]: entree N | <2mesures N | avant_tri N | tri N | refine N
+                | jacob N | reproj N | chi2 N | SORTIE N
+\end{verbatim}
+
+\paragraph{A metric that had to be discarded.} This instrumentation also
+invalidated the measure used earlier in the investigation. The
+\texttt{/points\_msckf} point cloud was read as ``features consumed per
+update'', but it is populated from \texttt{good\_features\_MSCKF}, which is
+cleared only inside \texttt{do\_feature\_propagate\_update}. When a
+zero-velocity update pre-empts the camera path --- which it does on nearly
+every frame at rest --- that function is never reached, the vector retains its
+previous contents, and the visualiser republishes them indefinitely. A capture
+showing $1\,352$ messages averaging $78$ features was recorded while
+\texttt{UpdaterMSCKF::update()} was called \emph{zero} times. Any conclusion
+drawn from \texttt{/points\_msckf} alone is therefore unsafe, and the
+per-stage counters are used instead throughout what follows.
+
+\subsection{The geometric ceiling: base-to-depth ratio and the limits of pure
+visual-inertial odometry on a slow platform}
+\label{ssec:parallaxe}
+
+The preceding sections localised, corrected and measured a series of software
+defects. This one addresses a different class of limit --- one that no
+parameter can lift, because it is set by the vehicle's geometry and speed
+rather than by its code. It matters for the conclusions of this report: it
+explains why the wheel-aided estimator survives drives that both pure
+visual-inertial filters fail, and it bounds what any future tuning effort can
+be expected to achieve.
+
+\subsubsection{The measured premises}
+
+Three quantities, all measured on this platform rather than assumed:
+
+\begin{table}[htbp]
+\centering
+\caption{Geometric premises of triangulation on the LEO rover. The speed is
+measured by MINS, the only estimator anchored on wheel encoders and therefore
+the only one entitled to state it.}
+\label{tab:premisses}
+\begin{tabular}{llc}
+\hline
+quantity & symbol & value \\
+\hline
+maximum body speed        & $v_{\max}$      & $0.264\,\mathrm{m\,s^{-1}}$ \\
+camera frame rate         & $f_{\mathrm{cam}}$ & $15.0\,\mathrm{Hz}$ \\
+inter-frame displacement  & $\Delta = v_{\max}/f_{\mathrm{cam}}$ & $\mathbf{1.76\,\mathrm{cm}}$ \\
+stereo baseline           & $b$             & $\mathbf{9.0\,\mathrm{cm}}$ \\
+focal length              & $f$             & $336.37\,\mathrm{px}$ \\
+\hline
+ratio $b/\Delta$          &                 & $\mathbf{5.1}$ \\
+\hline
+\end{tabular}
+\end{table}
+
+The last line is the one that governs everything else. The stereo baseline is
+five times larger than the displacement accumulated between two consecutive
+frames at full speed. Triangulation on this rover therefore rests almost
+entirely on the \emph{static} stereo pair; the motion contributes a parallax
+increment of the order of one fifth of it, and only when the vehicle is
+actually moving at its maximum.
+
+This inverts the usual situation in visual-inertial odometry, where a moving
+camera accumulates a virtual baseline far exceeding any physical stereo rig
+and where depth is progressively refined by translation. Here the geometry is
+essentially frozen at $9\,\mathrm{cm}$.
+
+\subsubsection{Why depth collapses at room scale}
+
+For a rectified stereo pair, depth follows from disparity $d$ as $Z = bf/d$.
+Differentiating and substituting back gives the standard first-order
+propagation of disparity error into depth error:
+%
+\begin{equation}
+  \sigma_Z \;=\; \frac{Z^{2}}{b\,f}\,\sigma_d .
+  \label{eq:sigmaz}
+\end{equation}
+%
+The quadratic dependence on $Z$ is the whole difficulty: uncertainty does not
+degrade gracefully with distance, it degrades as the square. With
+$\sigma_d = 1\,\mathrm{px}$ --- optimistic, given the $\pm 0.19\,\mathrm{px}$
+calibration residual and the residual motion blur quantified in
+Sec.~\ref{ssec:flou} --- Eq.~\eqref{eq:sigmaz} gives Table~\ref{tab:sigmaz}.
+
+\begin{table}[htbp]
+\centering
+\caption{Depth uncertainty from Eq.~\eqref{eq:sigmaz}, $\sigma_d = 1$\,px.
+The third column uses the physical stereo baseline $b = 9$\,cm; the fourth
+shows what would remain if the filter had to rely on inter-frame motion alone
+($\Delta = 1.76$\,cm), which is the regime it approaches whenever the rover
+slows or stops.}
+\label{tab:sigmaz}
+\begin{tabular}{rrrrr}
+\hline
+$Z$ (m) & $b/Z$ & $\sigma_Z$ stereo (m) & $\sigma_Z$ motion-only (m) & rel.\ error (stereo) \\
+\hline
+$1$  & $1{:}11$  & $0.033$ & $0.169$  & $3\,\%$ \\
+$3$  & $1{:}33$  & $0.297$ & $1.520$  & $10\,\%$ \\
+$5$  & $1{:}56$  & $0.826$ & $4.223$  & $17\,\%$ \\
+$10$ & $1{:}111$ & $3.303$ & $16.892$ & $33\,\%$ \\
+\hline
+\end{tabular}
+\end{table}
+
+At the distances that dominate an indoor scene --- walls, furniture and
+doorways at three to five metres --- the base-to-depth ratio falls between
+$1{:}33$ and $1{:}56$, and the depth of a feature is known only to $30$ to
+$83\,\mathrm{cm}$. A feature triangulated with that uncertainty, then
+reprojected into the other poses of a $25$-clone sliding window, can plausibly
+land behind the image plane of one of them.
+
+This is precisely the failure the instrumentation of Sec.~\ref{ssec:etages}
+counts. The rejection is issued by \texttt{UpdaterHelper.cpp} on the condition
+$Z_{\mathrm{cam}} < 0.1\,\mathrm{m}$, reported as \emph{``Negative depth
+detected''}, and it accounted for $35.8\,\%$ of all features entering the
+update before any correction. It is not a threshold that is set too tight: a
+feature genuinely cannot lie behind the camera that observes it. It is the
+downstream symptom of a depth estimate whose uncertainty is comparable to the
+depth itself.
+
+\subsubsection{What wheel odometry contributes, and why it is decisive here}
+
+MINS consumes \texttt{/joint\_states\_mins} in addition to the stereo pair and
+the IMU; the two pure visual-inertial filters do not. Under the conditions of
+Table~\ref{tab:sigmaz} this is not a marginal advantage but the difference
+between an observable system and a poorly observable one, for three distinct
+reasons.
+
+\paragraph{Metric scale becomes directly observed.} In a visual-inertial
+system, scale is recovered by integrating accelerometer measurements over the
+interval during which a feature is tracked, and is therefore only as good as
+the bias estimate over that interval. Wheel encoders measure displacement
+directly, in metres, with an error that grows linearly with distance rather
+than quadratically with time. The estimator no longer needs to extract scale
+from a geometry that, per Table~\ref{tab:sigmaz}, cannot supply it reliably.
+
+\paragraph{Velocity is constrained without vision.} When features collapse ---
+whether from a texture-poor scene, motion blur, or the triangulation regime
+described above --- a pure VIO filter has no measurement left and falls back
+to open-loop inertial integration, in which an accelerometer bias error
+$\varepsilon$ produces a position error $\tfrac{1}{2}\varepsilon t^{2}$. The
+divergences recorded in Sec.~\ref{ssec:etat} follow this signature. A wheel
+measurement bounds velocity at every step and removes the double integration
+entirely.
+
+\paragraph{The planar constraint is exploited rather than ignored.} MINS uses
+a \texttt{Wheel2DAng} model, which asserts planar motion. This is
+simultaneously its strength on $x$ and $y$ and its documented weakness on
+$z$: the Jacobian $\partial h/\partial z$ is identically zero, so the vertical
+axis receives no wheel information whatsoever and is left to the camera alone.
+The measurements of this campaign show both faces of that trade-off --- MINS
+holding $x$ and $y$ to within centimetres over drives where both VIO filters
+diverged, while its own $z$ drifted to several metres and, in one recorded
+instance, to $1707\,\mathrm{m}$.
+
+\paragraph{Consequence for any comparison in this report.} A drive in which
+MINS reports $3.83\,\mathrm{m}$ and $\sqrt{\text{VINS}}$ reports
+$431\,\mathrm{m}$ over the same sixteen seconds is \emph{not} a measurement of
+square-root versus covariance arithmetic. It is a measurement of what wheel
+odometry is worth when the visual channel cannot carry the estimate on its
+own. Every three-way figure in this report must be read with that asymmetry
+stated.
+
+\subsubsection{The refinement trade-off: fewer bad depths, or fewer depths}
+
+\texttt{fi\_refine\_features} controls whether the linear triangulation is
+followed by a Levenberg--Marquardt refinement of the feature position. The
+deployed $\sqrt{\text{VINS}}$ configuration had it disabled --- alone among
+the three estimators, openVINS and MINS both leaving it at the upstream
+default of \texttt{true}. Since low parallax is exactly the regime in which a
+linear solution is least trustworthy, disabling the non-linear refinement
+removes the correction where it is most needed.
+
+Enabling it produced the shift in Table~\ref{tab:refine}, measured with
+identical instrumentation and the same geometry.
+
+\begin{table}[htbp]
+\centering
+\caption{Per-stage feature accounting, $\sqrt{\text{VINS}}$, robot driven.
+Configuration A uses the hand-placed extrinsics; B and C the measured Kalibr
+calibration; C additionally enables Levenberg--Marquardt refinement. Values
+are percentages of features entering \texttt{UpdaterMSCKF::update()}.}
+\label{tab:refine}
+\begin{tabular}{lccc}
+\hline
+rejection stage & A (hand) & B (Kalibr) & C (Kalibr + refine) \\
+\hline
+KLT, $<2$ measurements & $10.4$ & $10.9$ & $12.1$ \\
+triangulation          & $20.6$ & $23.5$ & $\mathbf{25.7}$ \\
+refinement             & $0$ (inactive) & $0$ (inactive) & $3.4$ \\
+\textbf{Jacobian (negative depth)} & $\mathbf{35.8}$ & $34.3$ & $\mathbf{29.4}$ \\
+$\chi^{2}$ gate        & $22.3$ & $22.8$ & $20.2$ \\
+\hline
+\textbf{surviving}     & $10.9$ & $8.5$ & $9.2$ \\
+\hline
+\end{tabular}
+\end{table}
+
+Two readings follow, and they must be kept separate.
+
+\paragraph{The targeted stage improves, and by the expected mechanism.}
+Jacobian rejection falls from $35.8\,\%$ to $29.4\,\%$, an $18\,\%$ relative
+reduction, and the underlying \emph{``Negative depth detected''} count drops
+from $17\,242$ to $3\,789$ over comparable windows. The refinement is doing
+what it is for: a feature whose linear depth estimate was inconsistent with
+its observations is moved to a position that reprojects in front of every
+camera that saw it.
+
+\paragraph{The aggregate does not improve, because the losses move upstream.}
+Triangulation rejection rises from $20.6\,\%$ to $25.7\,\%$, and total yield
+is unchanged within the noise of these measurements ($10.9\,\%$ against
+$9.2\,\%$). This is the honest interpretation: the refinement does not
+manufacture well-conditioned features, it fails the ill-conditioned ones
+\emph{earlier and more explicitly}. A feature that previously survived
+triangulation only to be discarded later for negative depth is now rejected at
+the stage that should have rejected it.
+
+That is a real improvement in the diagnostic quality of the pipeline and a
+negligible one in its output. It is worth keeping --- it aligns
+$\sqrt{\text{VINS}}$ with the other two estimators and with upstream, and it
+moves rejections to where they are interpretable --- but it should not be
+presented as a fix for the yield.
+
+\paragraph{The ceiling stands.} Across the three configurations, between
+$8.5\,\%$ and $10.9\,\%$ of features entering the update survive it, from an
+image in which $165$ FAST corners are demonstrably detectable during motion
+(Sec.~\ref{ssec:flou}). Neither the camera--IMU extrinsics
+(Sec.~\ref{ssec:archi}) nor the refinement setting moved that figure
+materially. The limit identified in Table~\ref{tab:sigmaz} --- a $9\,\mathrm{cm}$
+baseline observing a scene at three to five metres, with a vehicle too slow to
+accumulate meaningful additional parallax --- is the operative constraint, and
+it is a property of the platform rather than of the estimator.
+
+\paragraph{What would lift it.} Three avenues follow directly from
+Eq.~\eqref{eq:sigmaz}, in decreasing order of practicality on this rover: a
+longer stereo baseline, which enters linearly; operation at shorter range,
+which enters quadratically and is by far the most effective; or wheel-aided
+fusion, which sidesteps the triangulation problem rather than solving it and
+is the approach MINS already demonstrates. Faster driving would help only
+marginally: even a fourfold increase in $v_{\max}$ would leave the inter-frame
+displacement below the stereo baseline.
+
+\subsection{What is settled, and what is not}
+\label{ssec:bilan}
+
+\paragraph{Settled, with measurements.} Four results are reproducible and
+carry their numbers: the $\chi^{2}$ override defect and its correction
+(Table~\ref{tab:zuptfix}); the rank-deficient bias-noise block,
+Eq.~\eqref{eq:wbug}, whose correct form already existed elsewhere in the same
+package; the refutation of the single-precision hypothesis
+(Sec.~\ref{ssec:retract}); and the exposure cap, Table~\ref{tab:expcap}.
+Positive-definiteness under Eq.~\eqref{eq:psd} is observed rather than
+assumed, at $\lambda_{\min}=3.28\times10^{-9}$.
+
+\paragraph{Not settled.} Neither pure visual-inertial filter survives a drive
+on this platform. The absolute bound of Eq.~\eqref{eq:absolu} intercepts the
+runaway and logs it; it does not prevent it, and the report should not be read
+as claiming otherwise. The exposure cap is validated \emph{at rest} only ---
+$12\rightarrow72$ features --- and the in-motion measurement that would
+justify it has not been taken.
+
+\paragraph{A structural caveat that governs every comparison here.} MINS
+consumes \texttt{/joint\_states\_mins}; the two visual-inertial filters
+consume the stereo pair and the IMU and nothing else. MINS surviving a drive
+that the other two fail is therefore not evidence about square-root versus
+covariance arithmetic. It is a measurement of what wheel odometry is worth
+when the visual channel collapses --- roughly, the difference between
+$3.83$\,m and $431$\,m over the same sixteen seconds. Any conclusion drawn
+across the three estimators must carry this asymmetry explicitly.
+
+\paragraph{Two hardware conditions invalidated measurements during this
+campaign,} and are recorded so that the same trap is not fallen into twice.
+The ground PC reached $86\,^{\circ}$C against a manufacturer threshold of
+$82\,^{\circ}$C, with the browser consuming more CPU than MINS itself; and the
+battery fell to $10.61$\,V, below the $30\,\%$ under which yaw authority is
+known to degrade on this chassis, so a commanded rotation is no longer the
+rotation performed. \texttt{tools/relance\_estimateurs.sh} now refuses to
+start a run when either condition holds. A measurement taken under them
+proves nothing, and the discipline of refusing it is cheaper than the hours
+spent interpreting one.

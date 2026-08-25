@@ -1,30 +1,30 @@
 {
-  "generated": "2026-08-18 22:39:34",
-  "source_prefix": "data/trajectories/sqrtvins_compare_20260813_175957",
-  "temporal_overlap_pct": 99.998510075868353,
+  "generated": "2026-08-20 16:32:05",
+  "source_prefix": "data/trajectories/zuptclean_20260820_162020",
+  "temporal_overlap_pct": 99.994273324142014,
   "any_synthetic": false,
   "estimators": [
     {
       "name": "MINS",
-      "loop_closure_m": 1.0230471061476103,
-      "path_length_m": 65.259084196511338,
-      "divergence_ratio": 0.015676700320632158,
-      "samples": 32802,
+      "loop_closure_m": 1.0265659409312196,
+      "path_length_m": 23.221957565268525,
+      "divergence_ratio": 0.044206692654825241,
+      "samples": 51867,
       "synthetic": false,
-      "drift_exponent": -0.0081850003606842772,
-      "drift_r_squared": 0.00010903315385714271,
-      "file": "data/trajectories/sqrtvins_compare_20260813_175957_mins.csv"
+      "drift_exponent": 0.054122882298827647,
+      "drift_r_squared": 0.10234711267052141,
+      "file": "data/trajectories/zuptclean_20260820_162020_mins.csv"
     },
     {
       "name": "openVINS",
-      "loop_closure_m": 541.68405581315176,
-      "path_length_m": 10937.909878344335,
-      "divergence_ratio": 0.049523543514069082,
-      "samples": 31889,
+      "loop_closure_m": 545.3439105900743,
+      "path_length_m": 4638.7255152922626,
+      "divergence_ratio": 0.11756330672989064,
+      "samples": 51806,
       "synthetic": false,
-      "drift_exponent": 3.2495195331987192,
-      "drift_r_squared": 0.85021842999813169,
-      "file": "data/trajectories/sqrtvins_compare_20260813_175957_vins.csv"
+      "drift_exponent": 0.74121962152701115,
+      "drift_r_squared": 0.94069854476181136,
+      "file": "data/trajectories/zuptclean_20260820_162020_vins.csv"
     }
   ]
 }

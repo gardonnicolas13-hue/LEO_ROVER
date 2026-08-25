@@ -107,3 +107,202 @@ Full diff attached: [`sqrtvins_zupt_numerical_guard.patch`](sqrtvins_zupt_numeri
 
 ## Ask
 Happy to provide the full config files, the complete console log from either repro, the 60-second patched-run log, or run additional diagnostics if useful. Flagging primarily because a χ² gate silently accepting a value 1e15–1e17 past its own threshold seems like something worth knowing about regardless of platform, and we wanted to report it precisely rather than just noting "ZUPT doesn't work for us." The attached patch is offered as-is for review/adoption at your discretion — it was tested on our platform only (aarch64, float32), not validated against the upstream double-precision build, and we make no claim it's the cleanest fix, only that it's a minimal, additive one that measurably closes the specific gap this report describes.
+
+---
+
+## ADDENDUM (2026-08-21) — the single-precision hypothesis is REFUTED, and the accel-bias state is the vector
+
+The "Hypothesis" section above proposed `USE_FLOAT=1` (single precision
+throughout) as the architectural correlate of the divergence. **We built the
+package in double precision and the bug reproduces identically.** The
+hypothesis is wrong, and we are retracting it.
+
+### Build
+
+Same commit (`30fafc8`), same source, **no source modification** — `option()`
+accepts a command-line value, so only the build flag changed:
+
+```bash
+catkin config --extend /opt/ros/noetic \
+              --cmake-args -DCMAKE_BUILD_TYPE=Release -DUSE_FLOAT=OFF
+catkin build
+```
+
+Verified: `USE_FLOAT:BOOL=OFF` in `build/ov_srvins/CMakeCache.txt`, and
+`-DUSE_FLOAT=1` absent from every `flags.make` (the aarch64 build has it
+present). Platform this time: x86_64 desktop (12 cores, 31 GB), Ubuntu 20.04,
+ROS Noetic — not the Pi. Same live stereo+IMU feed, republished so that
+openVINS and sqrtVINS receive **bit-identical** images and the same
+`/imu/data_clean`.
+
+### Result
+
+`try_zupt: true`, robot **stationary**, double precision, tuning otherwise
+aligned to our working openVINS config (`max_clones: 25`,
+`up_msckf_chi2_multipler: 5`, `zupt_max_velocity: 50`, `fi_max_baseline: 200`):
+the filter diverges to **2.06e15 m** with an estimated speed of **4.06e11 m/s**,
+within a ~90 s window.
+
+### The new information: which state is corrupted
+
+Double precision changed the failure from unreadable numerical garbage into
+something legible, and the console now names the vector directly:
+
+```
+q_GtoI = 0.278,0.192,-0.279,0.899 | p_IinG = -8.73e14, 1.32e15, 1.80e15 | dist = 2.06e15 (meters)
+bg = -0.0023,0.0009,-0.0080 | ba = -147026.4576,11084.9667,36904.9269
+```
+
+- **`ba` (accelerometer bias) is corrupted to −147 026 m/s²** — seven orders of
+  magnitude outside anything physical (a real bias is ~1e-2 m/s²).
+- **`bg` (gyroscope bias) stays perfectly sane** at −0.0023, 0.0009, −0.0080.
+- **The attitude quaternion stays stable** across updates.
+
+So the ZUPT update is not blowing up the state as a whole: it drives the
+**accel-bias block specifically** to a nonphysical value, and the position
+runaway is the arithmetic consequence of double-integrating a 1.5e5 m/s²
+bias. Orientation and gyro bias — updated by the same measurement — are
+untouched.
+
+That asymmetry is the useful clue, and it is not a precision artifact: it
+reproduces in float64 on x86.
+
+### Consequence for the earlier patch
+
+Our `chi2_numerically_valid` guard remains correct and worth having (it
+stops the silent acceptance of `inf`/out-of-threshold residuals), but the
+addendum confirms what we already suspected in the original report: it is
+**not** sufficient. The residual defect is in what the ZUPT update *does to
+the accel-bias state*, not only in whether its χ² is validly computed.
+
+### Also confirmed: without ZUPT there is no velocity anchor
+
+`try_zupt: false`, double precision, robot **driven** (96 % of the window in
+motion, wheel-confirmed), same aligned tuning: 5 015 m of estimated path for a
+~12 m real trajectory, `v_max` 91.8 m/s. Over the same window and the same
+inputs, openVINS reported 11.59 m and MINS 12.44 m — within 7 % of each other.
+So neither ZUPT sub-mode is usable, and going without it is not sufficient
+either, on double precision exactly as on single.
+
+---
+
+## ADDENDUM 2 (2026-08-21) — root cause found: the disparity check overrides the χ² gate entirely
+
+Following the double-precision addendum above, we instrumented further and
+found the defect. It is a **boolean-logic bug**, not a numerical one, which is
+consistent with the divergence reproducing identically in float32 and float64.
+
+### The line
+
+`ov_srvins/src/update/UpdaterZeroVelocity.cpp`:
+
+```cpp
+// Check if we are currently zero velocity
+// We need to pass the chi2 and not be above our velocity threshold
+if (!disparity_passed && (chi2 > options_.chi2_multipler * chi2_check ||
+                          state->imu->vel().norm() > zupt_max_velocity_)) {
+  ... reject ...
+}
+```
+
+The leading `!disparity_passed &&` gates the **entire** rejection. Once the
+disparity check passes, **neither the χ² threshold nor the velocity threshold
+is ever evaluated.** The comment directly above the line states the intended
+semantics — *"We need to pass the chi2"* — and the code does the opposite.
+
+### Measured, with the χ² gate fully enabled
+
+`zupt_chi2_multipler: 1` (so the threshold is live and correctly computed at
+65.171), double precision, robot stationary:
+
+```
+[ZUPT]: accepted |v_IinG| = 80973924029883048001536.000 (chi2 8.49e56 < 58.124)
+[ZUPT]: accepted |v_IinG| = 101524452023746466676736.000 (chi2 1.34e57 < 65.171)
+```
+
+**290 accepted, 0 rejected.** A χ² of 1.34e57 against a threshold of 65.171,
+and a velocity of 1.0e23 m/s against `zupt_max_velocity`, both reported as
+accepted. This is not a threshold-tuning issue: the thresholds are correct and
+simply never consulted.
+
+This also explains why our earlier `chi2_numerically_valid` patch helped but
+did not fix the divergence: it added a guard *before* this block, but this
+block's own χ² comparison remained unreachable whenever disparity passed.
+
+### The fix
+
+The two guards do not measure the same thing, and only one of them should be
+overridable:
+
+- The **velocity** threshold reads the filter's *own* estimate, so it is
+  circular: once the filter diverges, that estimate is wrong and would block
+  the only mechanism able to recover it. Breaking that circularity with an
+  independent witness (image disparity) is exactly what the disparity check is
+  for. **This override is legitimate and we kept it.**
+- The **χ²** measures whether the measurement is consistent with the state and
+  its covariance. A χ² of 1e57 says the update is nonsense; applying it injects
+  garbage into the state. No external witness makes an inconsistent update
+  acceptable. **This override should not exist.**
+
+```cpp
+const bool chi2_non_finite = !std::isfinite(static_cast<double>(chi2)) || chi2 < 0;
+const bool chi2_over       = (options_.chi2_multipler > 0) &&
+                             (chi2 > options_.chi2_multipler * chi2_check);
+const bool vel_over        = state->imu->vel().norm() > zupt_max_velocity_;
+
+if (chi2_non_finite || chi2_over || (!disparity_passed && vel_over)) {
+  ... reject ...
+}
+```
+
+The documented `chi2_multipler: 0` ("disparity-only") semantics are preserved —
+with 0, the χ² *threshold* is not applied — but a non-finite χ² is rejected in
+every mode, since `nan` does not mean "very good measurement", it means "χ²
+not computable".
+
+### Result
+
+Same build, same config, same stationary robot, only the guard changed:
+
+| | before | after |
+|---|---|---|
+| `\|v_IinG\|` | 1.0e23 m/s | **0.030 m/s** |
+| χ² (threshold 65.171) | 1.34e57 | **1.1 – 1.5** |
+| final position | 2.06e15 m | **0.019 m** from origin |
+
+Seventeen orders of magnitude, from one boolean.
+
+Measured alongside the two other estimators on the same robot, same inputs,
+robot stationary, 90 s: MINS final position (0.025, 0.017, 0.120), openVINS
+(0.000, −0.000, 0.001), **sqrtVINS (0.010, 0.006, 0.019)**.
+
+### A second, independent defect found on the way (reported separately below)
+
+`ov_srvins/src/state/StateHelper.cpp`, `propagate_zero_motion()`:
+
+```cpp
+U_new.block(0, bg_id, 3, 3) = Mat3::Identity() * sqrt(dt_summed) * sigma_wb;
+U_new.block(0, ba_id, 3, 3) = Mat3::Identity() * sqrt(dt_summed) * sigma_ab;
+```
+
+Both bias random-walk noise blocks are written to the **same rows 0–2**, while
+the function allocates **six** noise rows (`6 + state->U_.rows()`) and leaves
+rows 3–5 zero. Computing `P = UᵀU` (invariant under the QR that follows):
+
+- the 6×6 bias noise block has **rank 3 instead of 6** — singular;
+- a spurious cross-covariance appears between `b_g` and `b_a`
+  (`sqrt(dt)² · σ_wb · σ_ab`, r ≈ 0.044 per update) although the two random
+  walks are physically independent;
+- the diagonal variances are unaffected, which is what makes it invisible.
+
+The same augmentation is performed **correctly** ~100 lines away in
+`UpdaterZeroVelocity.cpp`, where `Q_bias_sqrt` is a full-rank 6×6 block-diagonal
+matrix (`block(0,0,3,3)` gyro, `block(3,3,3,3)` accel). The two implementations
+of the same computation disagreed. Fix: `block(0, ba_id, ...)` →
+`block(3, ba_id, ...)`.
+
+**Honesty note:** we applied this fix *before* the guard fix, and it alone did
+**not** stop the divergence. We have not isolated whether it is necessary in
+addition to the guard fix, only that it is independently wrong and that the
+correct form is already present elsewhere in the package. Both fixes are in
+place in the run reported above.

@@ -1,0 +1,384 @@
+\section{Anatomy of a starved visual channel: openVINS on the LEO rover}
+\label{sec:ovstarvation}
+
+Over a single instrumented session (2026-08-20) the visual--inertial
+estimator was taken from ``it drifts'' to a quantified diagnosis. Three
+defects were found, measured and corrected; seven candidate explanations for
+the residual failure were eliminated by measurement rather than by argument.
+This section records the mechanisms, because each is a trap that costs a night
+to rediscover.
+
+The single number that governs everything below is the count of visual
+features the filter actually \emph{consumes} per update. openVINS is
+configured with \texttt{max\_msckf\_in\_update: 40}. Measured on this robot,
+over $1793$ updates while driving:
+\begin{equation}
+\bar{n}_{\mathrm{feat}} = 0.75,
+\qquad
+n_{\max} = 25,
+\qquad
+\frac{\bar{n}_{\mathrm{feat}}}{40} = 1.9\,\%.
+\label{eq:featstarve}
+\end{equation}
+The estimator is therefore not a visual--inertial filter in practice but an
+inertial integrator with occasional visual corrections. Every symptom follows
+from that.
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{The measurement funnel, and where it empties}
+\label{sec:funnel}
+
+The front end is \emph{not} idle. Its debug overlay draws roughly
+$1.19\times10^{4}$ coloured pixels per frame, so points are detected and
+tracked. The loss happens between detection and the state update.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex, scale=0.95]
+  \tikzset{
+    stage/.style={draw, rounded corners=1pt, minimum height=8mm,
+                  align=center, font=\small},
+    good/.style={stage, fill=accentblue!8, draw=accentblue!55},
+    bad/.style={stage, fill=alertred!8, draw=alertred!60},
+    lost/.style={font=\scriptsize\itshape, color=alertred!85, align=left}
+  }
+  \node[good, minimum width=62mm] (det)  at (0,0)      {FAST/KLT detection \& tracking
+                                                        \;\textbf{$\sim$300 points}};
+  \node[good, minimum width=50mm] (mat)  at (0,-1.5)   {stereo match, RANSAC epipolar
+                                                        \;(\texttt{findFundamentalMat})};
+  \node[bad,  minimum width=38mm] (tri)  at (0,-3.0)   {triangulation
+                                                        \;(\texttt{FeatureInitializer})};
+  \node[bad,  minimum width=26mm] (chi)  at (0,-4.5)   {$\chi^2$ gate};
+  \node[bad,  minimum width=16mm] (upd)  at (0,-6.0)   {\textbf{0.75}};
+
+  \draw[->, thick] (det) -- (mat);
+  \draw[->, thick] (mat) -- (tri);
+  \draw[->, thick] (tri) -- (chi);
+  \draw[->, thick] (chi) -- (upd);
+
+  \node[lost, anchor=west] at (3.6,-2.25) {epipolar constraint is estimated\\
+                                           from the \emph{data}, not from\\
+                                           the configured extrinsic};
+  \node[lost, anchor=west] at (3.6,-3.75) {rejects if
+                                           $\|\mathbf{p}_f\|/b_{\max} > 40$\\
+                                           $\Rightarrow$ $d_{\max}=3.6$\,m at rest};
+  \node[lost, anchor=west] at (3.6,-5.25) {loosening $\times 5$ changed\\
+                                           $0.58 \to 0.75$: not the gate};
+  \node[font=\scriptsize, anchor=east, color=alertred] at (-1.2,-6.0)
+        {features per update};
+\end{tikzpicture}
+\caption[Feature funnel in openVINS]{Where the visual measurements are lost.
+Detection is healthy; the collapse happens downstream. Each annotation is a
+hypothesis that was tested and its measured outcome. The stereo matching stage
+cannot be blamed on a mis-declared extrinsic, because \texttt{TrackKLT} derives
+the epipolar constraint by RANSAC from the observed correspondences.}
+\label{fig:featfunnel}
+\end{figure}
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Defect 1: a circular ZUPT lock}
+\label{sec:zuptlock}
+
+Zero-velocity updates are gated by an estimated-velocity threshold
+$v_{\max}$ (\texttt{zupt\_max\_velocity}). The update is applied only when
+\begin{equation}
+\|\hat{\mathbf{v}}\| < v_{\max}.
+\label{eq:zuptgate}
+\end{equation}
+A residual specific force $\varepsilon$ integrates into the velocity estimate
+between corrections,
+\begin{equation}
+\|\hat{\mathbf{v}}(t)\| \;\approx\; \varepsilon\,t ,
+\label{eq:vgrowth}
+\end{equation}
+so once $\|\hat{\mathbf{v}}\|$ exceeds $v_{\max}$ the gate \eqref{eq:zuptgate}
+can never re-open. The estimate is trapped: the quantity that decides whether
+the correction runs is precisely the quantity the correction was meant to fix.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex, node distance=8mm and 20mm]
+  \tikzset{blk/.style={draw, rounded corners=1pt, minimum height=8mm,
+                       minimum width=30mm, align=center, font=\small}}
+  \node[blk, fill=alertred!8, draw=alertred!60] (bias) {accel residual
+                                                        $\varepsilon$};
+  \node[blk, right=28mm of bias, fill=codebg]   (int)  {$\int\!\mathrm{d}t$};
+  \node[blk, below=14mm of int, fill=codebg]    (vel)  {$\|\hat{\mathbf{v}}\|$};
+  \node[blk, left=28mm of vel, fill=alertred!8, draw=alertred!60]
+                                                (gate) {gate\\
+                                                        $\|\hat{\mathbf{v}}\|<v_{\max}$?};
+  \draw[->, thick] (bias) -- (int);
+  \draw[->, thick] (int)  -- (vel);
+  \draw[->, thick] (vel)  -- (gate);
+  \draw[->, thick, alertred] (gate) -- node[left, font=\scriptsize, align=center]
+        {\textsc{no}\\ no correction} (bias);
+  \node[font=\scriptsize\itshape, align=center, color=alertred!85]
+        at (0,-2.6) {the loop has no exit above $v_{\max}$};
+\end{tikzpicture}
+\caption[The ZUPT circular lock]{The lock. Above the threshold the negative
+feedback path is severed, and the residual keeps driving the estimate.}
+\label{fig:zuptlock}
+\end{figure}
+
+The prediction of \eqref{eq:vgrowth}--\eqref{eq:zuptgate} is that
+$\|\hat{\mathbf{v}}\|$ settles slightly \emph{above} whatever
+$v_{\max}$ is set to, for any value of $v_{\max}$. This was tested directly:
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{@{}lrr@{}}
+\toprule
+$v_{\max}$ (m/s) & plateau of $\|\hat{\mathbf{v}}\|$ (m/s) & ratio \\
+\midrule
+$0.1$  & $1.295$ & --- \\
+$1.5$  & $1.588$ & $1.06$ \\
+\bottomrule
+\end{tabular}
+\caption[ZUPT plateau versus threshold]{The plateau tracks the threshold,
+confirming \eqref{eq:zuptgate} as the binding constraint. At $v_{\max}=1.5$
+the estimate converged monotonically to $1.588$\,m/s over $55$\,s and stayed
+there, with the wheels reading exactly zero throughout.}
+\label{tab:zuptplateau}
+\end{table}
+
+Raising the threshold only moves the plateau. The gate was therefore
+neutralised ($v_{\max}=50$), leaving the two constraints that do not depend on
+the filter's own possibly-wrong state: the image-disparity test
+(\texttt{zupt\_max\_disparity}$\,=0.5$) and the $\chi^2$ test. Measured
+outcome at rest: $\|\hat{\mathbf{v}}\|$ from $1.295$ to
+$3\times10^{-3}$\,m/s, and cumulative path over $45$\,s from $95.4$\,m to
+$0.29$\,m.
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Defect 2: a calibration constant that expires}
+\label{sec:accelexpire}
+
+The CORE2 accelerometer under-reads. The correction is a scalar applied to the
+raw specific force,
+\begin{equation}
+\mathbf{a}_{\mathrm{corr}} = s\,\mathbf{a}_{\mathrm{raw}},
+\qquad
+s = \frac{g_{\mathrm{local}}}{\|\bar{\mathbf{a}}_{\mathrm{raw}}\|_{\text{at rest}}},
+\label{eq:accelscaleov}
+\end{equation}
+which is legitimate because $\|\mathbf{a}\|$ at rest equals the local gravity
+magnitude \emph{independently of orientation} --- a norm is rotation
+invariant. That is the same argument that licenses periodic gyro-bias
+re-estimation, and it is what makes \eqref{eq:accelscaleov} safe to re-run in
+the field.
+
+The constant was measured once, on 2026-07-28, and frozen. Three weeks later
+the sensor had moved:
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+ & 2026-07-28 & 2026-08-20 & drift \\
+\midrule
+$\|\bar{\mathbf{a}}_{\mathrm{raw}}\|$ (m/s$^2$) & $8.7525$ & $8.6531$ & $-1.14\,\%$ \\
+required $s$                                    & $1.1186$ & $1.1314$ & $+1.14\,\%$ \\
+residual with frozen $s$ (m/s$^2$)              & $\approx 0$ & $-0.111$ & --- \\
+\bottomrule
+\end{tabular}
+\caption[Accelerometer scale drift over three weeks]{A calibration constant
+written into a launch file silently expires. Nothing fails; the estimator
+simply diverges.}
+\label{tab:accelexpire}
+\end{table}
+
+A constant specific-force error $\varepsilon$ integrates twice into position,
+\begin{equation}
+d(t) = \tfrac{1}{2}\,\varepsilon\,t^{2},
+\label{eq:doubleintov}
+\end{equation}
+so the $-0.111$\,m/s$^2$ residual predicts
+$d(600\,\mathrm{s}) = \tfrac{1}{2}(0.111)(600)^2 \approx 2.0\times10^{4}$\,m
+--- twenty kilometres over a ten-minute run, which matches the observed
+runaway in order of magnitude. Re-measuring gave a residual of
+$+1.7\times10^{-3}$\,m/s$^2$, a reduction by a factor of $65$.
+
+The lesson is structural rather than numerical: the fix is not the new value
+but the mechanism that keeps it current. A periodic re-estimation
+(\texttt{accel\_recal\_period}) now runs the same gated stationarity test used
+for the gyro, so \eqref{eq:accelscaleov} is re-evaluated at confirmed stops.
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Defect 3: the triangulation baseline ratio}
+\label{sec:baselineratio}
+
+\texttt{ov\_core}'s feature initialiser rejects a triangulated point when
+\begin{equation}
+\frac{\|\mathbf{p}_f\|}{b_{\max}} > \beta,
+\qquad \beta = \texttt{fi\_max\_baseline} = 40 \;\text{(default)},
+\label{eq:baselinegate}
+\end{equation}
+where $b_{\max}$ is the largest baseline available among the sliding-window
+clones. Rearranged, \eqref{eq:baselinegate} is a hard distance ceiling:
+\begin{equation}
+d_{\max} = \beta\, b_{\max}.
+\label{eq:distceiling}
+\end{equation}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex, scale=1.0]
+  % deux centres optiques
+  \fill (0,0) circle (1.6pt) node[below=2pt, font=\scriptsize] {$C_0$};
+  \fill (1.6,0) circle (1.6pt) node[below=2pt, font=\scriptsize] {$C_1$};
+  \draw[<->, accentblue, thick] (0,-0.45) -- node[below, font=\scriptsize,
+        color=accentblue] {$b_{\max}$} (1.6,-0.45);
+  % point lointain
+  \fill[alertred] (5.4,2.5) circle (1.8pt) node[right=2pt, font=\scriptsize,
+        color=alertred] {$\mathbf{p}_f$};
+  \draw[black!60] (0,0) -- (5.4,2.5);
+  \draw[black!60] (1.6,0) -- (5.4,2.5);
+  % angle de parallaxe
+  \draw[alertred, thick] (4.75,2.2) arc (200:222:1.4);
+  \node[font=\scriptsize, color=alertred] at (4.35,2.62) {$\gamma$};
+  % cone acceptable
+  \draw[dashed, accentblue!70] (0.8,0) circle (2.6);
+  \node[font=\scriptsize, color=accentblue, anchor=west] at (3.5,0.55)
+        {$d_{\max}=\beta\,b_{\max}$};
+  \node[font=\scriptsize\itshape, align=left, anchor=north west]
+        at (-0.4,-1.1)
+        {\;$\gamma \approx b_{\max}/d$ : the ratio gate is a parallax gate.\\
+         \;Beyond $d_{\max}$ the linear system is ill-conditioned and\\
+         \;the point is discarded before any $\chi^2$ test.};
+\end{tikzpicture}
+\caption[The baseline-ratio rejection]{Rejection is governed by parallax. With
+a stereo baseline of $90$\,mm and $\beta=40$, every point beyond $3.6$\,m is
+discarded while the vehicle is stationary.}
+\label{fig:baselinegate}
+\end{figure}
+
+Evaluated for this platform, \eqref{eq:distceiling} is severe:
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{@{}lrr@{}}
+\toprule
+condition & $b_{\max}$ (m) & $d_{\max}$ (m) \\
+\midrule
+at rest / pure pivot (stereo only)              & $0.090$ & $3.6$ \\
+translating, $11$ clones at $0.2$\,m/s          & $0.240$ & $9.6$ \\
+translating, $25$ clones at $0.2$\,m/s          & $0.420$ & $16.8$ \\
+\bottomrule
+\end{tabular}
+\caption[Distance ceiling implied by the baseline ratio]{Indoor features
+typically sit at $2$--$10$\,m. During a pure pivot --- the manoeuvre that
+should be most informative about camera--IMU geometry --- almost the entire
+scene is rejected.}
+\label{tab:distceiling}
+\end{table}
+
+This mechanism is real and explains why enlarging the clone window helped
+(peak features $2 \to 15$): it raises $b_{\max}$, hence $d_{\max}$. It is
+\emph{not}, however, the binding constraint. Raising $\beta$ from $40$ to
+$200$ made the measured outcome worse ($\bar{n}=0.75 \to 0.23$, peak
+$25 \to 5$ over $777$ updates), and the sister estimator MINS already runs at
+$\beta = 2000$ without benefit. Recorded here because the derivation is sound
+and the ceiling is genuinely present --- it is simply not what closes the
+channel.
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{A structural blind spot: vertical unobservability in MINS}
+\label{sec:minsz}
+
+MINS survives where openVINS does not, because wheel odometry anchors it. The
+wheel model is planar (\texttt{Wheel2DAng}); writing the measurement Jacobian
+in the body frame,
+\begin{equation}
+\mathbf{h}_{\mathrm{wheel}}(\mathbf{x}) =
+\begin{bmatrix} v_x \\ \omega_z \end{bmatrix},
+\qquad
+\frac{\partial \mathbf{h}}{\partial z} = \mathbf{0},
+\label{eq:wheeljac}
+\end{equation}
+so the vertical coordinate receives \emph{no} information from the wheels.
+Only the camera constrains $z$. When visual features are scarce --- the very
+condition documented above --- the vertical channel is left to free inertial
+integration and \eqref{eq:doubleintov} applies unchecked.
+
+This was observed accidentally and then verified quantitatively. With the
+robot stationary and the wheels reading zero, the horizontal estimate stayed
+exact while $z$ diverged:
+\begin{equation}
+z(120\,\mathrm{s}) = -15.2\;\mathrm{m},
+\qquad
+x = 0.01\;\mathrm{m},
+\qquad
+y = -0.03\;\mathrm{m}.
+\label{eq:minszdrift}
+\end{equation}
+Inverting \eqref{eq:doubleintov} recovers the driving residual,
+\begin{equation}
+\varepsilon_z = \frac{2\,|z|}{t^{2}}
+              = \frac{2 \times 15.2}{120^{2}}
+              = 2.1\times10^{-3}\;\mathrm{m/s^2},
+\label{eq:epsz}
+\end{equation}
+against an independently measured specific-force residual of
+$1.7\times10^{-3}$\,m/s$^2$ (Section~\ref{sec:accelexpire}). The two agree to
+within $25\,\%$, which for a doubly-integrated quantity over two minutes is a
+tight confirmation of the mechanism.
+
+The practical consequence is a diagnostic asymmetry worth stating plainly:
+\emph{a partially anchored estimator lies asymmetrically}. Inspecting $x$ and
+$y$ --- the constrained axes --- gives full confidence while $z$ runs away
+without limit and without any alarm. Every subsequent change to camera
+extrinsics on this platform is now validated on the vertical axis as well,
+through an explicit guard in the live supervisor.
+
+% ─────────────────────────────────────────────────────────────────────────
+\subsection{Seven hypotheses, seven measurements}
+\label{sec:sevenhyp}
+
+The residual failure --- $\bar{n}_{\mathrm{feat}} = 0.75$ against a capacity
+of $40$ --- remains open. What is settled is what it is \emph{not}. Each row
+below was tested on the robot and eliminated by measurement:
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{@{}p{47mm}p{52mm}r@{}}
+\toprule
+hypothesis & measured outcome & $\bar{n}$ \\
+\midrule
+scene lacks texture
+  & MINS finds $50$ features in the same images
+  & --- \\
+global camera--IMU extrinsic
+  & full Kalibr matrix performs \emph{worse} than the idealised one
+  & $0.58$ \\
+hybrid (Kalibr rotation, hand translation)
+  & breaks the jointly-optimised pair; MINS falls $26$\,m in $z$
+  & --- \\
+$\chi^2$ gate too tight
+  & $\times 5$ tolerance ($1 \to 2.2$\,px): $33\% \to 35\%$ non-empty
+  & $0.75$ \\
+translational parallax
+  & $11 \to 25$ clones: peak $2 \to 15$, still starved
+  & $0.75$ \\
+stereo mis-declaration
+  & \texttt{TrackKLT} derives epipolar geometry by RANSAC from data
+  & --- \\
+triangulation ratio $\beta$
+  & $40 \to 200$: outcome degrades; MINS already at $2000$
+  & $0.23$ \\
+\bottomrule
+\end{tabular}
+\caption[Eliminated explanations for feature starvation]{Negative results,
+recorded deliberately. Each cost an instrumented trial; repeating them would
+cost the same again. The best configuration measured to date is
+$25$ clones with a $\chi^2$ multiplier of $5$ on the idealised extrinsic:
+$\bar{n} = 0.75$, peak $25$, $35\,\%$ non-empty updates.}
+\label{tab:sevenhyp}
+\end{table}
+
+The instrumentation gap that remains is specific: nothing currently counts
+stereo correspondences \emph{between} the matching stage and the triangulator.
+Until that count exists, the two remaining candidate stages in
+Figure~\ref{fig:featfunnel} cannot be separated, and any further parameter
+change is tuning in the dark --- which this session has demonstrated does not
+converge.
