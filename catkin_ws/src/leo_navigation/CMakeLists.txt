@@ -8,9 +8,25 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   std_msgs
   std_srvs
+  message_generation
 )
 
-catkin_package()
+# Service ajoute le 2026-08-21 : le sélecteur de pose passe de 2 a 3 sources
+# (MINS, VINS, sqrtVINS). std_srvs/SetBool ne pouvait pas porter un troisieme
+# etat. ~set_source reste expose en SetBool pour les appelants existants.
+add_service_files(
+  FILES
+  SetPoseSource.srv
+)
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+)
+
+catkin_package(
+  CATKIN_DEPENDS message_runtime std_msgs
+)
 
 catkin_install_python(PROGRAMS
   scripts/pose_selector.py

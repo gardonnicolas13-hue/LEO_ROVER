@@ -844,22 +844,43 @@
     const POSE_SRC_STYLE = {
       MINS: { active: ['border-plasma/40', 'bg-plasma/15', 'text-plasma'], dot: 'bg-plasma' },
       VINS: { active: ['border-accent/40', 'bg-accent/15', 'text-accent'], dot: 'bg-accent' },
+      // 2026-08-21 : ambre, la couleur deja utilisee pour sqrtVINS partout
+      // ailleurs sur le site (creneaux d'essai, trajectory.html).
+      SQRTVINS: { active: ['border-amber-400/40', 'bg-amber-400/15', 'text-amber-300'], dot: 'bg-amber-400' },
     };
+    // Une seule liste, d'ou tout le reste se derive : ajouter une source ne
+    // demande plus qu'une entree ici + le trio de noeuds HTML correspondant.
+    const POSE_SRCS = ['MINS', 'VINS', 'SQRTVINS'];
     const POSE_SRC_IDLE = ['border-white/10', 'bg-white/5', 'text-zinc-400'];
 
     function updatePoseSourceBtn(source, available, pending) {
-      const btns = { MINS: $('poseSourceBtnMINS'), VINS: $('poseSourceBtnVINS') };
-      const dots = { MINS: $('poseSourceDotMINS'), VINS: $('poseSourceDotVINS') };
-      const armedLbl = { MINS: $('poseSourceArmedMINS'), VINS: $('poseSourceArmedVINS') };
-      if (!btns.MINS || !btns.VINS || !dots.MINS || !dots.VINS) return;
-
-      ['MINS', 'VINS'].forEach(s => {
+      const btns = {}, dots = {}, armedLbl = {};
+      POSE_SRCS.forEach(s => {
+        btns[s] = $('poseSourceBtn' + s);
+        dots[s] = $('poseSourceDot' + s);
+        armedLbl[s] = $('poseSourceArmed' + s);
+      });
+      // Sources reellement atteignables, telles que le backend les annonce.
+      // Si leo_navigation n'a pas ete recompile, seul le service booleen
+      // repond et sqrtVINS est inatteignable : le bouton doit le DIRE plutot
+      // que d'echouer au clic.
+      const joignables = (lastTelemetry && lastTelemetry.pose_sources)
+        ? lastTelemetry.pose_sources : POSE_SRCS;
+      // Tolerant a une source dont l'IHM n'existe pas (page plus ancienne
+      // servie depuis un cache) : on saute cette source au lieu d'abandonner
+      // la mise a jour des DEUX autres, ce que faisait le garde d'origine.
+      POSE_SRCS.filter(s => btns[s] && dots[s]).forEach(s => {
+        const joignable = joignables.indexOf(s) !== -1;
         const btn = btns[s], dot = dots[s], st = POSE_SRC_STYLE[s];
         const active = available && source === s;
         const armed = available && !active && pending === s;
 
-        btn.classList.toggle('opacity-50', !available);
-        btn.title = available ? '' : T('ops_pose_source_na');
+        btn.classList.toggle('opacity-50', !available || !joignable);
+        btn.disabled = !joignable;
+        btn.classList.toggle('cursor-not-allowed', !joignable);
+        btn.title = !joignable
+          ? 'source indisponible : leo_navigation/SetPoseSource absent (recompiler leo_navigation)'
+          : (available ? '' : T('ops_pose_source_na'));
 
         // Toujours retirer TOUS les jeux de classes avant d'appliquer l'état
         // courant — jamais d'accumulation, la fonction tourne à chaque tick.

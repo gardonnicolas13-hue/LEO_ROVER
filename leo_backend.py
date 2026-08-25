@@ -1812,7 +1812,26 @@ class LeoBackend:
         except Exception:
             self._reset_srv = None
 
-        # Service de switch VINS/MINS (leo_navigation/pose_selector), optionnel
+        # Service de switch de source de pose (leo_navigation/pose_selector).
+        # 2026-08-21 : DEUX services coexistent, on prend le meilleur disponible.
+        #   ~set_source_by_name (leo_navigation/SetPoseSource) : prend le NOM,
+        #     donc atteint les TROIS estimateurs (MINS, VINS, SQRTVINS).
+        #   ~set_source (std_srvs/SetBool) : historique, booléen, ne peut
+        #     atteindre que VINS et MINS.
+        # Le repli n'est pas cosmétique : si leo_navigation n'a pas été
+        # recompilé après l'ajout du .srv, l'import lève ImportError et le
+        # cockpit doit continuer de fonctionner en deux modes plutôt que de
+        # perdre le switch entièrement.
+        self._pose_source_srv = None
+        self._pose_source_srv_typed = None
+        try:
+            from leo_navigation.srv import SetPoseSource
+            rospy.wait_for_service("/pose_selector/set_source_by_name",
+                                   timeout=2.0)
+            self._pose_source_srv_typed = rospy.ServiceProxy(
+                "/pose_selector/set_source_by_name", SetPoseSource)
+        except Exception:
+            self._pose_source_srv_typed = None
         try:
             from std_srvs.srv import SetBool
             rospy.wait_for_service("/pose_selector/set_source", timeout=2.0)
@@ -5109,7 +5128,18 @@ class LeoBackend:
             "auto_state": self.auto_state,
             "pose_source": self.pose_source,
             "pose_source_pending": self.pose_source_pending,
-            "pose_source_available": self._pose_source_srv is not None,
+            # 2026-08-21 : UN SEUL des deux services suffit. Ne tester que
+            # le booleen ferait declarer le switch indisponible cote cockpit
+            # (app.js bloque le clic sur ce drapeau) alors que le service
+            # type, seul capable d'atteindre sqrtVINS, est la.
+            "pose_source_available": (self._pose_source_srv is not None
+                                      or self._pose_source_srv_typed is not None),
+            # Quelles sources le cockpit peut REELLEMENT atteindre, compte
+            # tenu du service disponible. Sans cela l'IHM proposerait un
+            # bouton sqrtVINS inerte quand seul le booleen repond.
+            "pose_sources": (list(self.POSE_SOURCES)
+                             if self._pose_source_srv_typed is not None
+                             else ["VINS", "MINS"]),
             "traj_rec": {"mins": len(self._traj["mins"]),
                          "vins": len(self._traj["vins"]),
                          "carolus": len(self._traj["carolus"]),
@@ -5277,6 +5307,9 @@ class LeoBackend:
                 self.set_wheel_type(cmd.get("wheel_type", ""))
             elif action == "export_matlab":
                 self._export_matlab(open_matlab=bool(cmd.get("open_matlab", False)))
+            elif action == "export_3modes":
+                self._export_3modes(float(cmd.get("duree", 60.0)),
+                                    str(cmd.get("nom", "compare3")))
             elif action == "plot_matlab":
                 self._plot_matlab()
             elif action == "traj_reset":
@@ -5479,18 +5512,84 @@ class LeoBackend:
                           f"Beacons reached before stop: {self.beacon_count}",
                           tags=["safety", "stop"])
 
-    def set_pose_source(self, source):
-        source = (source or "").upper()
-        if source not in ("VINS", "MINS"):
-            self._log(f"pose source ignored (unknown: {source})")
+    # Sources acceptées côté cockpit. Doit rester aligné sur SOURCES dans
+    # pose_selector.py — le sélecteur refuse de toute façon un nom inconnu en
+    # renvoyant la liste valide, donc cette garde-ci ne fait qu'éviter un
+    # aller-retour réseau inutile, elle n'est pas la seule protection.
+    POSE_SOURCES = ("VINS", "MINS", "SQRTVINS")
+
+    def _export_3modes(self, duree, nom):
+        """Lance tools/export_matlab.py — capture SYNCHRONISÉE des 3 estimateurs.
+
+        Volontairement SÉPARÉ de _export_matlab() : celui-là exporte le tampon
+        de ce backend, qui est vidé à chaque relance de la pile et passe par
+        rosbridge (désync constatée le 2026-07-27). Celui-ci s'abonne
+        directement aux topics ROS — il ne dépend ni du navigateur, ni de ce
+        backend, ni du tunnel. Pour un essai qui compte, c'est celui-ci.
+
+        Sous-processus détaché (setsid) plutôt qu'un thread : la capture dure
+        des minutes et doit survivre à un redémarrage du backend, exactement
+        pour la raison qui rend l'autre export fragile.
+        """
+        import subprocess
+        duree = max(5.0, min(duree, 1800.0))       # borne : 5 s à 30 min
+        nom = "".join(c if (c.isalnum() or c in "-_") else "_" for c in nom)[:40] or "compare3"
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "tools", "export_matlab.py")
+        if not os.path.exists(script):
+            self._log(f"export 3 modes impossible : {script} introuvable")
             return
-        if self._pose_source_srv is None:
+        journal = os.path.join(os.path.dirname(script), "..", "logs",
+                               "export_3modes.log")
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(journal)), exist_ok=True)
+            fh = open(os.path.abspath(journal), "ab")
+            subprocess.Popen(["python3", script, str(duree), nom],
+                             stdout=fh, stderr=fh, start_new_session=True)
+            self._log(f"[export] capture 3 modes lancée : {duree:.0f}s, nom «{nom}» "
+                      f"-> data/matlab/ (journal: logs/export_3modes.log)")
+        except Exception as e:
+            self._log(f"export 3 modes échoué : {e}")
+
+    def set_pose_source(self, source):
+        source = (source or "").strip().upper()
+        if source not in self.POSE_SOURCES:
+            self._log(f"pose source ignored (unknown: {source}; "
+                      f"valid: {', '.join(self.POSE_SOURCES)})")
+            return
+        # Un SEUL des deux services suffit : le typé atteint les trois modes,
+        # le booléen en atteint deux. Exiger le booléen (comme avant) aurait
+        # désactivé le switch sur une pile où seul le typé est présent.
+        if self._pose_source_srv_typed is None and self._pose_source_srv is None:
             self._log("pose source switch ignored — pose_selector service unavailable")
             return
         threading.Thread(target=self._fire_pose_source_switch, args=(source,),
                          daemon=True).start()
 
     def _fire_pose_source_switch(self, source):
+        source = (source or "").strip().upper()
+        # Chemin nominal : service typé, seul capable d'atteindre SQRTVINS.
+        if self._pose_source_srv_typed is not None:
+            try:
+                resp = self._pose_source_srv_typed(source=source)
+                if resp.success:
+                    self._log(f"[pose_selector] {resp.message}")
+                else:
+                    self._log(f"Pose source switch to {source} refused: "
+                              f"{resp.message}")
+                return
+            except Exception as e:
+                self._log(f"Pose source switch to {source} failed: {e}")
+                return
+        # Repli booléen : ne connaît que deux états. Refuser explicitement
+        # SQRTVINS plutôt que de le traduire silencieusement en VINS —
+        # data=(source == "MINS") aurait envoyé le robot sur openVINS sans
+        # que rien ne le signale.
+        if source not in ("MINS", "VINS"):
+            self._log(f"Pose source switch to {source} unavailable: "
+                      "leo_navigation/SetPoseSource missing (rebuild "
+                      "leo_navigation), and SetBool cannot carry a third state")
+            return
         try:
             resp = self._pose_source_srv(data=(source == "MINS"))
             # resp.message nomme déjà l'état exact ("switched to X" /

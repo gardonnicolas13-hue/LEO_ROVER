@@ -1,0 +1,607 @@
+{
+  "genere": "2026-08-24 18:33:34",
+  "estimateurs": {
+    "MINS": {
+      "couleur": "#ff6b35",
+      "frames": [
+        {
+          "nom": "imu",
+          "role": "centrale inertielle",
+          "T": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "idealisee": true,
+          "source": "repère de référence",
+          "note": "origine de la comparaison"
+        },
+        {
+          "nom": "cam0",
+          "role": "caméra infrarouge 0",
+          "T": [
+            [
+              0.0,
+              0.0,
+              1.0,
+              0.15
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0,
+              0.1
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            0.15,
+            0.0,
+            0.1
+          ],
+          "idealisee": true,
+          "source": "MINS config_camera.yaml (T_imu_cam)",
+          "note": "convention caméra -> IMU"
+        },
+        {
+          "nom": "cam1",
+          "role": "caméra infrarouge 1",
+          "T": [
+            [
+              0.0,
+              0.0,
+              1.0,
+              0.15
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0,
+              -0.09021265
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0,
+              0.1
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            0.15,
+            -0.090213,
+            0.1
+          ],
+          "idealisee": true,
+          "source": "MINS config_camera.yaml (T_imu_cam)",
+          "note": "convention caméra -> IMU"
+        },
+        {
+          "nom": "roues",
+          "role": "odométrie roues (base_link)",
+          "T": [
+            [
+              -1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              1.0,
+              -0.03
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            0.0,
+            0.0,
+            -0.03
+          ],
+          "idealisee": true,
+          "source": "MINS config_wheel.yaml (T_imu_wheel)",
+          "note": "Rz(pi) : transmission remontée à 180° le 2026-07-08"
+        }
+      ]
+    },
+    "openVINS": {
+      "couleur": "#22d3ee",
+      "frames": [
+        {
+          "nom": "imu",
+          "role": "centrale inertielle",
+          "T": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "idealisee": true,
+          "source": "repère de référence",
+          "note": "origine de la comparaison"
+        },
+        {
+          "nom": "cam0",
+          "role": "caméra infrarouge 0",
+          "T": [
+            [
+              0.0,
+              0.0,
+              1.0,
+              0.15
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0,
+              0.1
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            0.15,
+            0.0,
+            0.1
+          ],
+          "idealisee": true,
+          "source": "openVINS kalibr_imucam_chain.yaml (T_cam_imu, inversé)",
+          "note": "convention IMU -> caméra, inversée ici"
+        },
+        {
+          "nom": "cam1",
+          "role": "caméra infrarouge 1",
+          "T": [
+            [
+              0.0,
+              0.0,
+              1.0,
+              0.15
+            ],
+            [
+              -1.0,
+              0.0,
+              0.0,
+              -0.09021265
+            ],
+            [
+              0.0,
+              -1.0,
+              0.0,
+              0.1
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            0.15,
+            -0.090213,
+            0.1
+          ],
+          "idealisee": true,
+          "source": "openVINS kalibr_imucam_chain.yaml (T_cam_imu, inversé)",
+          "note": "convention IMU -> caméra, inversée ici"
+        }
+      ]
+    },
+    "sqrtVINS": {
+      "couleur": "#fbbf24",
+      "frames": [
+        {
+          "nom": "imu",
+          "role": "centrale inertielle",
+          "T": [
+            [
+              1.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              1.0,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              1.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "idealisee": true,
+          "source": "repère de référence",
+          "note": "origine de la comparaison"
+        },
+        {
+          "nom": "cam0",
+          "role": "caméra infrarouge 0",
+          "T": [
+            [
+              -0.058198431,
+              -0.076081074,
+              0.995401734,
+              0.003302272
+            ],
+            [
+              -0.99780398,
+              0.036019952,
+              -0.055585787,
+              0.026313244
+            ],
+            [
+              -0.031625296,
+              -0.996450818,
+              -0.078010303,
+              0.02051327
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            0.003302,
+            0.026313,
+            0.020513
+          ],
+          "idealisee": false,
+          "source": "sqrtVINS kalibr_imucam_chain.yaml (T_cam_imu, inversé)",
+          "note": "convention IMU -> caméra, inversée ici"
+        },
+        {
+          "nom": "cam1",
+          "role": "caméra infrarouge 1",
+          "T": [
+            [
+              -0.073507804,
+              -0.073507467,
+              0.99458195,
+              0.001699582
+            ],
+            [
+              -0.996806387,
+              0.036617945,
+              -0.070965853,
+              -0.063392912
+            ],
+            [
+              -0.031203027,
+              -0.996622184,
+              -0.075964418,
+              0.017652066
+            ],
+            [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          ],
+          "position": [
+            0.0017,
+            -0.063393,
+            0.017652
+          ],
+          "idealisee": false,
+          "source": "sqrtVINS kalibr_imucam_chain.yaml (T_cam_imu, inversé)",
+          "note": "convention IMU -> caméra, inversée ici"
+        }
+      ]
+    }
+  },
+  "coherence": [
+    {
+      "estimateur": "openVINS",
+      "contre": "MINS",
+      "repere": "cam0",
+      "ecart_max": 0.0,
+      "coherent": true
+    },
+    {
+      "estimateur": "openVINS",
+      "contre": "MINS",
+      "repere": "cam1",
+      "ecart_max": 0.0,
+      "coherent": true
+    },
+    {
+      "estimateur": "sqrtVINS",
+      "contre": "MINS",
+      "repere": "cam0",
+      "ecart_max": 0.146697728,
+      "coherent": false
+    },
+    {
+      "estimateur": "sqrtVINS",
+      "contre": "MINS",
+      "repere": "cam1",
+      "ecart_max": 0.148300418,
+      "coherent": false
+    }
+  ],
+  "alignements": {
+    "MINS": [
+      {
+        "regle": "cam0 : axe optique horizontal",
+        "valeur": 0.0,
+        "unite": "",
+        "tolerance": 0.2,
+        "ok": true,
+        "explication": "composante verticale de l'axe de visée ; ~0 = regarde devant"
+      },
+      {
+        "regle": "cam1 : axe optique horizontal",
+        "valeur": 0.0,
+        "unite": "",
+        "tolerance": 0.2,
+        "ok": true,
+        "explication": "composante verticale de l'axe de visée ; ~0 = regarde devant"
+      },
+      {
+        "regle": "caméras à la même hauteur",
+        "valeur": 0.0,
+        "unite": "mm",
+        "tolerance": 8.0,
+        "ok": true,
+        "explication": "écart vertical entre cam0 et cam1 ; elles partagent un support rigide"
+      },
+      {
+        "regle": "caméras à la même profondeur",
+        "valeur": 0.0,
+        "unite": "mm",
+        "tolerance": 8.0,
+        "ok": true,
+        "explication": "écart avant/arrière ; une différence signale un axe confondu"
+      },
+      {
+        "regle": "base stéréo",
+        "valeur": 90.21265,
+        "unite": "mm",
+        "tolerance": "90 ± 10",
+        "ok": true,
+        "explication": "distance entre les deux imageurs ; le D455 est à ~90 mm"
+      },
+      {
+        "regle": "axes optiques parallèles",
+        "valeur": 0.0,
+        "unite": "deg",
+        "tolerance": 3.0,
+        "ok": true,
+        "explication": "angle entre les deux axes de visée ; une paire stéréo est quasi parallèle"
+      },
+      {
+        "regle": "base perpendiculaire à la visée",
+        "valeur": 90.0,
+        "unite": "deg",
+        "tolerance": "90 ± 10",
+        "ok": true,
+        "explication": "la séparation doit être latérale ; alignée sur la visée, la triangulation serait dégénérée"
+      }
+    ],
+    "openVINS": [
+      {
+        "regle": "cam0 : axe optique horizontal",
+        "valeur": 0.0,
+        "unite": "",
+        "tolerance": 0.2,
+        "ok": true,
+        "explication": "composante verticale de l'axe de visée ; ~0 = regarde devant"
+      },
+      {
+        "regle": "cam1 : axe optique horizontal",
+        "valeur": 0.0,
+        "unite": "",
+        "tolerance": 0.2,
+        "ok": true,
+        "explication": "composante verticale de l'axe de visée ; ~0 = regarde devant"
+      },
+      {
+        "regle": "caméras à la même hauteur",
+        "valeur": 0.0,
+        "unite": "mm",
+        "tolerance": 8.0,
+        "ok": true,
+        "explication": "écart vertical entre cam0 et cam1 ; elles partagent un support rigide"
+      },
+      {
+        "regle": "caméras à la même profondeur",
+        "valeur": 0.0,
+        "unite": "mm",
+        "tolerance": 8.0,
+        "ok": true,
+        "explication": "écart avant/arrière ; une différence signale un axe confondu"
+      },
+      {
+        "regle": "base stéréo",
+        "valeur": 90.21265,
+        "unite": "mm",
+        "tolerance": "90 ± 10",
+        "ok": true,
+        "explication": "distance entre les deux imageurs ; le D455 est à ~90 mm"
+      },
+      {
+        "regle": "axes optiques parallèles",
+        "valeur": 0.0,
+        "unite": "deg",
+        "tolerance": 3.0,
+        "ok": true,
+        "explication": "angle entre les deux axes de visée ; une paire stéréo est quasi parallèle"
+      },
+      {
+        "regle": "base perpendiculaire à la visée",
+        "valeur": 90.0,
+        "unite": "deg",
+        "tolerance": "90 ± 10",
+        "ok": true,
+        "explication": "la séparation doit être latérale ; alignée sur la visée, la triangulation serait dégénérée"
+      }
+    ],
+    "sqrtVINS": [
+      {
+        "regle": "cam0 : axe optique horizontal",
+        "valeur": 0.07801,
+        "unite": "",
+        "tolerance": 0.2,
+        "ok": true,
+        "explication": "composante verticale de l'axe de visée ; ~0 = regarde devant"
+      },
+      {
+        "regle": "cam1 : axe optique horizontal",
+        "valeur": 0.07596,
+        "unite": "",
+        "tolerance": 0.2,
+        "ok": true,
+        "explication": "composante verticale de l'axe de visée ; ~0 = regarde devant"
+      },
+      {
+        "regle": "caméras à la même hauteur",
+        "valeur": 2.8612,
+        "unite": "mm",
+        "tolerance": 8.0,
+        "ok": true,
+        "explication": "écart vertical entre cam0 et cam1 ; elles partagent un support rigide"
+      },
+      {
+        "regle": "caméras à la même profondeur",
+        "valeur": 1.60269,
+        "unite": "mm",
+        "tolerance": 8.0,
+        "ok": true,
+        "explication": "écart avant/arrière ; une différence signale un axe confondu"
+      },
+      {
+        "regle": "base stéréo",
+        "valeur": 89.76608,
+        "unite": "mm",
+        "tolerance": "90 ± 10",
+        "ok": true,
+        "explication": "distance entre les deux imageurs ; le D455 est à ~90 mm"
+      },
+      {
+        "regle": "axes optiques parallèles",
+        "valeur": 0.89023,
+        "unite": "deg",
+        "tolerance": 3.0,
+        "ok": true,
+        "explication": "angle entre les deux axes de visée ; une paire stéréo est quasi parallèle"
+      },
+      {
+        "regle": "base perpendiculaire à la visée",
+        "valeur": 87.69246,
+        "unite": "deg",
+        "tolerance": "90 ± 10",
+        "ok": true,
+        "explication": "la séparation doit être latérale ; alignée sur la visée, la triangulation serait dégénérée"
+      }
+    ]
+  },
+  "avertissement": "Repères LUS dans les fichiers de configuration, pas mesurés sur le robot. Une matrice marquée « idéalisée » n'a jamais été calibrée."
+}

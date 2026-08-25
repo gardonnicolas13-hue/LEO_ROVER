@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="icon" type="image/svg+xml" href="leo_icon.svg" />
 <title>LEO ROVER — Operations Cockpit</title>
-<script src="i18n.js?v=r32"></script>
+<script src="i18n.js?v=r33"></script>
 <script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
@@ -190,7 +190,7 @@
         <a href="index.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg bg-white/5 px-2.5 py-2 text-[13px] text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787105077" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787617946" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
         <a href="system.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
@@ -199,6 +199,7 @@
         <a href="pid.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_pid">PID</a>
         <a href="audit.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_audit">Audit</a>
         <a href="hector_response.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_deriv">Derivations</a>
+        <a href="tf_validator.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_tfval">TF Validator</a>
       </nav>
       <div class="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/[.03] p-0.5" title="Language">
         <button type="button" class="lang-btn" data-lang="fr" onclick="if(window.I18N)I18N.set('fr')">FR</button>
@@ -228,7 +229,7 @@
         <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg bg-white/5 px-3 py-2.5 text-sm text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787105077" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787617946" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
         <a href="system.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
@@ -237,6 +238,7 @@
         <a href="pid.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_pid">PID</a>
         <a href="audit.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_audit">Audit</a>
         <a href="hector_response.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_deriv">Derivations</a>
+        <a href="tf_validator.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_tfval">TF Validator</a>
       </nav>
     </div>
 
@@ -483,14 +485,23 @@
                Le bouton existe malgre tout parce que masquer un troisieme
                estimateur reellement installe et teste donnerait une image
                fausse du systeme. Il est visible, explique, et inerte. -->
-          <button type="button" id="poseSourceBtnSRV" disabled
-                  data-i18n-title="ops_pose_source_srv_tip"
-                  class="mt-2 flex w-full cursor-not-allowed items-center justify-center gap-1.5 rounded-xl border border-dashed border-white/10 bg-white/[.02] px-3 py-2 text-sm font-semibold text-zinc-600">
-            <span id="poseSourceDotSRV" class="block h-2 w-2 shrink-0 rounded-full bg-zinc-700"></span>
+          <!-- 2026-08-21 : bouton ACTIVE. Les deux verrous qui le tenaient
+               inerte sont tombes le meme jour :
+                 - protocole : pose_selector expose desormais
+                   ~set_source_by_name (leo_navigation/SetPoseSource), qui
+                   porte un NOM et non un booleen, donc un 3e etat ;
+                 - mesure : sqrtVINS ne diverge plus. La cause etait un
+                   « !disparity_passed && » dans UpdaterZeroVelocity.cpp qui
+                   court-circuitait la garde chi2 entiere (290 acceptations /
+                   0 rejet a chi2 = 1e57). Position finale passee de 2.06e15 m
+                   a 0,019 m. Voir docs/rpng_sqrtvins_zupt_bug_report.md. -->
+          <button type="button" id="poseSourceBtnSQRTVINS" data-cmd="pose_source" data-source="SQRTVINS"
+                  data-i18n-title="ops_cmd_pose_source_tip"
+                  class="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-zinc-400 transition hover:border-white/20">
+            <span id="poseSourceDotSQRTVINS" class="block h-2 w-2 shrink-0 rounded-full bg-zinc-600"></span>
             <span>sqrtVINS</span>
-            <span class="rounded-full bg-white/5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500"
-                  data-i18n="ops_pose_source_srv_badge">unavailable</span>
           </button>
+          <span id="poseSourceArmedSQRTVINS" class="hidden text-[10px] font-normal normal-case tracking-normal opacity-80" data-i18n="ops_pose_source_armed">armed — will switch as soon as it publishes</span>
           <a href="navigation_modes.html" class="mt-1.5 flex items-center justify-center gap-1 text-[11px] text-zinc-600 transition hover:text-accent">
             <i data-lucide="info" class="h-3 w-3"></i>
             <span data-i18n="ops_pose_source_learn_more">How do MINS, openVINS and sqrtVINS compare?</span>

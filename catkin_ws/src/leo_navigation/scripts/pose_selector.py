@@ -25,8 +25,10 @@ discontinuity in the output.
 
   PUBLISHES
     /robot_pose_fused              nav_msgs/Odometry   (continuous, active source)
-    /leo_navigation/pose_source    std_msgs/String      (latched, "VINS"|"MINS")
-    /leo_navigation/pose_source_pending  std_msgs/String  (latched, "VINS"|"MINS"|"")
+    /leo_navigation/pose_source    std_msgs/String      (latched,
+                                      "VINS"|"MINS"|"SQRTVINS")
+    /leo_navigation/pose_source_pending  std_msgs/String  (latched, same set
+                                      plus "")
                                       armed-but-not-yet-applied target, "" when
                                       nothing is armed — see ~set_source below
     TF  ~odom_frame -> ~base_frame  (broadcast on every fused message; composed
@@ -36,7 +38,18 @@ discontinuity in the output.
                                       directly with a one-time warning)
 
   SERVICES
+    ~set_source_by_name  leo_navigation/SetPoseSource  (2026-08-21)
+                  THE service to use. Takes the source NAME, so it can reach
+                  all three estimators; returns success, a human-readable
+                  message, and both the resulting active and pending source.
+                  An unknown name is refused WITH the list of valid ones.
+
     ~set_source   std_srvs/SetBool   (data=false -> VINS, data=true -> MINS)
+                  KEPT UNCHANGED for the five existing callers
+                  (leo_backend.py, restart_stack.sh, trajectory.html, docs).
+                  A boolean cannot carry a third state, so this service can
+                  never reach SQRTVINS — that is its limit, not a bug. New
+                  code should call ~set_source_by_name instead.
                   If the requested source has already published, switches
                   immediately. If not, ARMS it (see _switch_to(),
                   2026-07-24): the switch is applied automatically the
@@ -71,9 +84,15 @@ import tf.transformations as tft
 from nav_msgs.msg import Odometry
 from std_msgs.msg import String
 from std_srvs.srv import SetBool, SetBoolResponse
+# 2026-08-21 : service typé pour la 3e source. std_srvs/SetBool est conservé
+# tel quel pour ~set_source (5 appelants existants) — celui-ci est ADDITIF.
+from leo_navigation.srv import SetPoseSource, SetPoseSourceResponse
 from geometry_msgs.msg import TransformStamped
 
-SOURCES = ("VINS", "MINS")
+# 2026-08-21 : SQRTVINS ajouté. Tout ce qui suit se dérive de ce tuple
+# (dictionnaires d'état, abonnements, validation) — ajouter une 4e source ne
+# demande plus qu'une entrée ici et un paramètre ~<nom>_topic.
+SOURCES = ("VINS", "MINS", "SQRTVINS")
 
 # Garde de plausibilité sur la PREMIÈRE mesure d'une source (2026-07-23,
 # audit — item Bloquant #2) : un estimateur frais publie censément près de
@@ -167,10 +186,10 @@ class PoseSelector(object):
         # Most recent raw message seen from each source (always kept fresh,
         # even for the source that isn't currently active) so a switch can
         # compute the correction instantly instead of waiting on a new msg.
-        self._last_raw = {"VINS": None, "MINS": None}
+        self._last_raw = {src: None for src in SOURCES}
         # SE3 correction applied to each source's raw pose before publishing.
         # Identity until the first switch away from that source.
-        self._correction = {"VINS": np.eye(4), "MINS": np.eye(4)}
+        self._correction = {src: np.eye(4) for src in SOURCES}
         self._last_fused_mat = None
 
         # Source armée (2026-07-24) : demandée mais pas encore publiée au
@@ -191,25 +210,59 @@ class PoseSelector(object):
         self.pub_pending = rospy.Publisher("/leo_navigation/pose_source_pending", String,
                                             queue_size=1, latch=True)
 
-        vins_topic = rospy.get_param("~vins_topic", "/ov_msckf/odomimu")
-        mins_topic = rospy.get_param("~mins_topic", "/mins/imu/odom")
-        rospy.Subscriber(vins_topic, Odometry, self._on_odom, callback_args="VINS",
-                          queue_size=5)
-        rospy.Subscriber(mins_topic, Odometry, self._on_odom, callback_args="MINS",
-                          queue_size=5)
+        # Topics par défaut, un par source. Le nom du paramètre suit
+        # ~<source_en_minuscules>_topic, donc ajouter une source à SOURCES
+        # suffit à la rendre configurable.
+        defauts = {
+            "VINS":     "/ov_msckf/odomimu",
+            "MINS":     "/mins/imu/odom",
+            "SQRTVINS": "/sqrtvins/odomimu",
+        }
+        self._topics = {}
+        for src in SOURCES:
+            topic = rospy.get_param("~%s_topic" % src.lower(), defauts[src])
+            self._topics[src] = topic
+            rospy.Subscriber(topic, Odometry, self._on_odom, callback_args=src,
+                             queue_size=5)
 
+        # ~set_source reste en std_srvs/SetBool : inchangé pour les appelants
+        # existants (leo_backend.py, restart_stack.sh, trajectory.html).
+        # Il ne peut atteindre que VINS et MINS — c'est sa limite, pas un bug.
         rospy.Service("~set_source", SetBool, self._on_set_source)
+        # Service typé, seul capable d'atteindre les trois sources.
+        rospy.Service("~set_source_by_name", SetPoseSource,
+                      self._on_set_source_by_name)
 
         self._publish_source_status()
         self._publish_pending()
-        rospy.loginfo("[pose_selector] active=%s  vins_topic=%s  mins_topic=%s",
-                       self.active, vins_topic, mins_topic)
+        rospy.loginfo("[pose_selector] active=%s  sources: %s", self.active,
+                      ", ".join("%s=%s" % (k, self._topics[k]) for k in SOURCES))
 
     # ── Source switch ────────────────────────────────────────────────────
     def _on_set_source(self, req):
         new_source = "MINS" if req.data else "VINS"
         ok, msg = self._switch_to(new_source)
         return SetBoolResponse(success=ok, message=msg)
+
+    def _on_set_source_by_name(self, req):
+        """Bascule par NOM — seul chemin capable d'atteindre les 3 sources.
+
+        Un nom inconnu est refusé en renvoyant la liste des noms valides
+        plutôt qu'un simple échec : le cockpit affiche ce message tel quel,
+        et l'opérateur voit immédiatement ce qu'il aurait dû taper.
+        """
+        demande = (req.source or "").strip().upper()
+        if demande not in SOURCES:
+            return SetPoseSourceResponse(
+                success=False,
+                message="source inconnue : %r. Valides : %s"
+                        % (req.source, ", ".join(SOURCES)),
+                active=self.active,
+                pending=self._pending or "")
+        ok, msg = self._switch_to(demande)
+        return SetPoseSourceResponse(success=ok, message=msg,
+                                     active=self.active,
+                                     pending=self._pending or "")
 
     def _switch_to(self, new_source):
         # Armement (2026-07-24, ré-introduit sur demande opérateur explicite

@@ -8,7 +8,7 @@
 <!-- Couche commune des commandes (rayon, lumière rasante, retour au clic).
      Chargée AVANT le <style> de la page : les règles propres au cockpit
      ci-dessous restent prioritaires à spécificité égale. -->
-<script src="i18n.js?v=r32"></script>
+<script src="i18n.js?v=r33"></script>
 <link rel="stylesheet" href="mission.css?v=m2" />
 <style>
   /* ── JPL Mission Control — charbon, gris spatial, orange NASA, cyan ─────── */
@@ -89,6 +89,30 @@
      deploye »). Distincte de l'orange MINS pour rester lisible cote a cote. */
   .modes button.srv.active  { color: #eab308; border-color: #eab308; box-shadow: inset 0 0 12px rgba(234,179,8,.15); }
   .modes button:disabled { opacity: .35; cursor: not-allowed; }
+  .traces { display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+            margin-top: 6px; font-size: 11px; color: var(--dim); }
+  .traces .lbl { letter-spacing: .14em; text-transform: uppercase; font-size: 9px; }
+  .traces label { display: inline-flex; align-items: center; gap: 5px;
+                  cursor: pointer; color: var(--txt); }
+  .traces label i { width: 12px; height: 2px; border-radius: 2px; display: inline-block; }
+  details.tile > summary { cursor: pointer; list-style: none; font-size: 10px;
+                           letter-spacing: .14em; text-transform: uppercase;
+                           color: var(--dim); }
+  details.tile > summary::-webkit-details-marker { display: none; }
+  details.tile > summary::before { content: "▸ "; }
+  details.tile[open] > summary::before { content: "▾ "; }
+  details.tile > summary:hover { color: var(--txt); }
+  details.tile > summary .sub { text-transform: none; letter-spacing: 0;
+                                opacity: .7; }
+  .traces input { accent-color: #888; margin: 0; cursor: pointer; }
+  .cmp3t { width: 100%; border-collapse: collapse; font-family: var(--mono);
+           font-size: 11px; margin-top: 4px; }
+  .cmp3t th { text-align: left; font-weight: 400; padding: 2px 0; font-size: 10px; }
+  .cmp3t td { text-align: right; font-variant-numeric: tabular-nums;
+              padding: 2px 0 2px 6px; color: var(--txt); }
+  .cmp3t tr:nth-child(1) th { color: #ff6b35; }
+  .cmp3t tr:nth-child(2) th { color: #22d3ee; }
+  .cmp3t tr:nth-child(3) th { color: #fbbf24; }
   /* mission.css apporte à toutes les commandes du site un retour au clic et un
      rayon de 6 px. Ce cockpit conserve en revanche sa géométrie franche : dans
      une vue instrument dense, l'angle vif se lit plus vite que l'arrondi, et
@@ -202,6 +226,7 @@
     <a href="pid.html"><span data-i18n="nav_pid">PID</span></a>
     <a href="audit.html"><span data-i18n="nav_audit">AUDIT</span></a>
     <a href="hector_response.html"><span data-i18n="nav_deriv">DERIVATIONS</span></a>
+        <a href="tf_validator.html"><span data-i18n="nav_tfval">TF Validator</span></a>
   </nav>
   <!-- Selecteur de langue (2026-08-18) : cette page etait la SEULE du menu
        principal sans i18n -- contenu fige en francais, bascule FR/EN sans
@@ -220,6 +245,37 @@
     <div class="modes">
       <button class="vins" id="btnVins">VINS</button>
       <button class="mins" id="btnMins">MINS</button>
+      <!-- 2026-08-21 : sqrtVINS manquait ici. Ces boutons choisissent la
+           SOURCE DE POSE active du robot (ce que consomme /robot_pose_fused,
+           donc le mode AUTO) — a ne pas confondre avec les cases ci-dessous,
+           qui ne font que TRACER. -->
+      <button class="srv" id="btnSrv">sqrtVINS</button>
+    </div>
+    <!-- Cases de TRACE (2026-08-21). Elles n'agissent QUE sur l'affichage :
+         cocher sqrtVINS superpose sa trajectoire brute, cela ne bascule PAS
+         le robot dessus. La distinction compte : confondre les deux ferait
+         croire qu'afficher une trace change la source de navigation. -->
+    <div class="traces">
+      <span class="lbl">TRACES COMPARÉES</span>
+      <label><input type="checkbox" id="trMINS" checked><i style="background:#ff6b35"></i>MINS</label>
+      <label><input type="checkbox" id="trVINS" checked><i style="background:#22d3ee"></i>openVINS</label>
+      <label><input type="checkbox" id="trSQRTVINS" checked><i style="background:#fbbf24"></i>sqrtVINS</label>
+    </div>
+    <!-- Comparaison directe des TROIS sorties brutes (2026-08-21). C'est
+         l'element que la page n'avait pas : elle affichait la pose FUSIONNEE
+         (donc un seul estimateur a la fois) et il fallait basculer pour voir
+         l'autre. Ici les trois sont lus simultanement, cote a cote, dans les
+         memes unites — c'est exactement ce qu'on exporte ensuite vers MATLAB.
+         « — » signifie que l'estimateur ne publie pas : un zero aurait pu se
+         confondre avec un robot a l'origine. -->
+    <div class="tile cmp3">
+      <div class="k"><span data-i18n="traj_cmp3">Comparaison 3 modes</span></div>
+      <table class="cmp3t">
+        <tr><th>MINS</th><td id="c3MINSx">—</td><td id="c3MINSy">—</td></tr>
+        <tr><th>openVINS</th><td id="c3VINSx">—</td><td id="c3VINSy">—</td></tr>
+        <tr><th>sqrtVINS</th><td id="c3SQRTVINSx">—</td><td id="c3SQRTVINSy">—</td></tr>
+      </table>
+      <div class="u">x · y &nbsp;(m, repère de chaque estimateur)</div>
     </div>
     <div class="tile"><div class="k"><span data-i18n="traj_pos_x">Position X</span></div><div class="v" id="hX">—</div><div class="u"><span data-i18n="traj_odom_frame">m · repère odom</span></div></div>
     <div class="tile"><div class="k"><span data-i18n="traj_pos_y">Position Y</span></div><div class="v" id="hY">—</div><div class="u">m</div></div>
@@ -286,8 +342,14 @@
          etre utilisable sans lire l'ecran de pres.
          POURQUOI : jusqu'ici on comparait les capteurs ENTRE EUX, or les
          roues patinent aussi — un desaccord ne dit pas qui se trompe. -->
-    <div class="tile" id="calibTile">
-      <div class="k"><span data-i18n="traj_field_calib">Calibration terrain</span></div>
+    <!-- Replie 2026-08-21 : la calibration terrain confronte ce que le robot
+         CROIT parcourir a une mesure au ruban. C'est un protocole a part
+         entiere, sans rapport avec la comparaison des trois estimateurs qui
+         est le sujet de cette page. Repliee, pas supprimee : elle fonctionne
+         et reste a un clic. -->
+    <details class="tile" id="calibTile">
+      <summary><span data-i18n="traj_field_calib">Calibration terrain</span>
+        <span class="sub">— protocole au ruban, distinct</span></summary>
       <div class="modes" style="margin-top:4px">
         <button class="mins" id="cbRotG" title="Echelle du gyroscope, sens gauche">90° G</button>
         <button class="mins" id="cbRotD" title="Echelle du gyroscope, sens droite">90° D</button>
@@ -309,7 +371,7 @@
         <button id="cbUndo"  style="flex:1;font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer"><span data-i18n="traj_undo_pass">↶ passe</span></button>
         <button id="cbReset" style="flex:1;font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:6px 0;background:transparent;color:var(--dim);border:1px solid var(--line);cursor:pointer"><span data-i18n="traj_undo_all">↺ tout</span></button>
       </div>
-    </div>
+    </details>
     <!-- Retour visuel de l'export (2026-07-29, retour opérateur « le bouton
          ne fait rien »). L'export RÉUSSISSAIT déjà ; ce qui manquait, c'était
          de le DIRE, et de signaler l'échec de MATLAB au lieu de laisser
@@ -330,6 +392,8 @@
     <div class="legend">
       <span><i style="background:var(--cyan)"></i>VINS</span>
       <span><i style="background:var(--orange)"></i>MINS</span>
+      <!-- 2026-08-21 : manquait, alors que sa trace est dessinee. -->
+      <span><i style="background:#fbbf24"></i>sqrtVINS</span>
       <span><i style="background:var(--ok);height:6px;width:6px;border-radius:50%"></i>NODE TAG</span>
       <span><i style="background:#ff3b30"></i>X <i style="background:#34dc6b;margin-left:6px"></i>Y · TF</span>
     </div>
@@ -400,9 +464,9 @@
     <p class="dim"><span data-i18n="traj_full_expl">Explications complètes, avec les commandes exactes et le
       pourquoi de chaque choix :</span></p>
     <a class="rlink" target="_blank" rel="noopener"
-       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787105077#page=450"><span data-i18n="traj_link_appd">→ Rapport, Annexe D : protocole complet (p.448 imprimée)</span></a><br>
+       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787617946#page=450"><span data-i18n="traj_link_appd">→ Rapport, Annexe D : protocole complet (p.448 imprimée)</span></a><br>
     <a class="rlink" target="_blank" rel="noopener"
-       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787105077#page=261"><span data-i18n="traj_link_1212">→ Rapport, §12.12.7 : un vrai exemple chiffré, déjà fait le 29/07 (p.259 imprimée)</span></a>
+       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787617946#page=261"><span data-i18n="traj_link_1212">→ Rapport, §12.12.7 : un vrai exemple chiffré, déjà fait le 29/07 (p.259 imprimée)</span></a>
   </div>
 </div>
 
@@ -452,14 +516,32 @@
   const POSE_GAP_MS = 600;
   let lastPoseMs = 0, gapCount = 0;
 
-  const COLORS = { VINS: "#22d3ee", MINS: "#ff6b35" };
+  const COLORS = { VINS: "#22d3ee", MINS: "#ff6b35", SQRTVINS: "#fbbf24" };
+  /* Comparaison 3 modes (2026-08-21) : jusqu'ici la page ne suivait que
+     /robot_pose_fused, c'est-a-dire la SEULE source active. On ne pouvait donc
+     pas comparer : on voyait l'estimateur choisi, jamais les trois ensemble.
+     On s'abonne desormais aussi aux trois topics BRUTS, traces en surimpression.
+     Ils sont volontairement dans des tableaux separes de `trail` : `trail` reste
+     l'historique de la pose FUSIONNEE (avec ses corrections SE(3) au moment des
+     bascules), tandis que ceux-ci sont les sorties brutes, jamais recalees --
+     melanger les deux ferait croire a une concordance qui n'existe pas. */
+  const CMP_TOPICS = {
+    MINS:     "/mins/imu/odom",
+    VINS:     "/ov_msckf/odomimu",
+    SQRTVINS: "/sqrtvins/odomimu"
+  };
+  const cmpTrails = { MINS: [], VINS: [], SQRTVINS: [] };
+  const CMP_MAX = 4000;
+  /* Une case par estimateur, au lieu d'un unique interrupteur global :
+     l'interet de la comparaison est justement de pouvoir en isoler un. */
+  const cmpShow = { MINS: true, VINS: true, SQRTVINS: true };
 
   /* ═══ rosbridge — RECONNEXION EN PLACE (2026-07-13) ═══
      L'ancien handler rechargeait la page 4 s après chaque coupure WS : c'était
      LE « refresh tout seul » (et la trace était perdue). On reconstruit
      désormais la connexion en place, backoff 2→10 s ; trail/tags/pose vivent
      hors de la connexion et survivent. La page ne se recharge plus JAMAIS. */
-  let ros = null, srv = null, reconnectT = null, backoff = 2000;
+  let ros = null, srv = null, srvByName = null, reconnectT = null, backoff = 2000;
 
   function connectRos() {
     reconnectT = null;
@@ -510,6 +592,31 @@
     new ROSLIB.Topic({ ros, name: "/leo_navigation/pose_source", messageType: "std_msgs/String" })
       .subscribe((m) => { mode = m.data; refreshModeUI(); });
 
+    /* Les trois sorties BRUTES, pour la superposition comparative. 5 Hz
+       suffisent a l'oeil et menagent le WebSocket, deja charge par la video. */
+    Object.keys(CMP_TOPICS).forEach((k) => {
+      new ROSLIB.Topic({ ros, name: CMP_TOPICS[k], messageType: "nav_msgs/Odometry",
+                         throttle_rate: 200 })
+        .subscribe((m) => {
+          const p = m.pose.pose.position;
+          /* Lecture directe des trois estimateurs (2026-08-21). Mise a jour a
+             la cadence du topic (5 Hz apres throttle) : assez pour lire, assez
+             rare pour ne pas faire clignoter les chiffres. */
+          const ex = $("c3" + k + "x"), ey = $("c3" + k + "y");
+          if (ex) ex.textContent = p.x.toFixed(3);
+          if (ey) ey.textContent = p.y.toFixed(3);
+          const t = cmpTrails[k];
+          const last = t[t.length - 1];
+          /* Meme seuil de 1,5 cm que le trace fusionne : sans lui un
+             estimateur a l'arret empile des milliers de points identiques et
+             sature le tableau en quelques minutes. */
+          if (!last || Math.hypot(p.x - last.x, p.y - last.y) > 0.015) {
+            t.push({ x: p.x, y: p.y });
+            if (t.length > CMP_MAX) t.shift();
+          }
+        });
+    });
+
     new ROSLIB.Topic({ ros, name: "/tag_detections",
                        messageType: "apriltag_ros/AprilTagDetectionArray", throttle_rate: 500 })
       .subscribe((m) => {
@@ -524,6 +631,8 @@
 
     srv = new ROSLIB.Service({ ros, name: "/pose_selector/set_source",
                                serviceType: "std_srvs/SetBool" });
+    srvByName = new ROSLIB.Service({ ros, name: "/pose_selector/set_source_by_name",
+                                     serviceType: "leo_navigation/SetPoseSource" });
 
     /* ── /tf : repères map/base_link ─────────────────────────────────────────
        On s'abonne au topic /tf brut (pas de tf2_web_republisher requis) et on
@@ -725,9 +834,29 @@
       $("wsstate").textContent = "SERVICE POSE INDISPONIBLE — RECONNECTE (F5)";
       return;
     }
-    $("btnVins").disabled = $("btnMins").disabled = true;
+    $("btnVins").disabled = $("btnMins").disabled = $("btnSrv").disabled = true;
+    /* 2026-08-21 : service TYPE en priorite -- seul capable d'atteindre
+       sqrtVINS. `data: target === "MINS"` aurait envoye SQRTVINS sur openVINS
+       sans que rien ne le signale. Repli booleen si leo_navigation n'a pas
+       ete recompile, mais alors on REFUSE explicitement la 3e source. */
+    if (srvByName) {
+      srvByName.callService(new ROSLIB.ServiceRequest({ source: target }), (res) => {
+        $("btnVins").disabled = $("btnMins").disabled = $("btnSrv").disabled = false;
+        $("wsstate").textContent = (res.message || (res.success ? "OK" : "REFUS"))
+                                     .toUpperCase().slice(0, 56);
+      }, (err) => {
+        $("btnVins").disabled = $("btnMins").disabled = $("btnSrv").disabled = false;
+        $("wsstate").textContent = ("ECHEC SERVICE : " + err).toUpperCase().slice(0, 56);
+      });
+      return;
+    }
+    if (target !== "MINS" && target !== "VINS") {
+      $("btnVins").disabled = $("btnMins").disabled = $("btnSrv").disabled = false;
+      $("wsstate").textContent = "SQRTVINS INDISPONIBLE — RECOMPILER leo_navigation";
+      return;
+    }
     srv.callService(new ROSLIB.ServiceRequest({ data: target === "MINS" }), (res) => {
-      $("btnVins").disabled = $("btnMins").disabled = false;
+      $("btnVins").disabled = $("btnMins").disabled = $("btnSrv").disabled = false;
       /* On affiche le message du backend TEL QUEL, jamais un résumé maison :
          il distingue quatre cas que l'opérateur doit pouvoir différencier —
          "switched to X" (fait), "ARMED: will switch as soon as it publishes"
@@ -738,13 +867,22 @@
       $("wsstate").textContent = (res.message || (res.success ? "OK" : "REFUS"))
                                    .toUpperCase().slice(0, 56);
     }, (err) => {
-      $("btnVins").disabled = $("btnMins").disabled = false;
+      $("btnVins").disabled = $("btnMins").disabled = $("btnSrv").disabled = false;
       $("wsstate").textContent = ("ECHEC BASCULE " + target + " : " +
                                   (err || "sans detail")).toUpperCase().slice(0, 48);
     });
   }
   $("btnVins").onclick = () => switchTo("VINS");
   $("btnMins").onclick = () => switchTo("MINS");
+  $("btnSrv").onclick  = () => switchTo("SQRTVINS");
+
+  /* Cases de trace : effet IMMEDIAT, le rendu tourne en continu et relit
+     cmpShow a chaque image — pas besoin de forcer un redessin. */
+  ["MINS", "VINS", "SQRTVINS"].forEach((k) => {
+    const cb = $("tr" + k);
+    if (!cb) return;
+    cb.onchange = () => { cmpShow[k] = cb.checked; };
+  });
 
   /* Bascule d'essai. Le backend REFUSE de changer d'étiquette tant qu'un
      enregistrement tourne (sinon on écraserait/mélangerait des données), et
@@ -970,6 +1108,7 @@
     $("hMode").style.color = COLORS[mode] || "var(--txt)";
     $("btnVins").classList.toggle("active", mode === "VINS");
     $("btnMins").classList.toggle("active", mode === "MINS");
+    $("btnSrv").classList.toggle("active", mode === "SQRTVINS");
   }
 
   connectRos();
@@ -1116,6 +1255,51 @@
       if (curMode !== null) ctx.stroke();
     }
     ctx.globalAlpha = 1;
+
+    /* ── Superposition comparative des trois estimateurs (2026-08-21) ──────
+       Tracees APRES le trace fusionne pour rester lisibles par-dessus, mais
+       en trait fin et semi-transparent : c'est un fond de comparaison, pas le
+       sujet principal de la page. Chaque estimateur garde SA couleur, la meme
+       que dans le cockpit et le TF Validator -- ambre pour sqrtVINS. */
+    {
+      ctx.lineWidth = 1.2 * dpr;
+      ctx.setLineDash([4 * dpr, 3 * dpr]);
+      Object.keys(cmpTrails).forEach((k) => {
+        if (!cmpShow[k]) return;
+        const t = cmpTrails[k];
+        if (t.length < 2) return;
+        ctx.globalAlpha = 0.55;
+        ctx.strokeStyle = COLORS[k] || "#888";
+        /* DECIMATION (2026-08-22). Ce bloc redessine a chaque image
+           (requestAnimationFrame, ~60 Hz). Sans decimation il tracait
+           3 x CMP_MAX = 12 000 segments par image, soit 720 000 par seconde,
+           en plus des 3 000 du trace fusionne -- mesure : Firefox a 109 % d'un
+           coeur, PC a 83 C, au point de faire refuser le banc par
+           tools/relance_estimateurs.sh. C'etait une regression introduite avec
+           la comparaison a trois.
+           Tracer plus de points que le canvas n'a de pixels de large ne montre
+           RIEN de plus : plusieurs points tombent sur le meme pixel. On garde
+           donc au plus un point tous les `pas`, borne a ~800 par trace. La
+           trajectoire dessinee est visuellement identique. */
+        const pas = Math.max(1, Math.ceil(t.length / 800));
+        ctx.beginPath();
+        ctx.moveTo(X(t[0].x, t[0].y), Y(t[0].x, t[0].y));
+        for (let i = pas; i < t.length; i += pas) ctx.lineTo(X(t[i].x, t[i].y), Y(t[i].x, t[i].y));
+        /* Toujours relier au DERNIER point, meme s'il n'est pas sur la grille
+           de decimation : sinon la tete du trace retarde d'un pas et le point
+           de tete ci-dessous flotte a cote de sa propre courbe. */
+        const dern = t[t.length - 1];
+        ctx.lineTo(X(dern.x, dern.y), Y(dern.x, dern.y));
+        ctx.stroke();
+        /* Point de tete : ou en est CET estimateur en ce moment. */
+        const h = t[t.length - 1];
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = COLORS[k] || "#888";
+        ctx.beginPath(); ctx.arc(X(h.x, h.y), Y(h.x, h.y), 3 * dpr, 0, 7); ctx.fill();
+      });
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
 
     /* nodes AprilTag */
     tags.forEach(t => {

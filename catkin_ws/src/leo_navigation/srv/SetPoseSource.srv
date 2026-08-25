@@ -1,0 +1,24 @@
+# Choix de la source de pose republiee sur /robot_pose_fused.
+#
+# Remplace l'usage de std_srvs/SetBool pour ~set_source, qui ne pouvait porter
+# que DEUX etats (data=false -> VINS, data=true -> MINS) et bloquait donc
+# l'ajout de sqrtVINS. ~set_source reste expose en SetBool pour les appelants
+# existants (leo_backend.py, restart_stack.sh, trajectory.html) : ce service-ci
+# est ADDITIF, il ne casse rien.
+#
+# source : nom de l'estimateur, insensible a la casse.
+#          "MINS" | "VINS" | "SQRTVINS"
+#          Un nom inconnu est refuse avec la liste des noms valides.
+string source
+---
+# success : la demande a-t-elle ete acceptee (bascule immediate OU armement).
+bool success
+# message : explication lisible, destinee a etre affichee telle quelle.
+string message
+# active  : source REELLEMENT active apres l'appel.
+string active
+# pending : source armee en attente de son premier message, "" si aucune.
+#           Une bascule vers une source qui n'a jamais publie n'est pas
+#           refusee : elle est ARMEE, et prend effet a l'instant ou le premier
+#           message arrive. Le cockpit doit distinguer les deux.
+string pending

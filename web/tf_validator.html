@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="leo_icon.svg" />
+<title>LEO · TF VALIDATOR — Mission Control</title>
+<script src="i18n.js?v=r33"></script>
+<link rel="stylesheet" href="mission.css?v=m2" />
+<style>
+  :root {
+    --bg:      #0B0E14;
+    --panel:   #10141c;
+    --line:    #1e242b;
+    --txt:     #c9d1d9;
+    --dim:     #6b7684;
+    --orange:  #ff6b35;   /* MINS */
+    --cyan:    #22d3ee;   /* openVINS */
+    --ambre:   #fbbf24;   /* sqrtVINS */
+    --ok:      #3fdc97;
+    --warn:    #eab308;
+    --bad:     #ff4d4d;
+    --mono: "JetBrains Mono", "Roboto Mono", ui-monospace, Menlo, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--txt);
+    font-family: var(--mono); font-size: 13px;
+    height: 100vh; overflow: hidden;
+    display: grid; grid-template-rows: 44px auto 1fr;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px; padding: 0 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 13px; letter-spacing: .14em; font-weight: 500; }
+  header nav { display: flex; gap: 12px; margin-left: auto; }
+  header nav a {
+    color: var(--dim); text-decoration: none; font-size: 11px;
+    letter-spacing: .1em; padding: 4px 0;
+  }
+  header nav a:hover { color: var(--txt); }
+  header nav a.on { color: var(--orange); border-bottom: 1px solid var(--orange); }
+  /* Sélecteur de langue — mêmes règles que trajectory.html (cette page ne
+     charge pas Tailwind, les classes utilitaires n'y existent pas). */
+  .langsel { display: flex; align-items: center; gap: 2px; margin-left: 12px;
+             border: 1px solid var(--line); border-radius: 6px; padding: 2px; }
+  .langsel .lang-btn {
+    background: transparent; border: 0; cursor: pointer;
+    font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+    color: var(--dim); padding: 3px 7px;
+  }
+  .langsel .lang-btn:hover { color: var(--txt); background: rgba(255,255,255,.05); }
+  .langsel .lang-btn.active { color: var(--cyan); background: rgba(34,211,238,.10); }
+
+  /* ── Bandeau d'avertissement : ce que la page N'EST PAS ─────────────────── */
+  .banner {
+    padding: 9px 16px; border-bottom: 1px solid var(--line);
+    background: rgba(234,179,8,.06); border-left: 3px solid var(--warn);
+    font-size: 11px; line-height: 1.5; color: #cbc2a0; max-width: 145ch;
+  }
+  .banner b { color: var(--warn); font-weight: 500; }
+  .banner > summary { cursor: pointer; list-style: none; }
+  .banner > summary::-webkit-details-marker { display: none; }
+  .banner > summary::before { content: "▸ "; color: var(--warn); }
+  .banner[open] > summary::before { content: "▾ "; }
+  .banner > p { margin: 7px 0 0; }
+
+  /* ── Deux volets ────────────────────────────────────────────────────────── */
+  /* 3 colonnes depuis l'ajout de sqrtVINS (2026-08-21). Etait reste a
+     « 1fr 1fr » : le troisieme volet debordait sous les deux autres. */
+  .split { display: grid; grid-template-columns: repeat(3, 1fr); min-height: 0; }
+  @media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
+  .pane { display: grid; grid-template-rows: auto 1fr auto auto; min-height: 0;
+          border-right: 1px solid var(--line); }
+  .pane:last-child { border-right: none; }
+  .pane > h2 {
+    font-size: 12px; letter-spacing: .12em; padding: 9px 14px;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+    display: flex; align-items: center; gap: 9px; font-weight: 500;
+  }
+  .pane > h2 i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  /* Filet de couleur en tête de volet : identifie l'estimateur d'un coup
+     d'œil même quand on a fait défiler le tableau. */
+  .pane.mins > h2 { color: var(--orange); box-shadow: inset 0 2px 0 var(--orange); }
+  .pane.ov   > h2 { color: var(--cyan);   box-shadow: inset 0 2px 0 var(--cyan); }
+  .pane.srv  > h2 { color: var(--ambre);  box-shadow: inset 0 2px 0 var(--ambre); }
+  .pane > h2 .conv { margin-left: auto; font-size: 10px; color: var(--dim);
+                     letter-spacing: .06em; font-weight: 400; }
+  canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+
+  /* ── Tableau des repères ────────────────────────────────────────────────── */
+  /* Repliees par defaut (2026-08-21) : trois tableaux de matrices 4x4
+     ouverts en permanence noyaient les indicateurs d'alignement, qui sont
+     eux la vraie lecture d'un coup d'oeil. Le contenu reste a un clic. */
+  .frames { border-top: 1px solid var(--line); background: var(--panel);
+            max-height: 34vh; overflow-y: auto; }
+  .frames > summary { cursor: pointer; padding: 6px 12px; font-size: 9.5px;
+                      letter-spacing: .1em; text-transform: uppercase;
+                      color: var(--dim); list-style: none; }
+  .frames > summary::-webkit-details-marker { display: none; }
+  .frames > summary::before { content: "▸ "; }
+  .frames[open] > summary::before { content: "▾ "; }
+  .frames > summary:hover { color: var(--txt); }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th { text-align: left; color: var(--dim); font-weight: 500; padding: 6px 10px;
+       border-bottom: 1px solid var(--line); letter-spacing: .07em;
+       position: sticky; top: 0; background: var(--panel); }
+  td { padding: 6px 10px; border-bottom: 1px solid rgba(30,36,43,.6);
+       vertical-align: top; }
+  tbody tr:hover td, table tr:hover td { background: rgba(255,255,255,.02); }
+  th { text-transform: uppercase; font-size: 9.5px; }
+  td.num { font-variant-numeric: tabular-nums; color: var(--dim); }
+  .tag { font-size: 9.5px; padding: 1px 6px; border-radius: 3px;
+         letter-spacing: .06em; white-space: nowrap; }
+  .tag.ideal { background: rgba(234,179,8,.15); color: var(--warn);
+               border: 1px solid rgba(234,179,8,.35); }
+  .tag.real  { background: rgba(63,220,151,.12); color: var(--ok);
+               border: 1px solid rgba(63,220,151,.3); }
+  .note { color: var(--dim); font-size: 10px; line-height: 1.4; }
+
+  /* ── Verdicts de cohérence ──────────────────────────────────────────────── */
+  .verdicts { padding: 8px 16px; border-bottom: 1px solid var(--line);
+              background: var(--panel); display: flex; gap: 18px;
+              align-items: center; flex-wrap: wrap; font-size: 11px; }
+  .verdict { display: flex; align-items: center; gap: 7px; }
+  .verdict .led { width: 8px; height: 8px; border-radius: 50%; }
+  .verdict.ok  .led { background: var(--ok); box-shadow: 0 0 7px var(--ok); }
+  .verdict.bad .led { background: var(--bad); box-shadow: 0 0 7px var(--bad); }
+  .verdicts .stamp { margin-left: auto; color: var(--dim); font-size: 10px; }
+  .legend { display: flex; gap: 14px; font-size: 10px; color: var(--dim);
+            padding: 0 16px 8px; background: var(--panel); align-items: center; }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .legend i { width: 14px; height: 2px; display: inline-block; }
+  .legend button {
+    background: transparent; border: 1px solid var(--line); color: var(--dim);
+    font-family: var(--mono); font-size: 10px; letter-spacing: .07em;
+    padding: 3px 9px; border-radius: 4px; cursor: pointer;
+  }
+  .legend button:hover { color: var(--txt); border-color: var(--dim); }
+  .legend button.on { color: var(--warn); border-color: var(--warn);
+                      background: rgba(234,179,8,.1); }
+
+  /* ── Contrôles d'alignement géométrique ─────────────────────────────────── */
+  .align { border-top: 1px solid var(--line); background: var(--panel);
+           padding: 8px 14px 10px; }
+  .align h3 { font-size: 10px; letter-spacing: .1em; color: var(--dim);
+              font-weight: 500; margin-bottom: 6px; text-transform: uppercase; }
+  .align .regle { display: flex; align-items: baseline; gap: 8px;
+                  font-size: 10.5px; padding: 2px 0; }
+  .align .led { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+                position: relative; top: -1px; }
+  .align .regle.ok  .led { background: var(--ok); }
+  .align .regle.bad .led { background: var(--bad); box-shadow: 0 0 7px var(--bad); }
+  .align .regle.bad { color: var(--bad); font-weight: 500; }
+  .align .nom { flex: 1; min-width: 0; }
+  .align .val { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .align .tol { color: var(--dim); font-size: 9.5px; white-space: nowrap; }
+  .align .regle.bad .tol { color: var(--bad); opacity: .8; }
+
+  /* ── Éditeur de repères (mode bac à sable) ──────────────────────────────── */
+  #editeur { display: none; border-top: 1px solid var(--warn);
+             background: rgba(234,179,8,.05); padding: 10px 16px 12px; }
+  #editeur.on { display: block; }
+  #editeur .avert { font-size: 10.5px; color: #d8cfa8; line-height: 1.5;
+                    margin-bottom: 9px; }
+  #editeur .avert b { color: var(--warn); }
+  .ed-ligne { display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+              margin-bottom: 8px; }
+  .ed-ligne label { font-size: 10px; color: var(--dim); letter-spacing: .06em; }
+  .ed-ligne select, .ed-ligne button {
+    background: var(--panel); border: 1px solid var(--line); color: var(--txt);
+    font-family: var(--mono); font-size: 11px; padding: 4px 8px; border-radius: 4px;
+    cursor: pointer;
+  }
+  .curseurs { display: grid; grid-template-columns: repeat(3, minmax(180px,1fr));
+              gap: 7px 20px; }
+  /* Les trois premiers curseurs sont des metres, les trois suivants des
+     degres : un filet de separation evite de les confondre au survol. */
+  .curseur:nth-child(4), .curseur:nth-child(5), .curseur:nth-child(6) {
+    border-top: 1px solid var(--line); padding-top: 7px; margin-top: 2px;
+  }
+  .curseur { display: flex; align-items: center; gap: 8px; font-size: 10.5px; }
+  .curseur label { width: 62px; color: var(--dim); }
+  .curseur input[type=range] { flex: 1; accent-color: var(--warn); min-width: 70px; }
+  /* Champ NUMERIQUE, pas seulement un curseur : un outil de calibration doit
+     accepter une valeur TAPEE. Viser le millimetre en trainant un curseur est
+     impossible — c'est ce qui rendait l'editeur inutilisable en pratique. */
+  .curseur input.num {
+    width: 76px; background: var(--bg); border: 1px solid var(--line);
+    color: var(--txt); font-family: var(--mono); font-size: 10.5px;
+    padding: 3px 5px; border-radius: 3px; text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .curseur input.num:focus { outline: none; border-color: var(--warn); }
+  .vues { display: flex; gap: 4px; margin-left: 10px; }
+  .vues button { background: transparent; border: 1px solid var(--line);
+                 color: var(--dim); font-family: var(--mono); font-size: 9.5px;
+                 letter-spacing: .06em; padding: 3px 8px; border-radius: 3px;
+                 cursor: pointer; }
+  .vues button:hover { color: var(--txt); border-color: var(--dim); }
+  table tr.sel td { background: rgba(234,179,8,.10); }
+  table tr[data-frame] { cursor: pointer; }
+  .ed-sortie { margin-top: 9px; font-size: 10px; color: var(--dim);
+               white-space: pre; overflow-x: auto; padding: 8px 10px;
+               border: 1px solid var(--line); background: var(--bg);
+               border-radius: 4px; max-height: 130px; }
+  .tag.modif { background: rgba(234,179,8,.2); color: var(--warn);
+               border: 1px solid var(--warn); }
+  /* Le bouton qui ÉCRIT sur le disque se distingue des boutons d'essai :
+     même famille visuelle, mais il porte la couleur d'une action réelle. */
+  .ed-ligne button.save {
+    margin-left: auto; border-color: var(--ok); color: var(--ok);
+    background: rgba(63,220,151,.08); letter-spacing: .08em; font-size: 10.5px;
+    padding: 5px 12px;
+  }
+  .ed-ligne button.save:hover { background: rgba(63,220,151,.16); }
+  .ed-ligne button.save:disabled { opacity: .35; cursor: not-allowed;
+                                   background: transparent; }
+  .ed-statut { margin-top: 8px; font-size: 10.5px; line-height: 1.5;
+               min-height: 15px; }
+  .ed-statut.ok  { color: var(--ok); }
+  .ed-statut.bad { color: var(--bad); }
+  .ed-statut.att { color: var(--dim); }
+  /* Relance : action reelle sur le robot, mais NON destructive — teinte
+     cyan (openVINS) plutot que verte, pour ne pas la confondre avec
+     l'ecriture disque. */
+  .ed-ligne button.reload { border-color: var(--cyan); color: var(--cyan);
+                            background: rgba(34,211,238,.08);
+                            letter-spacing: .08em; font-size: 10.5px;
+                            padding: 5px 12px; }
+  .ed-ligne button.reload:hover { background: rgba(34,211,238,.16); }
+  /* Case de forçage : volontairement discrète tant qu'elle est décochée, et
+     franchement rouge une fois armée — l'état dangereux doit se voir, pas
+     l'invitation à y aller. */
+  .forcer { display: flex; align-items: center; gap: 6px; font-size: 10px;
+            color: var(--dim); cursor: pointer; margin-left: auto;
+            letter-spacing: .05em; }
+  .forcer input { accent-color: var(--bad); cursor: pointer; }
+  .forcer:has(input:checked) { color: var(--bad); font-weight: 500; }
+  .ed-ligne button.save.danger { border-color: var(--bad); color: var(--bad);
+                                 background: rgba(255,77,77,.1); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>LEO ROVER · TF VALIDATOR</h1>
+  <nav>
+    <a href="index.html"><span data-i18n="nav_home">HOME</span></a>
+    <a href="ops.html"><span data-i18n="nav_ops">OPERATIONS</span></a>
+    <a href="logbook.html"><span data-i18n="nav_log">LOGBOOK</span></a>
+    <a href="robot_description.html"><span data-i18n="nav_robot">ROBOT</span></a>
+    <a href="navigation_modes.html"><span data-i18n="nav_navmodes">NAV MODES</span></a>
+    <a href="trajectory.html"><span data-i18n="nav_trajectory">TRAJECTORY</span></a>
+    <a href="pid.html"><span data-i18n="nav_pid">PID</span></a>
+    <a href="audit.html"><span data-i18n="nav_audit">AUDIT</span></a>
+    <a href="hector_response.html"><span data-i18n="nav_deriv">DERIVATIONS</span></a>
+    <a href="tf_validator.html" class="on"><span data-i18n="nav_tfval">TF VALIDATOR</span></a>
+  </nav>
+  <span class="langsel">
+    <button type="button" class="lang-btn" data-lang="fr" onclick="if(window.I18N)I18N.set('fr')">FR</button>
+    <button type="button" class="lang-btn" data-lang="en" onclick="if(window.I18N)I18N.set('en')">EN</button>
+  </span>
+</header>
+
+<!-- 2026-08-21 : le bandeau occupait sept lignes en permanence alors qu'il
+     se lit UNE FOIS. Replié, pas supprimé : ce qu'il dit (« validateur, pas
+     outil de calibration ») est précisément ce qui empêche quelqu'un de
+     prendre les curseurs de l'éditeur pour un outil de calibration. -->
+<details class="banner">
+  <summary><b>Validateur, pas outil de calibration.</b> — pourquoi il n'y a
+    aucun curseur de réglage sur cette page</summary>
+  <p>Une extrinsèque caméra–IMU relie le capteur inertiel enfoui sur la carte au
+  <b>centre optique</b> de la lentille — un point immatériel, invisible, qu'aucun
+  alignement à l'œil ne peut atteindre à la précision qu'exige openVINS.
+  Le calcul appartient à Kalibr&nbsp;; cette page sert à <b>vérifier son
+  résultat</b> d'un coup d'œil (un axe Z qui pointe vers le ciel au lieu de
+  l'avant se voit immédiatement, un YAML ne le dira jamais).</p>
+</details>
+
+<div class="verdicts" id="verdicts">
+  <span class="stamp" id="stamp">chargement…</span>
+</div>
+<div class="legend">
+  <span><i style="background:#ff4d4d"></i>X</span>
+  <span><i style="background:#3fdc97"></i>Y</span>
+  <span><i style="background:#4d9dff"></i>Z</span>
+  <span style="margin-left:10px">glisser = pivoter · molette = zoom</span>
+  <span class="vues">
+    <button type="button" data-vue="iso">3D</button>
+    <button type="button" data-vue="dessus">DESSUS</button>
+    <button type="button" data-vue="face">FACE</button>
+    <button type="button" data-vue="cote">CÔTÉ</button>
+  </span>
+  <button type="button" id="btnEdit" style="margin-left:auto">MODE ÉDITION</button>
+</div>
+
+<!-- ══ Éditeur : BAC À SABLE. N'écrit dans aucun fichier de configuration. ══ -->
+<div id="editeur">
+  <div class="avert">
+    <b>Bac à sable — rien n'est écrit dans les configurations.</b>
+    Les modifications ne vivent que dans cette page&nbsp;: elles servent à
+    <b>essayer</b> un alignement et à en lire les chiffres, pas à calibrer.
+    Pour appliquer une valeur, il faut l'éditer soi-même dans le YAML — un
+    geste délibéré, jamais un effet de bord d'un curseur.
+    <b>Une rotation posée à l'œil ne remplace pas Kalibr&nbsp;:</b> une erreur
+    de 2° sur l'orientation caméra–IMU est invisible ici et suffit à faire
+    diverger openVINS.
+  </div>
+  <div class="ed-ligne">
+    <label>volet</label>
+    <select id="edEst"></select>
+    <label>repère</label>
+    <select id="edFrame"></select>
+    <button type="button" id="edAlign">aligner l'orientation sur l'IMU</button>
+    <button type="button" id="edCopie" title="Depuis MINS : copie openVINS. Depuis openVINS ou sqrtVINS : copie MINS, pris comme référence.">copier l'orientation de la référence</button>
+    <button type="button" id="edReset">réinitialiser ce repère</button>
+    <button type="button" id="edResetAll">tout réinitialiser</button>
+    <label class="forcer" title="Le contrôle refuse une caméra dont l'axe optique ne regarde pas vers l'avant. Cocher pour passer outre malgré tout.">
+      <input type="checkbox" id="edForcer"> forcer malgré le contrôle
+    </label>
+    <button type="button" id="edSave" class="save">SAUVEGARDER DANS LES CONFIGS</button>
+    <button type="button" id="edReload" class="reload">RELANCER LA PILE</button>
+  </div>
+  <div id="edStatut" class="ed-statut"></div>
+  <div class="curseurs">
+    <div class="curseur"><label>X (m)</label>
+      <input type="range" id="sX" min="-0.5" max="0.5" step="0.001">
+      <input type="number" class="num" id="nX" min="-0.5" max="0.5" step="0.001"></div>
+    <div class="curseur"><label>Y (m)</label>
+      <input type="range" id="sY" min="-0.5" max="0.5" step="0.001">
+      <input type="number" class="num" id="nY" min="-0.5" max="0.5" step="0.001"></div>
+    <div class="curseur"><label>Z (m)</label>
+      <input type="range" id="sZ" min="-0.5" max="0.5" step="0.001">
+      <input type="number" class="num" id="nZ" min="-0.5" max="0.5" step="0.001"></div>
+    <div class="curseur"><label>roulis °</label>
+      <input type="range" id="sR" min="-180" max="180" step="0.5">
+      <input type="number" class="num" id="nR" min="-180" max="180" step="0.1"></div>
+    <div class="curseur"><label>tangage °</label>
+      <input type="range" id="sP" min="-180" max="180" step="0.5">
+      <input type="number" class="num" id="nP" min="-180" max="180" step="0.1"></div>
+    <div class="curseur"><label>lacet °</label>
+      <input type="range" id="sW" min="-180" max="180" step="0.5">
+      <input type="number" class="num" id="nW" min="-180" max="180" step="0.1"></div>
+  </div>
+  <div class="ed-sortie" id="edSortie"></div>
+</div>
+
+<div class="split">
+  <section class="pane mins">
+    <h2><i style="background:var(--orange)"></i>MINS
+        <span class="conv">T_imu_cam — caméra → IMU</span></h2>
+    <canvas id="cvMINS"></canvas>
+    <details class="frames"><summary>matrices brutes</summary>
+      <table id="tbMINS"></table></details>
+    <div class="align" id="alMINS"></div>
+  </section>
+  <section class="pane ov">
+    <h2><i style="background:var(--cyan)"></i>openVINS
+        <span class="conv">T_cam_imu — IMU → caméra (inversé pour l'affichage)</span></h2>
+    <canvas id="cvOV"></canvas>
+    <details class="frames"><summary>matrices brutes</summary>
+      <table id="tbOV"></table></details>
+    <div class="align" id="alOV"></div>
+  </section>
+  <!-- sqrtVINS ajouté le 2026-08-21. Même convention Kalibr qu'openVINS
+       (T_cam_imu), donc même inversion pour l'affichage. La géométrie est
+       lue dans sqrtvins_ws/src/sqrtVINS/config/leo_pc/. -->
+  <section class="pane srv">
+    <h2><i style="background:var(--ambre)"></i>sqrtVINS
+        <span class="conv">T_cam_imu — IMU → caméra (inversé pour l'affichage)</span></h2>
+    <canvas id="cvSRV"></canvas>
+    <details class="frames"><summary>matrices brutes</summary>
+      <table id="tbSRV"></table></details>
+    <div class="align" id="alSRV"></div>
+  </section>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ═══ Projection 3D → 2D, écrite à la main ══════════════════════════════
+     Pas de bibliothèque : la CSP des artefacts et la sobriété du site
+     interdisent un three.js chargé depuis un CDN, et dessiner quelques
+     trièdres ne justifie pas 600 ko de moteur. Projection perspective
+     simple, caméra en orbite autour de l'origine (le repère IMU). */
+  var vue = { az: -0.62, el: 0.42, dist: 0.95 };   /* radians, mètres */
+
+  function rotY(p, a) {
+    var c = Math.cos(a), s = Math.sin(a);
+    return [p[0] * c + p[2] * s, p[1], -p[0] * s + p[2] * c];
+  }
+  function rotX(p, a) {
+    var c = Math.cos(a), s = Math.sin(a);
+    return [p[0], p[1] * c - p[2] * s, p[1] * s + p[2] * c];
+  }
+  /* Monde ROS (x avant, y gauche, z haut) → écran. On passe par un repère
+     caméra classique (x droite, y bas, z profondeur) avant de projeter. */
+  function projette(p, W, H) {
+    var v = [-p[1], -p[2], p[0]];          /* ROS -> caméra */
+    v = rotY(v, vue.az);
+    v = rotX(v, vue.el);
+    v[2] += vue.dist;
+    if (v[2] < 0.02) return null;           /* derrière la caméra */
+    var f = Math.min(W, H) * 0.9;
+    return [W / 2 + f * v[0] / v[2], H / 2 + f * v[1] / v[2], v[2]];
+  }
+
+  function ligne(ctx, a, b, W, H, couleur, epaisseur) {
+    var pa = projette(a, W, H), pb = projette(b, W, H);
+    if (!pa || !pb) return;
+    ctx.strokeStyle = couleur;
+    ctx.lineWidth = epaisseur || 1;
+    ctx.beginPath();
+    ctx.moveTo(pa[0], pa[1]);
+    ctx.lineTo(pb[0], pb[1]);
+    ctx.stroke();
+  }
+
+  function texte(ctx, p, W, H, txt, couleur) {
+    var q = projette(p, W, H);
+    if (!q) return;
+    ctx.fillStyle = couleur;
+    ctx.font = "11px " + getComputedStyle(document.body).fontFamily;
+    ctx.fillText(txt, q[0] + 5, q[1] - 4);
+  }
+
+  /* ═══ Euler ↔ matrice ═══════════════════════════════════════════════════
+     Convention ROS : R = Rz(lacet)·Ry(tangage)·Rx(roulis), angles intrinsèques
+     appliqués dans cet ordre. Toute autre convention donnerait des angles qui
+     ne correspondraient pas à ceux qu'affichent rqt/tf_echo. */
+  function eulerVersR(r, p, y) {
+    var cr = Math.cos(r), sr = Math.sin(r);
+    var cp = Math.cos(p), sp = Math.sin(p);
+    var cy = Math.cos(y), sy = Math.sin(y);
+    return [
+      [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+      [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+      [-sp,     cp * sr,                cp * cr]
+    ];
+  }
+  function RVersEuler(R) {
+    /* Gimbal lock : |sp| ≈ 1 rend roulis et lacet indissociables. On fixe
+       alors le roulis à 0 plutôt que de renvoyer du bruit numérique — le
+       couple (tangage, lacet) reste correct, c'est la seule décomposition
+       honnête dans ce cas dégénéré. */
+    var sp = -R[2][0];
+    sp = Math.max(-1, Math.min(1, sp));
+    var p = Math.asin(sp);
+    if (Math.abs(sp) > 0.999999) {
+      return [0, p, Math.atan2(-R[0][1], R[1][1])];
+    }
+    return [Math.atan2(R[2][1], R[2][2]), p, Math.atan2(R[1][0], R[0][0])];
+  }
+
+  /* Applique une matrice 4x4 (homogène) à un point 3D. */
+  function applique(T, p) {
+    return [
+      T[0][0] * p[0] + T[0][1] * p[1] + T[0][2] * p[2] + T[0][3],
+      T[1][0] * p[0] + T[1][1] * p[1] + T[1][2] * p[2] + T[1][3],
+      T[2][0] * p[0] + T[2][1] * p[1] + T[2][2] * p[2] + T[2][3]
+    ];
+  }
+
+  var AXES = [
+    { d: [1, 0, 0], c: "#ff4d4d", n: "X" },
+    { d: [0, 1, 0], c: "#3fdc97", n: "Y" },
+    { d: [0, 0, 1], c: "#4d9dff", n: "Z" }
+  ];
+
+  /* ═══ Rendu d'un volet ══════════════════════════════════════════════════ */
+  function dessine(cv, frames, teinte) {
+    var dpr = window.devicePixelRatio || 1;
+    var r = cv.getBoundingClientRect();
+    cv.width = r.width * dpr; cv.height = r.height * dpr;
+    var ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var W = r.width, H = r.height;
+
+    ctx.fillStyle = "#0B0E14";
+    ctx.fillRect(0, 0, W, H);
+
+    /* Sol : grille métrique de 10 cm, repère visuel d'échelle. */
+    var pas = 0.1, n = 4;
+    for (var i = -n; i <= n; i++) {
+      var t = i * pas;
+      ligne(ctx, [t, -n * pas, 0], [t, n * pas, 0], W, H, "rgba(255,255,255,.05)");
+      ligne(ctx, [-n * pas, t, 0], [n * pas, t, 0], W, H, "rgba(255,255,255,.05)");
+    }
+
+    /* Châssis : boîte indicative aux dimensions réelles du LEO Rover
+       (~0.44 x 0.30 x 0.12 m), centrée sur base_link. Elle sert d'échelle
+       et d'orientation — ce n'est PAS une donnée de calibration. */
+    var L = 0.22, l = 0.15, h = 0.06;
+    var coins = [[-L,-l,-h],[L,-l,-h],[L,l,-h],[-L,l,-h],
+                 [-L,-l,h],[L,-l,h],[L,l,h],[-L,l,h]];
+    var aretes = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],
+                  [0,4],[1,5],[2,6],[3,7]];
+    for (var e = 0; e < aretes.length; e++) {
+      ligne(ctx, coins[aretes[e][0]], coins[aretes[e][1]], W, H,
+            "rgba(255,255,255,.13)");
+    }
+    /* Marque l'avant du châssis, sinon la boîte est ambiguë en rotation. */
+    ligne(ctx, [L, -l, 0], [L + 0.05, 0, 0], W, H, teinte, 1.5);
+    ligne(ctx, [L, l, 0], [L + 0.05, 0, 0], W, H, teinte, 1.5);
+
+    /* Trièdres : un par repère, orienté par sa matrice. */
+    var ech = 0.09;
+    for (var k = 0; k < frames.length; k++) {
+      var f = frames[k], T = f.T;
+      var o = applique(T, [0, 0, 0]);
+      for (var a = 0; a < AXES.length; a++) {
+        var bout = applique(T, [AXES[a].d[0] * ech,
+                                AXES[a].d[1] * ech,
+                                AXES[a].d[2] * ech]);
+        ligne(ctx, o, bout, W, H, AXES[a].c, f.nom === "imu" ? 2.4 : 1.8);
+        texte(ctx, bout, W, H, AXES[a].n, AXES[a].c);
+      }
+      /* Point d'origine + étiquette. Une matrice idéalisée est signalée
+         jusque dans le dessin : c'est là qu'on la regarde. */
+      var po = projette(o, W, H);
+      if (po) {
+        ctx.fillStyle = f.modifie ? "#eab308"
+                      : (f.idealisee ? "#eab308" : "#3fdc97");
+        ctx.beginPath();
+        ctx.arc(po[0], po[1], f.modifie ? 4.5 : 3.2, 0, 7);
+        ctx.fill();
+        if (f.modifie) {                      /* halo : valeur non issue du YAML */
+          ctx.strokeStyle = "#eab308";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(po[0], po[1], 8, 0, 7);
+          ctx.stroke();
+        }
+        ctx.fillStyle = f.modifie ? "#eab308" : "#c9d1d9";
+        ctx.font = "11px " + getComputedStyle(document.body).fontFamily;
+        ctx.fillText(f.nom + (f.modifie ? " ✎ modifié"
+                                        : (f.idealisee ? " ⚠" : "")),
+                     po[0] + 6, po[1] + 13);
+      }
+    }
+  }
+
+  /* ═══ Tableau ═══════════════════════════════════════════════════════════ */
+  function remplitTable(tb, frames) {
+    var html = "<tr><th>repère</th><th>rôle</th><th>position (m)</th>" +
+               "<th>état</th></tr>";
+    for (var i = 0; i < frames.length; i++) {
+      var f = frames[i];
+      /* Position relue dans la matrice, pas dans f.position : l'édition
+         déplace le repère et f.position, figé à l'export, mentirait. */
+      var p = [f.T[0][3], f.T[1][3], f.T[2][3]];
+      html += "<tr><td style='color:#c9d1d9'>" + f.nom + "</td>" +
+              "<td class='note'>" + f.role +
+              (f.note ? "<br><span style='opacity:.75'>" + f.note + "</span>" : "") +
+              "</td>" +
+              "<td class='num'>" + p.map(function (v) {
+                return (v >= 0 ? " " : "") + v.toFixed(4);
+              }).join("<br>") + "</td>" +
+              "<td>" + (f.modifie
+                ? "<span class='tag modif'>MODIFIÉ ICI</span>"
+                : (f.nom === "imu"
+                ? "<span class='note'>référence</span>"
+                : (f.idealisee
+                    ? "<span class='tag ideal'>IDÉALISÉE</span>"
+                    : "<span class='tag real'>CALIBRÉE</span>"))) +
+              "<div class='note' style='margin-top:4px'>" + f.source + "</div>" +
+              "</td></tr>";
+    }
+    tb.innerHTML = html;
+  }
+
+  /* ═══ Contrôles d'alignement ════════════════════════════════════════════
+     Les règles et leurs tolérances sont calculées par export_tf_frames.py,
+     PAS ici : un contrôle qui existerait en deux exemplaires (serveur et
+     page) finirait par diverger, et c'est celui qu'on ne regarde pas qui
+     mentirait. La page ne fait que rendre. */
+  function remplitAlign(el, regles) {
+    if (!regles || !regles.length) { el.innerHTML = ""; return; }
+    var ko = regles.filter(function (r) { return !r.ok; }).length;
+    var h = "<h3>alignement géométrique — " +
+            (ko ? ko + " ALERTE" + (ko > 1 ? "S" : "") : "7/7 conformes") + "</h3>";
+    regles.forEach(function (r) {
+      var u = r.unite ? " " + r.unite : "";
+      h += "<div class='regle " + (r.ok ? "ok" : "bad") + "' title='" +
+           r.explication.split("'").join("&#39;") + "'>" +
+           "<span class='led'></span>" +
+           "<span class='nom'>" + r.regle + "</span>" +
+           "<span class='val'>" + r.valeur + u + "</span>" +
+           "<span class='tol'>tol " + r.tolerance + "</span></div>";
+    });
+    el.innerHTML = h;
+  }
+
+  /* ═══ Chargement ════════════════════════════════════════════════════════ */
+  var donnees = null;
+  /* Une seule table de correspondance, d'où tout se dérive : ajouter un
+     estimateur ne demande qu'une entrée ici + le trio de nœuds HTML. */
+  var PANNEAUX = [
+    { cle: "MINS",     canvas: "cvMINS", table: "tbMINS", align: "alMINS", couleur: "#ff6b35" },
+    { cle: "openVINS", canvas: "cvOV",   table: "tbOV",   align: "alOV",   couleur: "#22d3ee" },
+    { cle: "sqrtVINS", canvas: "cvSRV",  table: "tbSRV",  align: "alSRV",  couleur: "#fbbf24" }
+  ];
+
+  function redessine() {
+    if (!donnees) return;
+    PANNEAUX.forEach(function (p) {
+      var e = donnees.estimateurs[p.cle];
+      var cv = document.getElementById(p.canvas);
+      /* Un estimateur absent du JSON (workspace pas installé) ne doit pas
+         empêcher le rendu des autres : on masque son panneau. */
+      if (!cv) return;
+      if (!e || !e.frames || !e.frames.length) {
+        var sec = cv.closest("section"); if (sec) sec.style.display = "none";
+        return;
+      }
+      dessine(cv, e.frames, p.couleur);
+    });
+  }
+
+  /* Chargement, réutilisable : appelé au démarrage ET après chaque
+     sauvegarde. Retourne une promesse pour que l'appelant sache quand
+     l'affichage reflète réellement le disque. */
+  function recharge() {
+    return fetch("tf_frames.json?t=" + Date.now())
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(function (d) {
+      donnees = d;
+      /* Copie de référence AVANT toute édition : sans elle, « réinitialiser »
+         n'aurait rien à restaurer et une session d'essais serait sans retour. */
+      Object.keys(d.estimateurs).forEach(function (e) {
+        d.estimateurs[e].frames.forEach(function (f) {
+          f.T0 = JSON.parse(JSON.stringify(f.T));
+          f.modifie = false;
+        });
+      });
+      PANNEAUX.forEach(function (p) {
+        var e = d.estimateurs[p.cle];
+        if (!e || !e.frames || !e.frames.length) return;
+        remplitTable(document.getElementById(p.table), e.frames);
+        if (d.alignements && d.alignements[p.cle]) {
+          remplitAlign(document.getElementById(p.align), d.alignements[p.cle]);
+        }
+      });
+
+      var v = document.getElementById("verdicts");
+      var h = "";
+      for (var i = 0; i < d.coherence.length; i++) {
+        var c = d.coherence[i];
+        h += "<span class='verdict " + (c.coherent ? "ok" : "bad") + "'>" +
+             "<span class='led'></span>" + c.repere + " — " +
+             (c.coherent
+                ? (c.estimateur || "openVINS") + " concorde avec " + (c.contre || "MINS")
+                : (c.estimateur || "openVINS") + " DIVERGE de " + (c.contre || "MINS") +
+                  " (écart " + c.ecart_max.toExponential(2) + " m)") +
+             "</span>";
+      }
+      var nIdeal = 0;
+      Object.keys(d.estimateurs).forEach(function (e) {
+        (d.estimateurs[e].frames || []).forEach(function (f) {
+          if (f.idealisee && f.nom !== "imu") nIdeal++;
+        });
+      });
+      if (nIdeal) {
+        h += "<span class='verdict bad'><span class='led'></span>" + nIdeal +
+             " matrice(s) jamais calibrée(s)</span>";
+      }
+      h += "<span class='stamp'>export " + d.genere +
+           " · python3 tools/export_tf_frames.py</span>";
+      v.innerHTML = h;
+      redessine();
+      if (edOn) { remplitSelecteurs(); majBoutonSave(); }
+    })
+    .catch(function (e) {
+      document.getElementById("stamp").textContent =
+        "tf_frames.json introuvable — lancer : python3 tools/export_tf_frames.py  (" + e.message + ")";
+      document.getElementById("stamp").style.color = "#ff4d4d";
+    });
+  }
+  recharge();
+
+  /* ═══ Éditeur — BAC À SABLE ═════════════════════════════════════════════
+     Modifie UNIQUEMENT l'objet `donnees` en mémoire. Aucune écriture vers
+     tf_frames.json ni vers les YAML des estimateurs : la page est servie en
+     lecture seule par http.server, et c'est délibéré. Appliquer une valeur
+     reste un geste manuel, tracé, dans le fichier de configuration. */
+  var edOn = false;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function frameCourant() {
+    if (!donnees) return null;
+    var e = $("edEst").value, n = $("edFrame").value;
+    var lst = donnees.estimateurs[e].frames;
+    for (var i = 0; i < lst.length; i++) if (lst[i].nom === n) return lst[i];
+    return null;
+  }
+
+  function remplitSelecteurs() {
+    var e = $("edEst");
+    e.innerHTML = "";
+    Object.keys(donnees.estimateurs).forEach(function (k) {
+      var o = document.createElement("option");
+      o.value = k; o.textContent = k; e.appendChild(o);
+    });
+    majListeFrames();
+  }
+
+  function majListeFrames() {
+    var lst = donnees.estimateurs[$("edEst").value].frames;
+    var s = $("edFrame");
+    var garde = s.value;
+    s.innerHTML = "";
+    lst.forEach(function (f) {
+      if (f.nom === "imu") return;        /* la référence ne se déplace pas */
+      var o = document.createElement("option");
+      o.value = f.nom; o.textContent = f.nom + " — " + f.role;
+      s.appendChild(o);
+    });
+    if (garde) s.value = garde;
+    if (!s.value && s.options.length) s.value = s.options[0].value;
+    chargeCurseurs();
+  }
+
+  function chargeCurseurs() {
+    var f = frameCourant();
+    if (!f) return;
+    var T = f.T;
+    var eul = RVersEuler([T[0].slice(0, 3), T[1].slice(0, 3), T[2].slice(0, 3)]);
+    $("sX").value = T[0][3]; $("sY").value = T[1][3]; $("sZ").value = T[2][3];
+    $("sR").value = eul[0] * 180 / Math.PI;
+    $("sP").value = eul[1] * 180 / Math.PI;
+    $("sW").value = eul[2] * 180 / Math.PI;
+    majSorties();
+  }
+
+  function majSorties() {
+    /* Le champ numérique reflète le curseur, sauf s'il a le focus : réécrire
+       pendant la frappe replacerait le curseur de texte et rendrait la saisie
+       impossible. */
+    ["X", "Y", "Z"].forEach(function (a) {
+      var n = $("n" + a);
+      if (document.activeElement !== n) n.value = parseFloat($("s" + a).value).toFixed(3);
+    });
+    ["R", "P", "W"].forEach(function (a) {
+      var n = $("n" + a);
+      if (document.activeElement !== n) n.value = parseFloat($("s" + a).value).toFixed(1);
+    });
+    var f = frameCourant();
+    if (!f) return;
+    var T = f.T;
+    var l = [];
+    l.push("# " + $("edEst").value + " · " + f.nom +
+           (f.modifie ? "   ← MODIFIÉ DANS LA PAGE, non calibré" : ""));
+    l.push("# " + f.source);
+    var cle = ($("edEst").value === "MINS") ? "T_imu_cam" : "T_cam_imu (à INVERSER avant écriture)";
+    l.push(cle + ":");
+    for (var i = 0; i < 4; i++) {
+      l.push("  - [" + T[i].map(function (v) {
+        return (v >= 0 ? " " : "") + v.toFixed(8);
+      }).join(", ") + "]");
+    }
+    $("edSortie").textContent = l.join("\n");
+  }
+
+  function appliqueCurseurs() {
+    var f = frameCourant();
+    if (!f) return;
+    var R = eulerVersR(parseFloat($("sR").value) * Math.PI / 180,
+                       parseFloat($("sP").value) * Math.PI / 180,
+                       parseFloat($("sW").value) * Math.PI / 180);
+    var t = [parseFloat($("sX").value), parseFloat($("sY").value),
+             parseFloat($("sZ").value)];
+    for (var i = 0; i < 3; i++) {
+      for (var j = 0; j < 3; j++) f.T[i][j] = R[i][j];
+      f.T[i][3] = t[i];
+    }
+    f.modifie = true;
+    majSorties();
+    redessine();
+    majTables();
+    majBoutonSave();
+  }
+
+  /* CORRIGÉ 2026-08-21 : ne rafraîchissait que MINS et openVINS, écrits en
+     dur. Le tableau sqrtVINS restait donc figé sur les valeurs du chargement
+     après chaque édition — il affichait des chiffres FAUX sans le signaler.
+     Passe par PANNEAUX, comme le reste. */
+  function majTables() {
+    PANNEAUX.forEach(function (p) {
+      var e = donnees.estimateurs[p.cle];
+      if (!e || !e.frames || !e.frames.length) return;
+      remplitTable($(p.table), e.frames);
+    });
+  }
+
+  $("btnEdit").addEventListener("click", function () {
+    edOn = !edOn;
+    $("editeur").classList.toggle("on", edOn);
+    this.classList.toggle("on", edOn);
+    if (edOn && donnees) { remplitSelecteurs(); majBoutonSave(); }
+  });
+  $("edEst").addEventListener("change", majListeFrames);
+  $("edFrame").addEventListener("change", chargeCurseurs);
+  ["sX", "sY", "sZ", "sR", "sP", "sW"].forEach(function (id) {
+    $(id).addEventListener("input", appliqueCurseurs);
+  });
+  $("edForcer").addEventListener("change", majBoutonSave);
+
+  /* Saisie au clavier : le champ pilote le curseur, puis on applique. Une
+     valeur hors bornes est ramenée dans la plage plutôt que rejetée — refuser
+     en silence est pire que corriger visiblement. */
+  ["X", "Y", "Z", "R", "P", "W"].forEach(function (a) {
+    $("n" + a).addEventListener("change", function () {
+      var sl = $("s" + a), v = parseFloat(this.value);
+      if (isNaN(v)) { majSorties(); return; }
+      v = Math.max(parseFloat(sl.min), Math.min(parseFloat(sl.max), v));
+      sl.value = v;
+      appliqueCurseurs();
+    });
+  });
+
+  /* ═══ Vues prédéfinies ══════════════════════════════════════════════════
+     S'orienter à la souris pour retrouver une vue de dessus est fastidieux et
+     non reproductible. Ces quatre angles sont les seuls qui comptent pour
+     juger une géométrie : une caméra qui vise trop haut se voit de CÔTÉ, un
+     décalage latéral se voit de DESSUS. */
+  var VUES = {
+    iso:    { az: -0.62, el: 0.42 },
+    dessus: { az: 0.0,   el: 1.45 },
+    face:   { az: 0.0,   el: 0.0  },
+    cote:   { az: -1.5708, el: 0.0 }
+  };
+  document.querySelectorAll(".vues button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var v = VUES[this.dataset.vue];
+      if (!v) return;
+      vue.az = v.az; vue.el = v.el;
+      redessine();
+    });
+  });
+
+  /* « Aligner sur l'IMU » = orientation identité, translation conservée.
+     Utile pour VOIR ce que donnerait un repère non tourné — presque jamais
+     ce qu'il faut réellement écrire : une caméra regarde vers l'avant selon
+     son axe Z optique, pas selon X. */
+  $("edAlign").addEventListener("click", function () {
+    $("sR").value = 0; $("sP").value = 0; $("sW").value = 0;
+    appliqueCurseurs();
+  });
+
+  /* Copie l'orientation du MÊME repère dans l'autre volet : c'est le geste
+     qui a du sens si les deux estimateurs divergent — on aligne celui qu'on
+     soupçonne sur celui qu'on croit juste, et on lit l'écart. */
+  $("edCopie").addEventListener("click", function () {
+    var f = frameCourant();
+    if (!f) return;
+    /* 2026-08-21 : avec TROIS volets, « l'autre » n'existe plus. MINS est
+       pris comme référence — c'est deja lui que coherence() utilise pour
+       comparer les autres. Depuis MINS, on retombe sur openVINS. */
+    var autre = ($("edEst").value === "MINS") ? "openVINS" : "MINS";
+    var ref = donnees.estimateurs[autre];
+    if (!ref || !ref.frames || !ref.frames.length) {
+      alert("Le volet " + autre + " n'a aucun repère chargé."); return;
+    }
+    var src = null, lst = ref.frames;
+    for (var i = 0; i < lst.length; i++) if (lst[i].nom === f.nom) src = lst[i];
+    if (!src) { alert("Ce repère n'existe pas dans " + autre + "."); return; }
+    var eul = RVersEuler([src.T[0].slice(0, 3), src.T[1].slice(0, 3),
+                          src.T[2].slice(0, 3)]);
+    $("sR").value = eul[0] * 180 / Math.PI;
+    $("sP").value = eul[1] * 180 / Math.PI;
+    $("sW").value = eul[2] * 180 / Math.PI;
+    appliqueCurseurs();
+  });
+
+  $("edReset").addEventListener("click", function () {
+    var f = frameCourant();
+    if (!f || !f.T0) return;
+    f.T = JSON.parse(JSON.stringify(f.T0));
+    f.modifie = false;
+    chargeCurseurs(); redessine(); majTables(); majBoutonSave();
+  });
+  /* ═══ Sauvegarde ════════════════════════════════════════════════════════
+     POST vers 127.0.0.1:8010 — un serveur DISTINCT de celui qui sert cette
+     page (:8000). Ce n'est pas un détail d'implémentation : :8000 est publié
+     sur internet par le tunnel Cloudflare, et une route d'écriture y serait
+     ouverte à tous. Filtrer par IP ne protégerait de rien, cloudflared se
+     connectant lui-même en boucle locale. Conséquence assumée : depuis
+     l'extérieur, le navigateur ne peut pas joindre 127.0.0.1 et la
+     sauvegarde échoue — c'est voulu. */
+  function modifies() {
+    if (!donnees) return [];
+    var out = [];
+    Object.keys(donnees.estimateurs).forEach(function (e) {
+      donnees.estimateurs[e].frames.forEach(function (f) {
+        if (f.modifie) out.push(e + "·" + f.nom);
+      });
+    });
+    return out;
+  }
+
+  function majBoutonSave() {
+    var m = modifies();
+    var b = $("edSave");
+    if (!b) return;
+    b.disabled = (m.length === 0);
+    b.classList.toggle("danger", $("edForcer") && $("edForcer").checked);
+    b.textContent = m.length
+      ? "SAUVEGARDER " + m.length + " REPÈRE" + (m.length > 1 ? "S" : "")
+      : "SAUVEGARDER DANS LES CONFIGS";
+  }
+
+  function statut(txt, cls) {
+    var s = $("edStatut");
+    s.textContent = txt;
+    s.className = "ed-statut " + (cls || "");
+  }
+
+  $("edSave").addEventListener("click", function () {
+    var m = modifies();
+    if (!m.length) return;
+    /* Confirmation explicite : ce clic modifie des fichiers que les deux
+       estimateurs ET le pilotage relisent au prochain lancement. */
+    var force = $("edForcer").checked;
+    if (!confirm((force
+          ? "FORÇAGE DU CONTRÔLE DE SÉCURITÉ\n\nLe contrôle qui refuse une "
+            + "caméra ne regardant pas vers l'avant va être outrepassé.\n\n"
+          : "")
+                 + "Écrire " + m.length + " repère(s) dans les fichiers de "
+                 + "configuration ?\n\n" + m.join("\n")
+                 + "\n\nUne sauvegarde horodatée est créée avant écriture.\n"
+                 + "Les estimateurs ne reliront ces valeurs qu'au PROCHAIN "
+                 + "lancement de la pile.")) return;
+    statut("écriture en cours…", "att");
+    fetch("http://127.0.0.1:8010/save_tf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      /* Le drapeau voyage avec la charge utile : c'est le SERVEUR qui
+         décide, jamais la page. Un contrôle côté navigateur se contourne. */
+      body: JSON.stringify(Object.assign({}, donnees,
+              { forcer: $("edForcer").checked }))
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (rep) {
+        var l = [];
+        if (rep.ecrits && rep.ecrits.length) l.push("écrit : " + rep.ecrits.join(" · "));
+        if (rep.sauvegardes && rep.sauvegardes.length) {
+          l.push(rep.sauvegardes.length + " sauvegarde(s) créée(s)");
+        }
+        if (rep.ignores && rep.ignores.length) l.push(rep.ignores.join(" · "));
+        if (rep.erreurs && rep.erreurs.length) {
+          statut("ERREUR — " + rep.erreurs.join(" · "), "bad");
+          return;
+        }
+        if (rep.avertissements) l.push(rep.avertissements.join(" · "));
+        if (rep.verification) l.push(rep.verification);
+        /* On RECHARGE depuis le disque plutôt que de déclarer la mémoire
+           valide. Le serveur vient de régénérer tf_frames.json en relisant
+           les YAML : ce que la page réaffiche est donc ce qui est réellement
+           écrit, et non ce qu'on croit avoir écrit. C'est ce chaînon qui
+           manquait — l'écriture marchait, mais un rechargement de page
+           réaffichait l'ancien export et donnait l'impression contraire. */
+        l.push("relancer la pile pour que les estimateurs les prennent en compte");
+        statut(l.join("  |  ") + "  |  relecture du disque…", "ok");
+        return recharge().then(function () {
+          statut(l.join("  |  ") + "  |  valeurs ci-dessus relues sur le disque", "ok");
+        });
+      })
+      .catch(function (e) {
+        statut("serveur de sauvegarde injoignable (127.0.0.1:8010). "
+             + "Le lancer : python3 tools/tf_save_server.py — "
+             + "indisponible à distance, par conception. [" + e.message + "]", "bad");
+      });
+  });
+
+  /* ═══ Relance de la pile ════════════════════════════════════════════════
+     Les estimateurs ne lisent leur configuration QU'AU DEMARRAGE. Sans ce
+     bouton, sauvegarder depuis cette page n'avait aucun effet tant qu'un
+     humain n'allait pas relancer dans un terminal — le site ecrivait dans le
+     vide. C'est ce qui le rendait « passif ». */
+  $("edReload").addEventListener("click", function () {
+    if (!confirm("Relancer la pile de navigation ?\n\n"
+               + "Les estimateurs vont redemarrer et relire leur "
+               + "configuration. Le robot ne repond plus pendant ~15-30 s.\n\n"
+               + "MINS se reinitialise a l'origine.")) return;
+    statut("relance en cours…", "att");
+    fetch("http://127.0.0.1:8010/reload_stack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (rep) {
+        if (rep.erreurs && rep.erreurs.length) {
+          statut("ERREUR — " + rep.erreurs.join(" · "), "bad"); return;
+        }
+        statut("pile relancee · " + (rep.note || ""), "ok");
+        /* Relire tf_frames.json apres la relance : ce que la page affichera
+           sera alors ce que les estimateurs ont REELLEMENT charge. */
+        setTimeout(function () {
+          recharge().then(function () {
+            statut("pile relancee — repères ci-dessus relus sur le disque", "ok");
+          });
+        }, 25000);
+      })
+      .catch(function (e) {
+        statut("serveur de relance injoignable (127.0.0.1:8010) — "
+             + "indisponible a distance, par conception. [" + e.message + "]", "bad");
+      });
+  });
+
+  $("edResetAll").addEventListener("click", function () {
+    Object.keys(donnees.estimateurs).forEach(function (e) {
+      donnees.estimateurs[e].frames.forEach(function (f) {
+        if (f.T0) { f.T = JSON.parse(JSON.stringify(f.T0)); f.modifie = false; }
+      });
+    });
+    chargeCurseurs(); redessine(); majTables(); majBoutonSave();
+  });
+
+  /* ═══ Orbite ════════════════════════════════════════════════════════════
+     CORRIGÉ 2026-08-21 : ce bloc itérait sur « [cvM, cvO] », deux variables
+     supprimées lors du passage à trois volets (remplacées par PANNEAUX).
+     Elles valaient donc `undefined`, et `undefined.addEventListener` levait
+     une TypeError qui interrompait le script À CET ENDROIT — d'où une souris
+     entièrement morte sur les trois vues, et tout ce qui suivait ce bloc
+     jamais exécuté. Un seul état de vue partagé (`vue`) : les trois volets
+     pivotent ENSEMBLE, comparer trois géométries sous trois angles différents
+     n'aurait aucun sens.
+     `drag`, `lx`, `ly` sont montés d'un cran : déclarés DANS la boucle, chaque
+     canvas avait les siens, et un glissement commencé sur un volet puis
+     poursuivi au-dessus d'un autre s'arrêtait net. */
+  var drag = false, lx = 0, ly = 0;
+  window.addEventListener("mouseup", function () { drag = false; });
+  window.addEventListener("mousemove", function (e) {
+    if (!drag) return;
+    vue.az += (e.clientX - lx) * 0.008;
+    vue.el += (e.clientY - ly) * 0.008;
+    vue.el = Math.max(-1.5, Math.min(1.5, vue.el));
+    lx = e.clientX; ly = e.clientY;
+    redessine();
+  });
+  PANNEAUX.forEach(function (p) {
+    var cv = document.getElementById(p.canvas);
+    if (!cv) return;                      /* volet absent : on saute */
+    cv.style.cursor = "grab";
+    cv.addEventListener("mousedown", function (e) {
+      e.preventDefault();                 /* sinon le navigateur "sélectionne" */
+      drag = true; lx = e.clientX; ly = e.clientY;
+      cv.style.cursor = "grabbing";
+    });
+    cv.addEventListener("mouseup", function () { cv.style.cursor = "grab"; });
+    cv.addEventListener("wheel", function (e) {
+      e.preventDefault();
+      vue.dist *= (e.deltaY > 0 ? 1.1 : 0.9);
+      vue.dist = Math.max(0.25, Math.min(3.0, vue.dist));
+      redessine();
+    }, { passive: false });
+  });
+
+  window.addEventListener("resize", redessine);
+})();
+</script>
+<!-- Après le script de la page : i18n.js n'applique rien tout seul, et le DOM
+     doit être complet quand apply() balaie les [data-i18n]. -->
+<script>if (window.I18N) I18N.apply();</script>
+</body>
+</html>
