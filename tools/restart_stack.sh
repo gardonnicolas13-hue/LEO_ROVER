@@ -19,17 +19,57 @@ while pgrep -x subscribe > /dev/null 2>&1; do
   sleep 2
 done
 
-nohup /home/lab272/TOUT/catkin_ws/src/leo_navigation/launch_mins.sh navigation_master.launch \
-      > /home/lab272/TOUT/logs/navigation_master.log 2>&1 &
-echo "stack relancée"
+# ── Parametres d'exploitation, relayes a CHAQUE relance ──────────────────────
+# Sans eux, ce script relance la pile avec les DEFAUTS (gyro_recal_period=0,
+# zupt_clamp_enable=false) et efface silencieusement la configuration en cours.
+# Constate deux fois le 2026-08-20 : le watchdog, declenche par une divergence
+# MINS puis par un redemarrage manuel, a remis les defauts sans rien signaler —
+# on ne s'en apercevait qu'en interrogeant rosparam apres coup.
+# Modifier ICI pour changer ce que le watchdog restaure.
+# ── 2026-08-21 : RETOUR AU POINT DE FONCTIONNEMENT CONNU-BON DE MINS ─────────
+# Les trois options ci-dessous (gyro_recal 60, zupt_clamp true, accel_recal
+# 120) ont ete activees le 2026-08-20 POUR openVINS, qui n'a aucun point
+# d'entree externe pour un ZUPT confirme par les roues. MINS, lui, est deja
+# ancre par ses roues : il n'en avait aucun besoin, et il en a fait les frais.
+# Retour operateur direct : MINS marchait tres bien AVANT, resultat decevant
+# APRES. Le dernier commit (899b656, les trois creneaux d'essai test1/2/3)
+# lancait la pile SANS AUCUN argument -> ces trois valeurs par defaut.
+# Le plus suspect des trois est zupt_clamp_enable : il ne regle pas un
+# parametre, il REMPLACE le signal /imu/data_clean par la moyenne glissante
+# pendant les arrets — et son propre commentaire dans navigation_supervision
+# .launch le dit : « OFF par defaut, pas encore valide sur le robot ».
+# Valeurs ECRITES EXPLICITEMENT (au lieu d'un tableau vide) pour garder la
+# garantie d'origine de LEO_ARGS : le watchdog ne peut plus changer la
+# configuration en silence, dans un sens comme dans l'autre.
+LEO_ARGS=(gyro_recal_period:=0 zupt_clamp_enable:=false accel_recal_period:=0)
 
+nohup /home/lab272/TOUT/catkin_ws/src/leo_navigation/launch_mins.sh navigation_master.launch \
+      "${LEO_ARGS[@]}" \
+      > /home/lab272/TOUT/logs/navigation_master.log 2>&1 &
+echo "stack relancée (${LEO_ARGS[*]})"
+
+# 2026-08-21 : sur lien WiFi robot dégradé, rospy.init_node() peut rester
+# bloqué en enregistrement XML-RPC auprès du maître BIEN PLUS que les 12 s du
+# wait_for_message interne (celui-ci ne démarre même jamais) -> la sonde
+# n'expirait jamais proprement, timeout -k 5 15 finissait par la tuer au
+# SIGKILL, et bash affichait un "Killed" bruyant à chaque cycle (vécu en
+# direct : deux dumps consécutifs sur un `leo restart`). socket.setdefaulttimeout
+# borne AUSSI l'enregistrement XML-RPC (pas seulement wait_for_message), donc
+# le script python sort proprement par exception avant que timeout n'ait à
+# tuer quoi que ce soit — plus de "Killed", cycles plus courts et plus nombreux
+# dans le même budget de 300 s. Le groupe { ...; } 2>/dev/null est une
+# ceinture-bretelles : il avale aussi le "Killed" que bash imprimerait sur SON
+# PROPRE stderr (pas celui du process, donc invisible au ">/dev/null 2>&1" de
+# la commande) si un cas pathologique forçait quand même le SIGKILL.
 t0=$(date +%s)
-until timeout -k 5 15 python3 -c "
+until { timeout -k 3 12 python3 -c "
+import socket
+socket.setdefaulttimeout(8)
 import rospy
 from nav_msgs.msg import Odometry
 rospy.init_node('wait_mins', anonymous=True)
-rospy.wait_for_message('/mins/imu/odom', Odometry, timeout=12)
-" > /dev/null 2>&1; do
+rospy.wait_for_message('/mins/imu/odom', Odometry, timeout=8)
+" > /dev/null 2>&1; } 2>/dev/null; do
   [ $(( $(date +%s) - t0 )) -gt 300 ] && { echo "TIMEOUT init MINS"; exit 2; }
   sleep 3
 done
@@ -46,6 +86,34 @@ echo "MINS initialisé après $(( $(date +%s) - t0 ))s"
 # points IR) : réappliqué ici aussi, au même titre que le watchdog.
 timeout -k 5 15 rosrun dynamic_reconfigure dynparam set /camera/stereo_module laser_power 0 > /dev/null 2>&1
 timeout -k 5 15 rosrun dynamic_reconfigure dynparam set /camera/depth/image_rect_raw/compressedDepth png_level 1 > /dev/null 2>&1
+
+# EXPOSITION PLAFONNEE (2026-08-24) — meme motif de panne que laser_power
+# ci-dessus, meme remede : un redemarrage du robot ou du pilote camera remet
+# l'auto-exposition d'usine, et le reglage est perdu SANS AUCUN signal.
+# Constate en direct : apres le redemarrage complet du Pi, retour a
+# enable_auto_exposure=True / exposure=33000, alors que la mesure de la veille
+# avait etabli l'interet du plafond.
+#
+# POURQUOI 8 ms. Le projecteur IR est eteint (laser_power=0, ligne ci-dessus,
+# choix delibere : ses points polluaient le damier de calibration et les LED
+# de la balise). La scene infrarouge est donc sombre, et l'auto-exposition
+# compense en ouvrant l'obturateur -- mesure : 33 000 us, soit la MOITIE de la
+# periode de trame a 15 Hz. La trainee de flou vaut b = omega * t_exp * f :
+# avec f = 336.37 px et omega jusqu'a 0.631 rad/s (mesure MINS, ancre roues),
+# cela fait 7.0 px a 33 ms contre 1.7 px a 8 ms. Une trainee de 7 px n'efface
+# pas le coin detecte par FAST, elle aplatit son gradient -- et
+# fast_threshold=30 en exige un franc. Mesure a l'arret, filtres redemarres :
+# 12.00 -> 72.00 features consommees par mise a jour.
+#
+# CONTREPARTIE, assumee : ce wrapper RealSense n'expose AUCUN plafond
+# d'auto-exposition (verifie : seuls enable_auto_exposure, exposure et gain
+# existent). Brider impose donc le mode MANUEL, donc un gain fige aussi. Le
+# rover ne s'adapte plus a un changement de luminosite. En labo a eclairage
+# constant c'est sans effet ; en exterieur il faudra revalider.
+# gain 16 -> 64 compense les 4.1x de lumiere perdue.
+timeout -k 5 15 rosrun dynamic_reconfigure dynparam set /camera/stereo_module enable_auto_exposure false > /dev/null 2>&1
+timeout -k 5 15 rosrun dynamic_reconfigure dynparam set /camera/stereo_module exposure 8000 > /dev/null 2>&1
+timeout -k 5 15 rosrun dynamic_reconfigure dynparam set /camera/stereo_module gain 64 > /dev/null 2>&1
 
 for i in 1 2 3; do
   out=$(timeout -k 5 10 rosservice call /pose_selector/set_source "data: true" 2>&1)

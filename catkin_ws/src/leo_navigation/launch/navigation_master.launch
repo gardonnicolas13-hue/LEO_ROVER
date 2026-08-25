@@ -6,7 +6,12 @@
        roslaunch ne propage pas les arguments a un <include> tout seul. -->
   <arg name="gyro_recal_period"    default="0.0"/>
   <arg name="gyro_recal_max_delta" default="0.02"/>
+  <arg name="accel_recal_period"    default="0.0"/>
+  <arg name="accel_recal_max_delta" default="0.03"/>
   <arg name="wheel_still_time"     default="3.0"/>
+  <arg name="zupt_accel_std_max"   default="0.05"/>
+  <arg name="zupt_clamp_enable"    default="false"/>
+  <arg name="ov_verbosity"         default="WARNING"/>
 
   <!-- LEO Rover — single entry point for the full navigation stack:
        sensors -> MINS -> pose_selector -> /robot_pose_fused -> cockpit switch.
@@ -41,6 +46,11 @@
   <include file="$(find leo_navigation)/launch/navigation_supervision.launch">
     <arg name="gyro_recal_period"    value="$(arg gyro_recal_period)"/>
     <arg name="gyro_recal_max_delta" value="$(arg gyro_recal_max_delta)"/>
+    <arg name="accel_recal_period"    value="$(arg accel_recal_period)"/>
+    <arg name="accel_recal_max_delta" value="$(arg accel_recal_max_delta)"/>
     <arg name="wheel_still_time"     value="$(arg wheel_still_time)"/>
+    <arg name="zupt_accel_std_max"   value="$(arg zupt_accel_std_max)"/>
+    <arg name="zupt_clamp_enable"    value="$(arg zupt_clamp_enable)"/>
+    <arg name="ov_verbosity"         value="$(arg ov_verbosity)"/>
   </include>
 </launch>

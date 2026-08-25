@@ -28,4 +28,9 @@ export PATH="$PATH:$_PATH"
 export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$_LDLP"
 export PYTHONPATH="$PYTHONPATH:$_PYP"
 
-exec roslaunch leo_navigation "${1:-mins.launch}"
+# 2026-08-19 : les arguments SUIVANTS sont transmis tels quels a roslaunch.
+# Sans "${@:2}", `launch_mins.sh navigation_master.launch zupt_clamp_enable:=true`
+# perdait le parametre EN SILENCE — roslaunch ne le voyait jamais, le noeud
+# demarrait avec ses defauts, et rien dans les logs ne signalait la perte.
+# Meme classe de piege que l'absence de relais <arg> dans navigation_master.launch.
+exec roslaunch leo_navigation "${1:-mins.launch}" "${@:2}"

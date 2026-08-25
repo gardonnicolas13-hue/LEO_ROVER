@@ -12,7 +12,12 @@
        imu_sanitizer.py pour la mesure qui le motive (derive en t^3/t^4). -->
   <arg name="gyro_recal_period"    default="0.0"/>
   <arg name="gyro_recal_max_delta" default="0.02"/>
+  <arg name="accel_recal_period"    default="0.0"/>
+  <arg name="accel_recal_max_delta" default="0.03"/>
   <arg name="wheel_still_time"     default="3.0"/>
+  <arg name="zupt_accel_std_max"   default="0.05"/>
+  <arg name="zupt_clamp_enable"    default="false"/>
+  <arg name="ov_verbosity"         default="WARNING"/>
 
   <!-- LEO Rover — supervision layer: the 5 PC-side scripts that must
        self-heal without tearing down the rest of the stack. respawn="true"
@@ -101,12 +106,36 @@
          RÉSERVE : mesure à une seule orientation, ne distingue pas erreur
          d'échelle et biais d'axe -> calibration 6 positions à faire pour
          valider. Mettre 1.0 pour désactiver. -->
+    <!-- 2026-08-21 : RETOUR a 1.1186, la valeur avec laquelle MINS marchait.
+         Le 20/08 une re-mesure (robot immobile, 2593 ech) donnait 1.1314 :
+         |a| brut avait derive de 8.7525 a 8.6531 m/s^2 depuis le 28/07. La
+         mesure elle-meme n'est pas en cause et reste vraie — mais elle a ete
+         faite POUR openVINS, en integration pure, ou un residu d'echelle se
+         paie doublement integre. MINS est ancre par ses roues : il ne gagnait
+         rien au changement, et l'operateur a constate une degradation nette.
+         La mesure du 20/08 est conservee ici en clair : si openVINS redevient
+         un jour le sujet, c'est 1.1314 qu'il faut lui donner — idealement par
+         un parametre separe, pas en changeant celui que MINS partage. -->
     <param name="accel_scale" value="1.1186"/>
     <!-- Relayes depuis les <arg> ci-dessus : modifiables en ligne de
          commande, jamais a editer ici pour un essai. -->
     <param name="gyro_recal_period"    value="$(arg gyro_recal_period)"/>
     <param name="gyro_recal_max_delta" value="$(arg gyro_recal_max_delta)"/>
+    <param name="accel_recal_period"    value="$(arg accel_recal_period)"/>
+    <param name="accel_recal_max_delta" value="$(arg accel_recal_max_delta)"/>
     <param name="wheel_still_time"     value="$(arg wheel_still_time)"/>
+    <!-- Détecteur ZUPT (2026-08-19) : is_stationary publié en continu, que la
+         recalibration gyro soit active ou non. Le seuil accéléro n'est PAS
+         mesuré pour cet usage précis (voir en-tête du script) — à resserrer
+         après une vraie capture à l'arrêt. -->
+    <param name="zupt_accel_std_max"   value="$(arg zupt_accel_std_max)"/>
+    <!-- Clamp (2026-08-19) : /imu/data_clean publie la moyenne fenêtre au lieu
+         du brut pendant un arrêt CONFIRMÉ par les roues. openVINS a déjà son
+         propre ZUPT (try_zupt, config/leo/estimator_config.yaml) mais aucun
+         point d'entrée externe pour un signal roue — ce clamp le déclenche
+         plus fiablement sans toucher son code source. Voir CLAMP ZUPT dans
+         imu_sanitizer.py. OFF par défaut, pas encore validé sur le robot. -->
+    <param name="zupt_clamp_enable"    value="$(arg zupt_clamp_enable)"/>
   </node>
 
   <node name="carolus_vicon_bridge" pkg="leo_navigation" type="carolus_vicon_bridge.py"
@@ -135,7 +164,15 @@
   <node name="ov_msckf" pkg="ov_msckf" type="run_subscribe_msckf"
         output="screen" clear_params="true"
         respawn="true" respawn_delay="5">
-    <param name="verbosity"   type="string" value="WARNING"/>
+    <!-- Pilotable en ligne de commande (2026-08-21) :
+           roslaunch ... navigation_master.launch ov_verbosity:=ALL
+         WARNING par defaut. Le niveau ALL fait imprimer a UpdaterMSCKF le
+         nombre de features SURVIVANT A LA TRIANGULATION (« create system (N
+         features) ») — la seule facon de separer un rejet a la triangulation
+         d'un rejet au chi2, sans recompiler. Ingerable en continu (6 lignes
+         par mise a jour a 15 Hz), donc reserve a une capture courte.
+         NB : ce parametre ROS ECRASE le champ verbosity du YAML. -->
+    <param name="verbosity"   type="string" value="$(arg ov_verbosity)"/>
     <param name="config_path" type="string"
            value="$(find ov_msckf)/../config/leo/estimator_config.yaml"/>
     <param name="use_stereo"  type="bool" value="true"/>
