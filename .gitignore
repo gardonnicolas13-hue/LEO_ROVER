@@ -87,6 +87,16 @@
 # dans le clone du Pi, jamais soumis en amont, garde pour reproductibilite.
 !/docs/sqrtvins_zupt_numerical_guard.patch
 
+# ── 4c. patches/ : contributions amont pretes a soumettre ──────────────────
+# Suite du precedent ci-dessus. L'audit du 2026-08-24 a produit QUATRE patchs
+# independants contre rpng/sqrtVINS (gardes Cholesky sur les 9 sites non
+# verifies, gardes ZUPT, reinitialisation sur divergence, instrumentation par
+# etage) plus leur README explicatif. Un fichier isole dans docs/ suffisait
+# pour un patch ; un jeu coherent de quatre merite son repertoire.
+# Texte uniquement, quelques dizaines de Ko : sans risque pour la regle des
+# 100 Mo qui motive cette liste blanche.
+!/patches/
+
 # ── 5. data : les donnees derivees, pas les enregistrements bruts ──────────
 # Les .bag totalisent 760 Mo, dont un .bag.active de 506 Mo (enregistrement
 # interrompu). Ils sont irremplacables mais depassent ce qu'un depot git doit

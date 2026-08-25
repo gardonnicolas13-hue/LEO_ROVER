@@ -1,0 +1,92 @@
+diff --git a/ov_srvins/src/state/StateHelper.cpp b/ov_srvins/src/state/StateHelper.cpp
+index 3e2d184..7d812db 100644
+--- a/ov_srvins/src/state/StateHelper.cpp
++++ b/ov_srvins/src/state/StateHelper.cpp
+@@ -813,8 +813,28 @@ void StateHelper::propagate_zero_motion(std::shared_ptr<State> state,
+   int bg_id = state->imu->bg()->id();
+   int ba_id = state->imu->ba()->id();
+   U_new.bottomRows(state->U_.rows()) = state->U_;
++  // CORRECTIF 2026-08-21 (LEO Rover / Florida Tech).
++  // Les deux bruits de marche aleatoire des biais s'ecrivaient sur les MEMES
++  // lignes 0-2 (le second etait "block(0, ba_id, ...)"), alors que 6 lignes
++  // sont allouees juste au-dessus (6 + state->U_.rows()) et que les lignes
++  // 3-5 restaient nulles. Consequences, mesurees :
++  //   - le bloc de bruit 6x6 devient de RANG 3 au lieu de 6 (singulier) ;
++  //   - il apparait une covariance croisee parasite bg<->ba de sqrt(dt)^2 *
++  //     sigma_wb * sigma_ab (r ~ 0.044 par mise a jour), alors que les deux
++  //     marches aleatoires sont physiquement INDEPENDANTES ;
++  //   - les variances diagonales restent justes, ce qui rend le defaut
++  //     invisible a l'inspection.
++  // A l'arret, ZUPT contraint directement la vitesse angulaire : bg est bien
++  // observe et corrige, et le couplage parasite deverse chaque correction
++  // dans ba, quasi inobservable a l'arret. Mesure avant correctif sur ce
++  // robot : ba = -147026 m/s^2 (7 ordres de grandeur hors du physique), bg
++  // parfaitement sain, attitude stable, position divergeant a 2.06e15 m.
++  // La MEME augmentation de bruit est faite CORRECTEMENT une centaine de
++  // lignes plus loin, dans UpdaterZeroVelocity.cpp : Q_bias_sqrt y est un
++  // 6x6 bloc-diagonal (block(0,0,3,3) gyro, block(3,3,3,3) accel), donc de
++  // plein rang. Les deux implementations du meme calcul divergeaient.
+   U_new.block(0, bg_id, 3, 3) = Mat3::Identity() * sqrt(dt_summed) * sigma_wb;
+-  U_new.block(0, ba_id, 3, 3) = Mat3::Identity() * sqrt(dt_summed) * sigma_ab;
++  U_new.block(3, ba_id, 3, 3) = Mat3::Identity() * sqrt(dt_summed) * sigma_ab;
+   efficient_QR(U_new);
+   state->U_ = U_new.topLeftCorner(state->U_.cols(), state->U_.cols())
+                   .triangularView<Eigen::Upper>();
+diff --git a/ov_srvins/src/update/UpdaterZeroVelocity.cpp b/ov_srvins/src/update/UpdaterZeroVelocity.cpp
+index b3e1920..ce4cbba 100644
+--- a/ov_srvins/src/update/UpdaterZeroVelocity.cpp
++++ b/ov_srvins/src/update/UpdaterZeroVelocity.cpp
+@@ -29,6 +29,8 @@
+ 
+ #include "UpdaterZeroVelocity.h"
+ 
++#include <cmath> // std::isfinite (garde chi2, correctif 2026-08-21)
++
+ #include "UpdaterHelper.h"
+ 
+ #include "feat/FeatureDatabase.h"
+@@ -269,8 +271,42 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state,
+ 
+   // Check if we are currently zero velocity
+   // We need to pass the chi2 and not be above our velocity threshold
+-  if (!disparity_passed && (chi2 > options_.chi2_multipler * chi2_check ||
+-                            state->imu->vel().norm() > zupt_max_velocity_)) {
++  //
++  // CORRECTIF 2026-08-21 (LEO Rover / Florida Tech).
++  // La condition d'origine etait :
++  //     if (!disparity_passed && (chi2 > seuil || vel > seuil_v))
++  // Le « !disparity_passed && » verrouillait TOUT le rejet : des que la
++  // disparite passait, ni le chi2 ni le seuil de vitesse n'etaient jamais
++  // evalues. Mesure sur ce robot, garde chi2 pourtant ACTIVE
++  // (zupt_chi2_multipler: 1, seuil correctement calcule a 65.171) :
++  // 290 acceptations, 0 rejet, avec chi2 = 1.34e57 et |v| = 1.0e23 m/s.
++  // Le commentaire ci-dessus (« We need to pass the chi2 ») decrit bien
++  // l'intention ; le code faisait l'inverse.
++  //
++  // Distinction retablie ici entre les deux gardes, qui ne mesurent PAS la
++  // meme chose :
++  //  - le seuil de VITESSE porte sur l'estimation du filtre lui-meme, donc
++  //    circulaire : si le filtre a diverge, elle est fausse et bloquerait le
++  //    seul mecanisme capable de le rattraper. C'est exactement ce que la
++  //    disparite est faite pour lever, en apportant un temoin INDEPENDANT
++  //    (l'image). Cet override-la est legitime et il est conserve.
++  //  - le chi2 porte sur la coherence de la MESURE avec l'etat et sa
++  //    covariance. Un chi2 de 1e57 dit que cette mise a jour est absurde :
++  //    l'appliquer injecte du bruit dans l'etat. Aucun temoin externe ne
++  //    rend une mise a jour incoherente acceptable. Cet override-la ne doit
++  //    pas exister.
++  //
++  // La semantique documentee « chi2_multipler: 0 = disparite seule » est
++  // preservee : avec 0, le SEUIL chi2 n'est pas applique. Mais un chi2 non
++  // fini (nan/inf) est rejete dans tous les cas -- il ne signifie pas
++  // « mesure tres bonne », il signifie « chi2 pas calculable ».
++  const bool chi2_non_fini = !std::isfinite(static_cast<double>(chi2)) || chi2 < 0;
++  const bool chi2_hors_seuil =
++      (options_.chi2_multipler > 0) && (chi2 > options_.chi2_multipler * chi2_check);
++  const bool vitesse_hors_seuil = state->imu->vel().norm() > zupt_max_velocity_;
++
++  if (chi2_non_fini || chi2_hors_seuil ||
++      (!disparity_passed && vitesse_hors_seuil)) {
+     last_zupt_state_timestamp_ = 0.0;
+     last_zupt_count_ = 0;
+     PRINT_DEBUG(

@@ -1,0 +1,390 @@
+diff --git a/ov_core/src/utils/llt_guard.h b/ov_core/src/utils/llt_guard.h
+new file mode 100644
+index 0000000..3c1a92f
+--- /dev/null
++++ b/ov_core/src/utils/llt_guard.h
+@@ -0,0 +1,162 @@
++/*
++ * Numerical safety guards for Cholesky (LLT) factorisations.
++ *
++ * WHY THIS FILE EXISTS
++ * --------------------
++ * An audit of this package on 2026-08-24 found NINE Cholesky factorisation
++ * sites, none of which checked `Eigen::LLT::info()`. When an LLT fails --
++ * because the matrix is not positive definite, is rank deficient, or has been
++ * contaminated by a NaN from a single bad measurement -- Eigen does NOT throw.
++ * It returns an UNINITIALISED matrix, and that matrix flows straight into the
++ * next computation. The failure is silent by construction.
++ *
++ * Two distinct consequences, needing two distinct remedies:
++ *
++ *   1. FACTORISATION FEEDING THE STATE (process noise, square-root update).
++ *      A corrupted factor propagates into the covariance at every step. Here
++ *      we want to RECOVER if we reasonably can: a Tikhonov regularisation
++ *      (adding eps*I) makes the matrix strictly positive definite again, and
++ *      on a covariance that means "declare slightly more uncertainty" -- a
++ *      conservative, safe direction. Propagating an uninitialised matrix is
++ *      not safe in any direction.
++ *
++ *   2. FACTORISATION FEEDING A CHI-SQUARED GATE (measurement validation).
++ *      Here recovery is the WRONG instinct. A chi2 computed from a failed
++ *      factorisation is not "small", it is NOT COMPUTABLE -- and because
++ *      NaN compares false against every threshold, an unchecked value slips
++ *      through the gate as if it had passed. The measurement must be
++ *      REJECTED. Regularising to obtain a number would be inventing evidence.
++ *
++ * This distinction is the whole design of this header, and it is why there
++ * are two functions rather than one.
++ *
++ * PRIOR ART IN THIS PROJECT. The upstream bug report filed from this platform
++ * (docs/rpng_sqrtvins_zupt_bug_report.md) fixed exactly one of these sites --
++ * the ZUPT chi2 -- and observed: "the LLT().solve()-without-.info()-check
++ * pattern in particular seems like something worth checking for elsewhere in
++ * the codebase too". This header is the result of doing that check.
++ */
++
++#ifndef OV_CORE_LLT_GUARD_H
++#define OV_CORE_LLT_GUARD_H
++
++#include <algorithm>
++#include <cmath>
++
++#include <Eigen/Dense>
++
++#include "DataType.h"
++#include "colors.h"
++#include "print.h"
++
++namespace ov_core {
++
++/**
++ * @brief Cholesky factorisation with regularisation fallback, for factors that
++ *        feed the state.
++ *
++ * @param A       symmetric matrix to factorise (read only)
++ * @param U_out   upper-triangular factor, written only on success
++ * @param quoi    short label used in the warning, e.g. "process noise"
++ * @return true if a usable factor was produced (directly or after
++ *         regularisation), false if the matrix is beyond repair -- in which
++ *         case the caller MUST skip the operation rather than use U_out.
++ *
++ * The regularisation is scaled to the matrix, not absolute: a fixed epsilon
++ * would be negligible on a large covariance and dominant on a small one.
++ */
++template <typename MatA, typename MatU>
++inline bool llt_guarded(const Eigen::MatrixBase<MatA> &A_in, MatU &U_out,
++                        const char *quoi) {
++  typedef typename MatA::PlainObject MatT;
++  const MatT A = A_in.derived();
++  Eigen::LLT<MatT> chol(A);
++  if (chol.info() == Eigen::Success) {
++    U_out = chol.matrixU();
++    return true;
++  }
++  const DataType echelle =
++      std::max(static_cast<DataType>(1.0),
++               static_cast<DataType>(A.diagonal().maxCoeff()));
++  const DataType eps = static_cast<DataType>(1e-10) * echelle;
++  MatT A_reg = A;
++  A_reg.diagonal().array() += eps;
++  Eigen::LLT<MatT> chol2(A_reg);
++  if (chol2.info() == Eigen::Success) {
++    PRINT_WARNING(YELLOW "[LLT]: %s -- factorisation en echec, regularisee "
++                         "(eps=%.3e)\n" RESET,
++                  quoi, static_cast<double>(eps));
++    U_out = chol2.matrixU();
++    return true;
++  }
++  PRINT_WARNING(RED "[LLT]: %s -- factorisation IRRECUPERABLE meme regularisee "
++                    "(diag min %.3e). Operation ignoree.\n" RESET,
++                quoi, static_cast<double>(A.diagonal().minCoeff()));
++  return false;
++}
++
++/**
++ * @brief Mahalanobis distance with validity check, for chi-squared gates.
++ *
++ * @param S        innovation covariance
++ * @param res      measurement residual
++ * @param chi2_out written only when the result is valid
++ * @return true if chi2 was computed AND is finite AND is non-negative.
++ *
++ * Deliberately NOT regularised: see the header comment. A gate whose input
++ * could not be computed must reject, not guess. The finiteness test is not
++ * decoration -- `nan > threshold` evaluates to false, so an unchecked NaN
++ * passes every gate it meets.
++ */
++template <typename MatS, typename VecR>
++inline bool chi2_guarded(const Eigen::MatrixBase<MatS> &S,
++                         const Eigen::MatrixBase<VecR> &res,
++                         DataType &chi2_out) {
++  typedef typename MatS::PlainObject MatPlain;
++  Eigen::LLT<MatPlain> chol(S.derived());
++  if (chol.info() != Eigen::Success)
++    return false;
++  const DataType c = res.derived().dot(chol.solve(res.derived()));
++  if (!std::isfinite(static_cast<double>(c)) || c < 0)
++    return false;
++  chi2_out = c;
++  return true;
++}
++
++/**
++ * @brief Linear solve through a Cholesky factorisation, with validity check.
++ *
++ * @param A     symmetric positive-definite system matrix
++ * @param b     right-hand side
++ * @param x_out solution, written only when valid
++ * @return true if the factorisation succeeded AND the solution is finite.
++ *
++ * For solves whose result feeds the STATE (a correction increment, an LM
++ * step). Unlike llt_guarded() there is no regularisation fallback here: a
++ * regularised solve silently returns the answer to a DIFFERENT problem than
++ * the one asked, which for a state increment means applying a correction that
++ * was never computed. Returning false lets the caller skip the step, which is
++ * always a valid choice for an increment -- not applying a correction leaves
++ * the state where it was, applying a wrong one does not.
++ */
++// Trois parametres de gabarit distincts, et non un seul pour « le vecteur » :
++// les appelants passent indifferemment un VecX, un Vec3, ou une Eigen::Ref
++// sur une colonne d'une plus grande matrice. Forcer un type unique faisait
++// echouer la deduction sans rien apporter en securite.
++template <typename MatA, typename VecB, typename VecX_>
++inline bool llt_solve_guarded(const Eigen::MatrixBase<MatA> &A,
++                              const Eigen::MatrixBase<VecB> &b, VecX_ &x_out) {
++  typedef typename MatA::PlainObject MatPlain;
++  Eigen::LLT<MatPlain> chol(A.derived());
++  if (chol.info() != Eigen::Success)
++    return false;
++  const typename VecB::PlainObject x = chol.solve(b.derived());
++  if (!x.allFinite())
++    return false;
++  x_out = x;
++  return true;
++}
++
++} // namespace ov_core
++
++#endif // OV_CORE_LLT_GUARD_H
+diff --git a/ov_srvins/src/initializer/dynamic/DynamicInitializer.cpp b/ov_srvins/src/initializer/dynamic/DynamicInitializer.cpp
+index 8a9ad36..d0450af 100644
+--- a/ov_srvins/src/initializer/dynamic/DynamicInitializer.cpp
++++ b/ov_srvins/src/initializer/dynamic/DynamicInitializer.cpp
+@@ -27,6 +27,7 @@
+ 
+ 
+ 
++#include "utils/llt_guard.h"
+ #include "DynamicInitializer.h"
+ 
+ #include "cpi/CpiV1.h"
+@@ -802,7 +803,16 @@ bool DynamicInitializer::refine_gravity(
+     r = -(A1 * x.topRows<kVelocityErrorSize>() + A2 * gravity - b);
+     H = A_new.transpose() * A_new;
+     H.diagonal() = (lambda + 1) * H.diagonal();
+-    dx = H.llt().solve(A_new.transpose() * r);
++    // GARDE 2026-08-24 : pas de Levenberg-Marquardt. H porte deja un
++    // amortissement ((lambda+1) sur la diagonale), donc la factorisation
++    // devrait aboutir -- mais si elle echoue, un pas non defini serait
++    // applique a l'estimee d'initialisation. On abandonne l'iteration : LM
++    // tolere un pas manquant, pas un pas faux.
++    if (!ov_core::llt_solve_guarded(H, VecX(A_new.transpose() * r), dx)) {
++      PRINT_WARNING(RED "[init-dyn]: pas LM non calculable, iteration "
++                        "abandonnee\n" RESET);
++      break;
++    }
+ 
+     // Do LM in here
+     gravity_new =
+@@ -1002,7 +1012,14 @@ bool DynamicInitializer::solve_bg(
+     Mat3 H_total_tmp = H_total;
+     H_total_tmp.diagonal().array() += lambda * D.array();
+ 
+-    Vec3 dx = H_total_tmp.llt().solve(-J_total.transpose());
++    // GARDE 2026-08-24 : idem, pas LM sur le biais gyro.
++    Vec3 dx;
++    if (!ov_core::llt_solve_guarded(H_total_tmp, Vec3(-J_total.transpose()),
++                                    dx)) {
++      PRINT_WARNING(RED "[init-dyn]: pas LM (biais gyro) non calculable, "
++                        "iteration abandonnee\n" RESET);
++      break;
++    }
+     Vec3 dbg_tmp = dbg + dx;
+ 
+     for (auto data : bg_solver_data_all) {
+diff --git a/ov_srvins/src/state/Propagator.cpp b/ov_srvins/src/state/Propagator.cpp
+index 37f3115..554016a 100644
+--- a/ov_srvins/src/state/Propagator.cpp
++++ b/ov_srvins/src/state/Propagator.cpp
+@@ -27,6 +27,8 @@
+ 
+ 
+ 
++#include "utils/llt_guard.h"
++#include <algorithm> // std::max (garde Cholesky, 2026-08-24)
+ #include "Propagator.h"
+ 
+ #include "state/State.h"
+@@ -523,7 +525,20 @@ void Propagator::propagate_and_clone(std::shared_ptr<State> state,
+     }
+   }
+ 
+-  Qd_summed = Qd_summed.llt().matrixU();
++  // FACTORISATION GARDEE (2026-08-24). `Qd_summed.llt().matrixU()` ne
++  // verifiait pas `.info()` : une factorisation ratee renvoyait une matrice
++  // NON INITIALISEE, qui partait directement dans StateHelper::propagate()
++  // ci-dessous et corrompait la covariance a chaque pas, silencieusement.
++  // Passe par le helper partage de ov_core plutot que par une copie locale :
++  // c'est la duplication de deux implementations du meme calcul qui avait
++  // deja produit le bloc de bruit de biais de rang 3 dans ce paquet.
++  {
++    MatX Qd_chol;
++    if (!ov_core::llt_guarded(Qd_summed, Qd_chol, "bruit de process (Qd)")) {
++      return;
++    }
++    Qd_summed = Qd_chol;
++  }
+   assert(std::abs((time1 - time0) - dt_summed) < 1e-4);
+ 
+   // Do the update to the covariance with our "summed" state transition and IMU
+diff --git a/ov_srvins/src/state/StateHelper.cpp b/ov_srvins/src/state/StateHelper.cpp
+index 3e2d184..ec630f0 100644
+--- a/ov_srvins/src/state/StateHelper.cpp
++++ b/ov_srvins/src/state/StateHelper.cpp
+@@ -27,6 +27,7 @@
+ 
+ 
+ 
++#include "utils/llt_guard.h"
+ #include "StateHelper.h"
+ 
+ #include "state/State.h"
+@@ -296,8 +297,16 @@ void StateHelper::update_llt(std::shared_ptr<State> state, bool is_iterative) {
+   MatX FT_F = MatX::Zero(state_size - offset, state_size - offset);
+   matrix_multiplier_ATA(R_sqrt_inv_H_UT, FT_F);
+   FT_F.diagonal() += VecX::Ones(state_size - offset);
+-  Eigen::LLT<MatX> llt(FT_F.selfadjointView<Eigen::Upper>());
+-  MatX F = llt.matrixU();
++  // GARDE 2026-08-24 : coeur de la mise a jour SRF. Une factorisation ratee
++  // ici renvoyait une matrice NON INITIALISEE qui devenait le nouveau facteur
++  // de covariance de l'etat, silencieusement. FT_F vaut I + (H U^T)^T (H U^T)
++  // donc devrait toujours etre definie positive -- sauf si un NaN venu d'une
++  // mesure a contamine H. C'est exactement le cas qu'on veut voir.
++  MatX F;
++  if (!ov_core::llt_guarded(MatX(FT_F.selfadjointView<Eigen::Upper>()), F,
++                            "mise a jour SRF (I + U H^T R^-1 H U^T)")) {
++    return;
++  }
+ 
+   // Reverse column back
+   reverse_mat(F);
+@@ -389,10 +398,22 @@ void StateHelper::iterative_update_llt(std::shared_ptr<State> state) {
+   S.diagonal() += VecX::Ones(state_size);
+   VecX dx_xkp1_minus_x0;
+ 
+-  dx_xkp1_minus_x0 =
+-      state->U_.transpose() *
+-      (state->U_ * (H_big_new.transpose().triangularView<Eigen::Upper>() *
+-                    S.llt().solve(r_big_new)));
++  // GARDE 2026-08-24 : cette resolution produit l'INCREMENT applique a
++  // l'etat. Une factorisation ratee y injectait un increment non defini.
++  // Ne pas appliquer de correction laisse l'etat ou il est ; en appliquer une
++  // fausse, non.
++  {
++    VecX sol;
++    if (!ov_core::llt_solve_guarded(S, r_big_new, sol)) {
++      PRINT_WARNING(RED "[UPDATE]: increment d'etat non calculable "
++                        "(factorisation en echec) -- mise a jour ignoree\n" RESET);
++      return;
++    }
++    dx_xkp1_minus_x0 =
++        state->U_.transpose() *
++        (state->U_ * (H_big_new.transpose().triangularView<Eigen::Upper>() *
++                      sol));
++  }
+   // First downdate then udpate
+   for (size_t i = 0; i < state->variables_.size(); i++) {
+     state->variables_.at(i)->update(-state->xk_minus_x0_.block(
+@@ -483,8 +504,14 @@ bool StateHelper::initialize(std::shared_ptr<State> state,
+     MatX S = HUT * HUT.transpose();
+     S.diagonal() +=
+         1.0 / (sigma_pix_inv * sigma_pix_inv) * VecX::Ones(S.rows());
+-    DataType chi2 = res_update.dot(
+-        S.selfadjointView<Eigen::Upper>().llt().solve(res_update));
++    // GARDE 2026-08-24 : chi2 non calculable => mesure rejetee.
++    DataType chi2 = 0;
++    if (!ov_core::chi2_guarded(MatX(S.selfadjointView<Eigen::Upper>()),
++                               res_update, chi2)) {
++      PRINT_WARNING(RED "[UPDATE]: chi2 non calculable (factorisation en "
++                        "echec) -- mesure rejetee\n" RESET);
++      return false;
++    }
+     // Get what our threshold should be
+     boost::math::chi_squared chi_squared_dist(res.rows());
+     DataType chi2_check = boost::math::quantile(chi_squared_dist, 0.95);
+@@ -813,8 +840,28 @@ void StateHelper::propagate_zero_motion(std::shared_ptr<State> state,
+   int bg_id = state->imu->bg()->id();
+   int ba_id = state->imu->ba()->id();
+   U_new.bottomRows(state->U_.rows()) = state->U_;
++  // CORRECTIF 2026-08-21 (LEO Rover / Florida Tech).
++  // Les deux bruits de marche aleatoire des biais s'ecrivaient sur les MEMES
++  // lignes 0-2 (le second etait "block(0, ba_id, ...)"), alors que 6 lignes
++  // sont allouees juste au-dessus (6 + state->U_.rows()) et que les lignes
++  // 3-5 restaient nulles. Consequences, mesurees :
++  //   - le bloc de bruit 6x6 devient de RANG 3 au lieu de 6 (singulier) ;
++  //   - il apparait une covariance croisee parasite bg<->ba de sqrt(dt)^2 *
++  //     sigma_wb * sigma_ab (r ~ 0.044 par mise a jour), alors que les deux
++  //     marches aleatoires sont physiquement INDEPENDANTES ;
++  //   - les variances diagonales restent justes, ce qui rend le defaut
++  //     invisible a l'inspection.
++  // A l'arret, ZUPT contraint directement la vitesse angulaire : bg est bien
++  // observe et corrige, et le couplage parasite deverse chaque correction
++  // dans ba, quasi inobservable a l'arret. Mesure avant correctif sur ce
++  // robot : ba = -147026 m/s^2 (7 ordres de grandeur hors du physique), bg
++  // parfaitement sain, attitude stable, position divergeant a 2.06e15 m.
++  // La MEME augmentation de bruit est faite CORRECTEMENT une centaine de
++  // lignes plus loin, dans UpdaterZeroVelocity.cpp : Q_bias_sqrt y est un
++  // 6x6 bloc-diagonal (block(0,0,3,3) gyro, block(3,3,3,3) accel), donc de
++  // plein rang. Les deux implementations du meme calcul divergeaient.
+   U_new.block(0, bg_id, 3, 3) = Mat3::Identity() * sqrt(dt_summed) * sigma_wb;
+-  U_new.block(0, ba_id, 3, 3) = Mat3::Identity() * sqrt(dt_summed) * sigma_ab;
++  U_new.block(3, ba_id, 3, 3) = Mat3::Identity() * sqrt(dt_summed) * sigma_ab;
+   efficient_QR(U_new);
+   state->U_ = U_new.topLeftCorner(state->U_.cols(), state->U_.cols())
+                   .triangularView<Eigen::Upper>();
+diff --git a/ov_srvins/src/update/UpdaterSLAM.cpp b/ov_srvins/src/update/UpdaterSLAM.cpp
+index b3add32..852bafc 100644
+--- a/ov_srvins/src/update/UpdaterSLAM.cpp
++++ b/ov_srvins/src/update/UpdaterSLAM.cpp
+@@ -27,6 +27,7 @@
+ 
+ 
+ 
++#include "utils/llt_guard.h"
+ #include "UpdaterSLAM.h"
+ 
+ #include "UpdaterHelper.h"
+@@ -480,7 +481,10 @@ void UpdaterSLAM::update(std::shared_ptr<State> state,
+             ? options_aruco_.sigma_pix_sq
+             : options_slam_.sigma_pix_sq;
+     S.diagonal() += sigma_pix_sq * VecX::Ones(S.rows());
+-    DataType chi2 = res.dot(S.llt().solve(res));
++    // GARDE 2026-08-24 : voir UpdaterMSCKF -- un chi2 issu d'une
++    // factorisation ratee doit faire REJETER la mesure, pas la valider.
++    DataType chi2 = 0;
++    bool chi2_valide = ov_core::chi2_guarded(S, res, chi2);
+ 
+     // Get our threshold (we precompute up to 500 but handle the case that it is
+     // more)
+@@ -499,7 +503,10 @@ void UpdaterSLAM::update(std::shared_ptr<State> state,
+         ((int)feat.featid < state->options.max_aruco_features)
+             ? options_aruco_.chi2_multipler
+             : options_slam_.chi2_multipler;
+-    if (chi2 > chi2_multipler * chi2_check) {
++    // Un chi2 non calculable entraine le MEME traitement qu'un chi2 hors
++    // seuil : la mesure est rejetee. C'est le seul choix defendable -- on ne
++    // sait pas si elle est bonne, donc on ne l'applique pas.
++    if (!chi2_valide || chi2 > chi2_multipler * chi2_check) {
+       if ((int)feat.featid < state->options.max_aruco_features) {
+         PRINT_WARNING(YELLOW "[SLAM-UP]: rejecting aruco tag %d for chi2 "
+                              "thresh (%.3f > %.3f)\n" RESET,

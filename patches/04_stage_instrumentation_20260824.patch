@@ -1,0 +1,118 @@
+diff --git a/ov_srvins/src/update/UpdaterMSCKF.cpp b/ov_srvins/src/update/UpdaterMSCKF.cpp
+index 02c9d57..c4b6106 100644
+--- a/ov_srvins/src/update/UpdaterMSCKF.cpp
++++ b/ov_srvins/src/update/UpdaterMSCKF.cpp
+@@ -27,6 +27,7 @@
+ 
+ 
+ 
++#include "utils/llt_guard.h"
+ #include "UpdaterMSCKF.h"
+ 
+ #include "UpdaterHelper.h"
+@@ -75,6 +76,13 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state,
+   if (feature_vec.empty())
+     return;
+ 
++  // INSTRUMENTATION 2026-08-24 : compteurs par etage de rejet (voir le bilan
++  // imprime en fin de fonction). size_t et non int : feature_vec.size() est
++  // deja un size_t, et une comparaison signee/non-signee serait un warning.
++  size_t n_rejet_mesures = 0, n_rejet_tri = 0, n_rejet_refine = 0,
++         n_rejet_jacob = 0, n_rejet_reproj = 0, n_rejet_chi2 = 0;
++  const size_t n_entree = feature_vec.size();
++
+   bool do_clean = !is_iterative;
+ 
+   // Start timing
+@@ -116,11 +124,19 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state,
+     if (ct_meas < 2) {
+       (*it0)->to_delete = true;
+       it0 = feature_vec.erase(it0);
++      ++n_rejet_mesures;   // INSTRUMENTATION 2026-08-24
+     } else {
+       it0++;
+     }
+   }
+-  // std::cout << "before tri: " << feature_vec.size() << std::endl;
++  // INSTRUMENTATION 2026-08-24 : ce fichier ne contenait AUCUN message de
++  // diagnostic -- ni PRINT_ALL, ni PRINT_DEBUG -- et son unique compteur etait
++  // commente (la ligne « before tri » juste en dessous). C'est pourquoi une
++  // capture en verbosity:ALL ne revelait rien de cet etage. Mesure a expliquer :
++  // 165 coins FAST detectes de facon stable en mouvement, cadence 15 Hz sans
++  // trou, et moins d'UNE feature consommee par mise a jour. Les compteurs
++  // ci-dessous localisent l'etage exact ou elles meurent.
++  const size_t n_avant_tri = feature_vec.size();
+   rT1 = boost::posix_time::microsec_clock::local_time();
+ 
+   // 2. Create vector of cloned *CAMERA* poses at each of our clone timesteps
+@@ -173,6 +189,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state,
+     if (!success_tri || !success_refine) {
+       (*it1)->to_delete = true;
+       it1 = feature_vec.erase(it1);
++      if (!success_tri) ++n_rejet_tri; else ++n_rejet_refine;
+       continue;
+     }
+ 
+@@ -233,6 +250,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state,
+     if (!get_jacobian_success) {
+       state->erase_feat((*it2)->featid);
+       it2 = feature_vec.erase(it2);
++      ++n_rejet_jacob;
+       continue;
+     }
+ 
+@@ -246,6 +264,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state,
+           (*it2)->to_delete = true;
+           it2 = feature_vec.erase(it2);
+           is_bad = true;
++          ++n_rejet_reproj;
+           break;
+         }
+       }
+@@ -298,7 +317,19 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state,
+       if (!is_iterative) {
+         MatX S = HUT * HUT.transpose();
+         S.diagonal() += options_.sigma_pix_sq * VecX::Ones(S.rows());
+-        DataType chi2 = res2.dot(S.llt().solve(res2));
++        // GARDE 2026-08-24 : un chi2 issu d'une factorisation ratee n'est
++        // pas « petit », il n'est pas CALCULABLE. Et comme NaN se compare
++        // faux a tout seuil, une valeur non verifiee franchit la garde comme
++        // si elle avait reussi. On rejette la mesure au lieu de la croire.
++        DataType chi2 = 0;
++        if (!ov_core::chi2_guarded(S, res2, chi2)) {
++          PRINT_WARNING(RED "[MSCKF-UP]: chi2 non calculable (factorisation en "
++                            "echec) -- feature rejetee\n" RESET);
++          (*it2)->to_delete = true;
++          it2 = feature_vec.erase(it2);
++          ++n_rejet_chi2;
++          continue;
++        }
+ 
+         // Get our threshold (we precompute up to 500 but handle the case that
+         // it is more)
+@@ -317,6 +348,7 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state,
+         if (chi2 > options_.chi2_multipler * chi2_check && do_clean) {
+           (*it2)->to_delete = true;
+           it2 = feature_vec.erase(it2);
++          ++n_rejet_chi2;
+           continue;
+         }
+       }
+@@ -380,6 +412,17 @@ void UpdaterMSCKF::update(std::shared_ptr<State> state,
+   for (size_t f = 0; f < feature_vec.size(); f++) {
+     feature_vec[f]->to_delete = true;
+   }
++  // ── BILAN PAR ETAGE (instrumentation 2026-08-24) ─────────────────────────
++  // Imprime a chaque mise a jour en verbosity ALL. Le but est de repondre a
++  // UNE question : sur les ~165 coins FAST que l'image contient reellement en
++  // mouvement, a quel etage tombent-ils ? Chaque compteur correspond a un
++  // `erase` distinct du pipeline, dans l'ordre ou il s'execute.
++  PRINT_ALL(CYAN "[MSCKF-ETAGES]: entree %zu | <2mesures %zu | avant_tri %zu | "
++                 "tri %zu | refine %zu | jacob %zu | reproj %zu | chi2 %zu | "
++                 "SORTIE %zu\n" RESET,
++            n_entree, n_rejet_mesures, n_avant_tri, n_rejet_tri, n_rejet_refine,
++            n_rejet_jacob, n_rejet_reproj, n_rejet_chi2, feature_vec.size());
++
+ }
+ 
+ void UpdaterMSCKF::update_features(std::shared_ptr<State> state) {

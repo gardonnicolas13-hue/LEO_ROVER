@@ -1,0 +1,90 @@
+diff --git a/ov_srvins/src/core/VioManager.cpp b/ov_srvins/src/core/VioManager.cpp
+index 87fa342..42f0daa 100644
+--- a/ov_srvins/src/core/VioManager.cpp
++++ b/ov_srvins/src/core/VioManager.cpp
+@@ -27,6 +27,7 @@
+ 
+ 
+ 
++#include <cmath> // std::isfinite (reset sur divergence, 2026-08-24)
+ #include "VioManager.h"
+ 
+ #include "feat/Feature.h"
+@@ -266,6 +267,77 @@ void VioManager::track_image_and_update(
+     }
+   }
+ 
++  // ── REINITIALISATION SUR DIVERGENCE PROUVEE (2026-08-24) ──────────────────
++  // Repond au TODO amont ci-dessous, qui n'avait jamais ete implemente.
++  //
++  // POURQUOI. Le plafond absolu ajoute dans UpdaterZeroVelocity (|v| > 3 m/s
++  // => rejet) empeche d'appliquer une mise a jour calculee sur un etat
++  // corrompu. Mais il se comporte en VERROU : une fois la vitesse au-dessus du
++  // plafond, TOUTE correction est refusee, y compris la seule capable de
++  // ramener le filtre. Mesure sur ce robot, rover a l'arret : 1 seul ZUPT
++  // accepte contre 2235 rejets, vitesse montant sans frein de 910 a 913 m/s,
++  // position a 34 km. Le garde-fou ne se contentait pas d'echouer, il
++  // interdisait la guerison.
++  //
++  // CE QUI JUSTIFIE UN RESET PLUTOT QU'UN REJET. La condition ci-dessous n'est
++  // pas une heuristique : c'est une CONTRADICTION prouvee entre deux sources
++  // independantes. Le filtre affirme une vitesse physiquement impossible pour
++  // cette plateforme (mesure MINS, ancre sur ses roues : 0.264 m/s maximum),
++  // pendant que la disparite d'image -- qui ne depend d'AUCUN etat du filtre
++  // -- affirme que la scene est statique. Quand un estimateur contredit une
++  // mesure independante de cet ordre de grandeur, son etat ne contient plus
++  // aucune information a preserver : le rattraper par une mise a jour n'a pas
++  // de sens, il faut le reconstruire.
++  //
++  // CE QUE LE RESET COUTE, ET POURQUOI C'EST ACCEPTABLE. L'origine du repere
++  // monde est perdue et le filtre repart de zero -- inacceptable pour une
++  // source de pose de navigation, negligeable ici : pose_selector refuse deja
++  // toute source dont le premier echantillon depasse MAX_INITIAL_JUMP_M, donc
++  // un filtre dans cet etat n'alimentait PLUS /robot_pose_fused de toute
++  // facon. On ne perd que du bruit, et on regagne un estimateur observable.
++  {
++    constexpr double VITESSE_ABSURDE_MS = 3.0;
++    const double v_norme =
++        static_cast<double>(state->imu->vel().norm());
++    const double p_norme =
++        static_cast<double>(state->imu->pos().norm());
++    // Position aussi : une divergence peut saturer la position sans que la
++    // vitesse instantanee ne depasse le plafond au moment du test.
++    constexpr double POSITION_ABSURDE_M = 1000.0;
++    if (is_initialized_vio &&
++        (!std::isfinite(v_norme) || !std::isfinite(p_norme) ||
++         v_norme > VITESSE_ABSURDE_MS || p_norme > POSITION_ABSURDE_M)) {
++      PRINT_WARNING(RED "[RESET]: divergence prouvee -- |v| = %.3f m/s, "
++                        "|p| = %.1f m. Reinitialisation complete du filtre.\n" RESET,
++                    v_norme, p_norme);
++      is_initialized_vio = false;
++      has_moved_since_zupt = false;
++      // ETAT REMIS A ZERO EXPLICITEMENT (2026-08-24, second passage).
++      // Le premier jet se contentait de baisser is_initialized_vio en comptant
++      // sur l'initialiseur pour reconstruire l'etat. MESURE : il ne remet PAS
++      // la position. Sur 180 s de roulage, 1392 resets se sont enchaines et la
++      // position a continue de s'accumuler d'un cycle a l'autre jusqu'a
++      // 40 857 m -- la vitesse repartait de zero, la position non. Un reset qui
++      // ne remet pas a zero ce qu'il pretend reinitialiser n'est pas un reset.
++      // Ordre du vecteur d'etat IMU (16x1) : quaternion(4), position(3),
++      // vitesse(3), biais gyro(3), biais accel(3).
++      {
++        Eigen::Matrix<DataType, 16, 1> etat_zero =
++            Eigen::Matrix<DataType, 16, 1>::Zero();
++        etat_zero(3) = 1.0;  // quaternion identite (x,y,z,w) -> w = 1
++        state->imu->set_value(etat_zero);
++        state->imu->set_fej(etat_zero);
++      }
++      // L'initialiseur redemarre sur des mesures FRAICHES : sans purge il
++      // rebatirait l'etat sur la fenetre qui vient justement de diverger.
++      trackFEATS->get_feature_database()->cleanup();
++      if (trackARUCO != nullptr) {
++        trackARUCO->get_feature_database()->cleanup();
++      }
++      return;
++    }
++  }
++
+   // If we do not have VIO initialization, then try to initialize
+   // TODO: Or if we are trying to reset the system, then do that here!
+   if (!is_initialized_vio) {
