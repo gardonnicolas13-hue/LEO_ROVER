@@ -1,0 +1,713 @@
+\section{Instrumenting the measurement campaign: observability of the
+platform itself}
+\label{sec:campagne}
+
+Every result in Sections~\ref{sec:ovstarvation} and~\ref{sec:sqrtvinsint} rests on
+a premise that was never itself measured: that during the run which produced
+the numbers, the platform was delivering data at the rate the estimators
+assume. This section closes that gap. It derives the thresholds of a
+health monitor from the statistics of the streams rather than from round
+numbers, proves that the obvious quantity to monitor --- message rate --- is
+the \emph{wrong} one to rely on alone, and states the identity that makes an
+on-board estimator comparable with a ground-station one.
+
+The motivation is a failure mode already recorded twice on this platform
+(Sections~\ref{sec:ovstarvation}, \ref{sec:sqrtvinsint}) and never announced by
+any component: when \texttt{/firmware/wheel\_states} slows, MINS loses the
+wheel anchoring that gives it its accuracy, and \emph{continues to publish
+poses}. The estimator does not fail. It degrades silently into a
+visual--inertial estimator with no odometric constraint, which is precisely
+the configuration shown elsewhere in this report to diverge. Nothing in the
+pipeline distinguishes the two regimes.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex, scale=0.95]
+  \tikzset{
+    blk/.style={draw, rounded corners=1pt, minimum height=8mm,
+                align=center, font=\small},
+    ok/.style={blk, fill=accentblue!8, draw=accentblue!55},
+    bad/.style={blk, fill=alertred!8, draw=alertred!60},
+    note/.style={font=\scriptsize\itshape, align=left}
+  }
+  \node[bad, minimum width=34mm] (cpu)  at (0,0)    {Pi CPU starvation\\
+                                                     \scriptsize(SCHED, thermal, contention)};
+  \node[bad, minimum width=34mm] (ser)  at (0,-1.6) {\texttt{serial\_node} preempted};
+  \node[bad, minimum width=34mm] (whl)  at (0,-3.2) {\texttt{/firmware/wheel\_states}\\
+                                                     \scriptsize $18.4 \to 1$\,Hz};
+  \node[bad, minimum width=34mm] (mins) at (0,-4.8) {MINS loses wheel anchor};
+  \node[ok,  minimum width=34mm] (pub)  at (0,-6.4) {MINS \textbf{still publishes}\\
+                                                     \scriptsize poses, covariances, TF};
+
+  \draw[->, thick] (cpu) -- (ser);
+  \draw[->, thick] (ser) -- (whl);
+  \draw[->, thick] (whl) -- (mins);
+  \draw[->, thick] (mins) -- (pub);
+
+  \node[note, anchor=west, color=alertred!85] at (2.6,-3.2)
+        {measured 2026-07-28:\\ $18.4 \to 1$\,Hz, UART FIFO overruns};
+  \node[note, anchor=west, color=alertred!85] at (2.6,-4.8)
+        {Section~\ref{ssec:parallaxe}: without wheels,\\
+         $\sigma_Z$ grows as $Z^2$ --- unconstrained};
+  \node[note, anchor=west] at (2.6,-6.4)
+        {\textbf{no error, no warning, no}\\
+         \textbf{covariance inflation.} The\\
+         consumer cannot tell the\\
+         difference.};
+
+  \draw[decorate, decoration={brace, amplitude=5pt}, color=accentblue]
+        (-2.45,0.45) -- (-2.45,-6.85);
+  \node[note, anchor=east, color=accentblue, align=right] at (-2.7,-3.2)
+        {the entire chain is\\ \emph{invisible} from the\\ consumer's side};
+\end{tikzpicture}
+\caption{The blind spot that motivates external instrumentation. Each arrow is
+a mechanism verified on this platform; the terminal state is indistinguishable
+from nominal operation for any node downstream of MINS. A monitor placed
+outside the chain is the only way to detect it.}
+\label{fig:camp:aveugle}
+\end{figure}
+
+\subsection{Rate estimation and the arithmetic of a badly chosen threshold}
+\label{ssec:camp:cadence}
+
+\subsubsection{The estimator}
+
+Let a topic deliver messages at arrival instants $t_1 < t_2 < \cdots$, and let
+$W$ be the width of a sliding window. Write $N$ for the number of arrivals
+inside the current window. The rate estimate used by the monitor is
+
+\begin{equation}
+  \hat{f} \;=\; \frac{N-1}{t_N - t_1}.
+  \label{eq:camp:fhat}
+\end{equation}
+
+The numerator is $N-1$ and not $N$ because the span $t_N - t_1$ covers exactly
+$N-1$ inter-arrival intervals; using $N$ inflates the estimate by a factor
+$N/(N-1)$, which for a short window is not negligible --- at $N=6$ it is a
+$20\,\%$ bias, in the direction that \emph{hides} a slowdown.
+
+\subsubsection{Its dispersion}
+
+Let the inter-arrival intervals $\Delta_k = t_{k+1}-t_k$ be independent with
+mean $T = 1/f$ and standard deviation $\sigma_\Delta$, and define the
+coefficient of variation $c = \sigma_\Delta / T$, a dimensionless measure of
+publication jitter. The span is a sum of $N-1$ such intervals:
+
+\begin{equation}
+  S = t_N - t_1 = \sum_{k=1}^{N-1}\Delta_k,
+  \qquad
+  \mathbb{E}[S] = \frac{N-1}{f},
+  \qquad
+  \operatorname{Var}(S) = (N-1)\,\sigma_\Delta^2 .
+\end{equation}
+
+Since $\hat f = (N-1)/S$, the delta method applied to $g(S)=(N-1)/S$ with
+$g'(S) = -(N-1)/S^2$ gives
+
+\begin{equation}
+  \operatorname{Var}(\hat f)
+  \;\approx\; \left(\frac{N-1}{\mathbb{E}[S]^2}\right)^{\!2}\operatorname{Var}(S)
+  \;=\; \frac{f^4}{(N-1)^2}\,(N-1)\,\sigma_\Delta^2
+  \;=\; \frac{f^4 \sigma_\Delta^2}{N-1},
+\end{equation}
+
+so that the \emph{relative} dispersion takes the compact form
+
+\begin{equation}
+  \boxed{\;
+  \frac{\sigma_{\hat f}}{f} \;=\; \frac{c}{\sqrt{N-1}}
+  \;=\; \frac{c}{\sqrt{fW-1}} \;}
+  \label{eq:camp:disp}
+\end{equation}
+
+The estimator becomes sharper both with a longer window and with a faster
+topic, and the window may therefore be chosen per-topic to hold the dispersion
+constant. Table~\ref{tab:camp:disp} evaluates \eqref{eq:camp:disp} at
+$W = 5$\,s and $c = 0.10$, a jitter figure consistent with what was observed
+on this platform.
+
+\begin{table}[htbp]
+\centering
+\caption{Dispersion of the rate estimator \eqref{eq:camp:fhat} at $W=5$\,s,
+$c=0.10$, and the resulting separation of the $70\,\%$ alarm threshold
+expressed in standard deviations.}
+\label{tab:camp:disp}
+\begin{tabular}{lrrrr}
+\toprule
+topic & $f$ (Hz) & $N-1$ & $\sigma_{\hat f}/f$ & threshold distance \\
+\midrule
+\texttt{/firmware/wheel\_states} & 18.4 & 91  & $1.05\,\%$ & $28.6\,\sigma$ \\
+\texttt{/imu/data\_clean}        & 83.9 & 419 & $0.49\,\%$ & $61.4\,\sigma$ \\
+\texttt{/pc/camera/infra1/\dots} & 15.0 & 74  & $1.16\,\%$ & $25.8\,\sigma$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Why $20$\,Hz was the wrong threshold, quantitatively}
+
+The nominal rate of the wheel topic is universally cited as $20$\,Hz, and the
+initial specification for this monitor was to warn below that figure. The
+measured rate, over $30$\,s with the full stack running, is
+$f = 18.38$\,Hz.
+
+Treating $\hat f$ as approximately Gaussian --- justified by
+$N-1 = 91$ --- with $\sigma_{\hat f} = 0.0105 \times 18.38 = 0.193$\,Hz, the
+probability that a healthy stream triggers a threshold placed at
+$f_{\mathrm{th}} = 20$\,Hz is
+
+\begin{equation}
+  \mathbb{P}\!\left[\hat f < f_{\mathrm{th}}\right]
+  = \Phi\!\left(\frac{20 - 18.38}{0.193}\right)
+  = \Phi(8.39)
+  = 1 - 3\times10^{-17}.
+  \label{eq:camp:faux}
+\end{equation}
+
+The alarm is not merely frequent: it is certain, at every evaluation, forever.
+A monitor in that state is worse than no monitor, because operators learn to
+ignore it and it is then silent on the day it matters. Anchoring the threshold
+to a \emph{measured} nominal $f_0$ instead, at a fraction $\alpha = 0.70$,
+inverts the situation: from \eqref{eq:camp:disp} the separation is
+
+\begin{equation}
+  \frac{f_0 - \alpha f_0}{\sigma_{\hat f}}
+  = \frac{(1-\alpha)\sqrt{N-1}}{c}
+  = \frac{0.30 \times \sqrt{91}}{0.10}
+  = 28.6\,\sigma,
+\end{equation}
+
+a false-alarm probability below $10^{-179}$. The design rule that follows is
+worth stating plainly, because it is the one that was nearly violated:
+\emph{a threshold must be derived from the distribution of the quantity it
+gates, never from the round number in the specification.}
+
+\subsection{Latency is the leading indicator; rate is the lagging one}
+\label{ssec:camp:latence}
+
+\subsubsection{The queueing argument}
+
+Model a consuming node as a single server of service rate $\mu$ fed by arrivals
+of rate $\lambda$, with a bounded input queue of $K$ slots --- in ROS, exactly
+the subscriber's \texttt{queue\_size}. Write $\rho = \lambda/\mu$ for the
+utilisation. Two quantities behave in completely different ways as
+$\rho \to 1$.
+
+The mean sojourn time of an unbounded such queue is the classical
+
+\begin{equation}
+  \mathbb{E}[W] \;=\; \frac{1}{\mu - \lambda} \;=\; \frac{1/\mu}{1-\rho},
+  \label{eq:camp:wait}
+\end{equation}
+
+which \emph{diverges} as $\rho\to1^-$; with a bounded queue it saturates at
+$K/\mu$, the time to drain a full buffer. The blocking probability of the
+bounded queue, on the other hand, is
+
+\begin{equation}
+  P_K \;=\; \frac{(1-\rho)\,\rho^{K}}{1-\rho^{K+1}},
+  \qquad
+  \lim_{\rho\to1} P_K = \frac{1}{K+1},
+  \label{eq:camp:pk}
+\end{equation}
+
+and message loss --- hence the drop in observed rate --- is exactly $P_K$.
+The limit in \eqref{eq:camp:pk} is the crux. It gives a bound that holds over
+the \emph{entire} stable regime, and it is worth isolating.
+
+\begin{equation}
+  \boxed{\;
+  \rho \le 1
+  \;\;\Longrightarrow\;\;
+  \text{rate loss} \;=\; P_K \;\le\; \frac{1}{K+1}
+  \;=\; \frac{1}{51} \;=\; 1.96\,\% \;}
+  \label{eq:camp:borne}
+\end{equation}
+
+\begin{tcolorbox}[colback=caseboxbg, colframe=accentblue!60,
+                  title={Consequence: the rate alarm cannot fire while the
+                         queue is stable}]
+With $K=50$ and a threshold at $70\,\%$ of nominal, a $30\,\%$ loss is required
+to raise an alarm. By \eqref{eq:camp:borne} no utilisation $\rho\le1$ can
+produce more than $1.96\,\%$. The rate test is therefore \emph{structurally}
+blind to every degree of saturation short of genuine overload. Once
+$\rho>1$ the server saturates at throughput $\mu$, the observed rate falls to
+$\mu = \lambda/\rho$, and the loss is $1-1/\rho$; requiring that to exceed
+$30\,\%$ gives
+\[
+  1 - \frac{1}{\rho} \ge 0.30
+  \quad\Longleftrightarrow\quad
+  \rho \ge 1.43 .
+\]
+The producer must be running $43\,\%$ beyond capacity before the rate test
+reacts at all.
+\end{tcolorbox}
+
+Latency reaches its threshold far earlier. For the wheel topic
+$1/\mu = 1/18.4 = 54.3$\,ms, and the monitor's staleness limit is
+$W_{\max} = 0.5$\,s; inverting \eqref{eq:camp:wait},
+
+\begin{equation}
+  \frac{1/\mu}{1-\rho} \ge W_{\max}
+  \quad\Longleftrightarrow\quad
+  \rho \;\ge\; 1 - \frac{1}{\mu W_{\max}}
+  \;=\; 1 - \frac{0.0543}{0.5}
+  \;=\; 0.891 .
+\end{equation}
+
+\begin{table}[htbp]
+\centering
+\caption{Utilisation at which each test reacts, for
+\texttt{/firmware/wheel\_states} ($f=18.4$\,Hz, $K=50$). The ordering is
+structural, not a matter of tuning.}
+\label{tab:camp:ordre}
+\begin{tabular}{llr}
+\toprule
+test & quantity & triggers at \\
+\midrule
+staleness $>0.5$\,s        & $\mathbb{E}[W]$, Eq.~\eqref{eq:camp:wait} & $\rho = 0.891$ \\
+rate $<70\,\%$ of nominal  & $P_K$ then $1-1/\rho$, Eq.~\eqref{eq:camp:pk} & $\rho = 1.43$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex, xscale=13, yscale=0.80]
+  \draw[->, thick] (0.48,0) -- (1.07,0) node[below right, font=\scriptsize]
+        {$\rho = \lambda/\mu$};
+  \draw[->, thick] (0.5,0) -- (0.5,6.0);
+  \node[font=\scriptsize, anchor=west, align=left] at (0.487,6.35)
+        {test statistic, normalised by its own alarm threshold};
+  \foreach \x/\l in {0.5/0.5, 0.7/0.7, 0.9/0.9, 1.0/1.0} {
+    \draw (\x,0) -- (\x,-0.16) node[below, font=\scriptsize] {\l};}
+  \draw[dashed, color=black!45] (0.5,1) -- (1.055,1)
+        node[right, font=\scriptsize] {alarm};
+
+  \draw[thick, color=alertred]
+    plot coordinates {(0.50,0.217) (0.60,0.272) (0.70,0.362) (0.75,0.435)
+                      (0.80,0.543) (0.84,0.679) (0.87,0.836) (0.891,1.0)
+                      (0.91,1.207) (0.93,1.552) (0.95,2.174) (0.96,2.717)
+                      (0.97,3.623) (0.976,4.34) (0.9795,5.10)};
+  \node[color=alertred, font=\scriptsize, anchor=east, align=right] at (0.958,5.35)
+        {staleness $\mathbb{E}[W]/W_{\max}$\\ \emph{diverges as} $(1-\rho)^{-1}$};
+
+  \draw[thick, color=accentblue]
+    plot coordinates {(0.50,0.000) (0.70,0.000) (0.80,0.000) (0.90,0.002)
+                      (0.95,0.014) (0.99,0.050) (1.00,0.065)};
+  \node[color=accentblue, font=\scriptsize, anchor=west] at (0.505,-0.85)
+        {rate loss $P_K/0.30$ (blue, flat on the axis): never exceeds
+         $0.065$ for any $\rho\le1$};
+
+  \fill[color=alertred] (0.891,1) circle (0.5pt);
+  \draw[thin, color=alertred] (0.891,1) -- (0.862,1.62);
+  \node[color=alertred, font=\scriptsize, anchor=east] at (0.864,1.70)
+        {$\rho^\star = 0.891$};
+\end{tikzpicture}
+\caption{Why staleness must be monitored alongside rate. Both statistics are
+normalised by their own alarm threshold, so the horizontal dashed line at $1$
+is where each fires. Staleness crosses it at $\rho^\star = 0.891$; the rate
+statistic remains below $0.065$ across the whole stable regime and cannot
+cross it at all --- the queue absorbs the pressure as \emph{delay} long before
+it sheds it as \emph{loss}.}
+\label{fig:camp:queue}
+\end{figure}
+
+\subsubsection{The limit of a fixed staleness threshold}
+
+The derivation above makes $\rho^\star$ depend on the topic through
+$1/\mu$: a single absolute limit $W_{\max}$ corresponds to
+$\rho^\star = 0.891$ on the $18.4$\,Hz wheel stream but to
+$\rho^\star = 1 - (0.0119/0.5) = 0.976$ on the $83.9$\,Hz IMU stream, which is
+a considerably later warning. The fixed threshold is retained nonetheless, for
+a reason outside the queueing model: the measured staleness includes transport
+--- the wireless hop and the republication described in
+Section~\ref{ssec:camp:comparabilite} --- and half a second of stale odometry
+is unusable for control whatever its cause. A per-topic $\rho^\star$ would be
+the refinement to make if the monitor were ever used for diagnosis rather than
+for vetoing a run.
+
+\subsection{Load average is not utilisation}
+\label{ssec:camp:charge}
+
+The decision to run an on-board estimator hinges on how much CPU the Raspberry
+Pi has left. The instinct is to read \texttt{load average}; on this platform
+that instinct gives the wrong answer by a factor of two.
+
+Linux maintains the load average as an exponentially weighted moving average,
+sampled every $\Delta = 5$\,s, over the number $n(t)$ of tasks that are
+\emph{either} runnable \emph{or} in uninterruptible sleep:
+
+\begin{equation}
+  \ell(t) \;=\; \ell(t-\Delta)\,e^{-\Delta/\tau}
+             \;+\; n(t)\left(1 - e^{-\Delta/\tau}\right),
+  \qquad \tau \in \{60,\,300,\,900\}\ \text{s}.
+  \label{eq:camp:ewma}
+\end{equation}
+
+The set counted by $n(t)$ is the whole difficulty. A task in state
+\texttt{D} --- blocked on disk, on USB, on a wireless transfer --- contributes
+to $\ell$ while consuming \emph{no} CPU whatsoever. Utilisation, by contrast,
+is read from the jiffy counters of \texttt{/proc/stat} over an interval:
+
+\begin{equation}
+  U \;=\; 1 - \frac{\Delta_{\text{idle}}}{\Delta_{\text{total}}},
+  \qquad
+  \text{cores free} \;=\; n_{\mathrm{cpu}}\,(1-U).
+  \label{eq:camp:util}
+\end{equation}
+
+Measured on the rover on 2026-08-24, with the full stack running and no
+on-board estimator:
+
+\begin{equation}
+  \ell = 4.18 \ \ \text{on}\ n_{\mathrm{cpu}}=4,
+  \qquad
+  U = 0.54,
+  \qquad
+  \text{cores free} = 4 \times 0.46 = 1.84 .
+\end{equation}
+
+Read as utilisation, $\ell/n_{\mathrm{cpu}} = 1.045$ says the machine is
+saturated and the campaign is impossible. The jiffy counters say $46\,\%$ of
+four cores is idle. The gap is the population of blocked tasks,
+
+\begin{equation}
+  n_{\mathrm{D}} \;\approx\; \ell - n_{\mathrm{cpu}} U
+  \;=\; 4.18 - 4 \times 0.54 \;=\; 2.02 ,
+\end{equation}
+
+about two tasks permanently waiting on I/O --- consistent with the RealSense
+USB pipeline and SD-card traffic, neither of which competes for CPU with an
+estimator. Since sqrtVINS runs single-threaded on this build
+($\texttt{num\_opencv\_threads}=1$, Section~\ref{sec:ovstarvation}), it
+requires approximately one core against the $1.84$ available. The margin is
+real but thin, which is why the campaign script measures
+\eqref{eq:camp:util} before every run rather than assuming it, and refuses to
+start below $25\,\%$ idle --- one core, the strict minimum with no reserve.
+
+\subsection{Comparability: separating the estimator from the architecture}
+\label{ssec:camp:comparabilite}
+
+Deploying sqrtVINS on the robot changes what it consumes. The two ground
+estimators subscribe to republished streams that have crossed a wireless link;
+the on-board instance reads the sensors directly.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex, scale=0.95]
+  \tikzset{
+    blk/.style={draw, rounded corners=1pt, minimum height=7.5mm,
+                align=center, font=\scriptsize},
+    sens/.style={blk, fill=codebg, draw=codeframe},
+    est/.style={blk, fill=accentblue!8, draw=accentblue!55, minimum width=25mm},
+    hop/.style={blk, fill=alertred!10, draw=alertred!60},
+    zone/.style={draw, dashed, rounded corners=3pt, color=black!35}
+  }
+  % robot side
+  \node[sens, minimum width=22mm] (d455) at (0,0)      {D455 stereo\\ \texttt{/camera/infra\{1,2\}}};
+  \node[sens, minimum width=22mm] (imu)  at (0,-1.5)   {CORE2 IMU\\ \texttt{/imu/data\_clean\_pi}};
+  \node[est,  minimum width=26mm] (spi)  at (3.7,-0.75){\textbf{sqrtVINS} (Pi)\\ \texttt{/ov\_srvins/odomimu}};
+  \draw[->, thick] (d455) -- (spi);
+  \draw[->, thick] (imu)  -- (spi);
+
+  % the hop
+  \node[hop, minimum width=20mm] (wifi) at (0,-3.5) {WiFi hop\\ + republication};
+  \draw[->, thick, color=alertred] (d455.south west) -- ++(-0.35,0) |- (wifi.west);
+  \draw[->, thick, color=alertred] (imu.south west)  -- ++(-0.35,0) |- (wifi.west);
+
+  % PC side
+  \node[sens, minimum width=24mm] (pcs) at (0,-5.1) {\texttt{/pc/camera/\dots}\\ \texttt{/imu/data\_clean}};
+  \draw[->, thick, color=alertred] (wifi) -- (pcs);
+
+  \node[est, minimum width=26mm] (spc) at (3.7,-4.2) {\textbf{sqrtVINS} (PC)\\ \texttt{/sqrtvins/odomimu}};
+  \node[est, minimum width=26mm] (ov)  at (3.7,-5.5) {openVINS (PC)\\ \texttt{/ov\_msckf/odomimu}};
+  \node[est, minimum width=26mm] (mn)  at (3.7,-6.8) {MINS (PC)\\ \texttt{/mins/imu/odom}};
+  \draw[->, thick] (pcs.east) -- (spc.west);
+  \draw[->, thick] (pcs.east) -- (ov.west);
+  \draw[->, thick] (pcs.east) -- (mn.west);
+
+  \node[zone, fit=(d455)(imu)(spi), inner sep=4mm] {};
+  \node[font=\scriptsize\itshape, color=black!55, anchor=west] at (-1.9,0.95)
+        {on-board};
+  \node[font=\scriptsize\itshape, color=black!55, anchor=west] at (-1.9,-7.6)
+        {ground station};
+
+  % the two differences
+  \draw[<->, thick, color=accentblue!80] (spi.east) -- ++(0.55,0)
+        |- (spc.east);
+  \node[font=\scriptsize, color=accentblue, anchor=west, align=left]
+        at (5.55,-2.5) {\textbf{same code,}\\ \textbf{different inputs}\\
+                        $\Rightarrow$ architecture};
+  \draw[<->, thick, color=black!60] (5.30,-4.9) -- (5.30,-6.6);
+  \node[font=\scriptsize, anchor=west, align=left] at (5.55,-5.75)
+        {\textbf{same inputs,}\\ \textbf{different code}\\
+         $\Rightarrow$ estimator};
+\end{tikzpicture}
+\caption{The two data paths, and why the ground instance of sqrtVINS is
+retained even though it is redundant as an estimator. Holding one of the two
+factors fixed at a time is what makes the decomposition
+\eqref{eq:camp:decomp} available.}
+\label{fig:camp:chemins}
+\end{figure}
+
+Let $\mathbf{p}_{E,A}(t)$ denote the trajectory produced by estimator $E$ on
+architecture $A$, with $E \in \{\text{sqrt},\text{ov},\text{mins}\}$ and
+$A \in \{\text{Pi},\text{PC}\}$. Comparing the on-board square-root filter
+against the ground openVINS gives a difference in which two independent causes
+are superposed. Inserting the ground instance of sqrtVINS --- the same code on
+the other architecture --- splits them by a telescoping sum:
+
+\begin{equation}
+  \boxed{\;
+  \underbrace{\mathbf{p}_{\text{sqrt},\text{Pi}} - \mathbf{p}_{\text{ov},\text{PC}}}
+             _{\text{observed}}
+  \;=\;
+  \underbrace{\mathbf{p}_{\text{sqrt},\text{Pi}} - \mathbf{p}_{\text{sqrt},\text{PC}}}
+             _{\text{architecture, code fixed}}
+  \;+\;
+  \underbrace{\mathbf{p}_{\text{sqrt},\text{PC}} - \mathbf{p}_{\text{ov},\text{PC}}}
+             _{\text{estimator, inputs fixed}} \;}
+  \label{eq:camp:decomp}
+\end{equation}
+
+The identity is trivial; its consequence is not. Without
+$\mathbf{p}_{\text{sqrt},\text{PC}}$ the two terms on the right are not
+separately observable, and any discrepancy can be attributed to whichever of
+the two the reader prefers. This is the reason the campaign keeps
+\emph{both} instances of sqrtVINS running and records them as distinct
+sources, and the reason the trajectory resampler carries four keys rather than
+three. It is also a caution about the campaign's headline comparison: an
+on-board estimator measured against ground-based ones is not an
+estimator comparison unless the middle term is available.
+
+\subsection{Resampling onto a common time base}
+\label{ssec:camp:resample}
+
+The four series arrive on independent clocks at unequal rates. Comparison
+requires a common grid, which requires interpolation, which for the rotational
+part is not a vector-space operation.
+
+\subsubsection{Rotational interpolation, and the error that actually matters}
+
+Between two unit quaternions $q_i$, $q_{i+1}$ separated by
+$\Omega = \arccos\langle q_i, q_{i+1}\rangle$, spherical linear interpolation
+is
+
+\begin{equation}
+  \operatorname{slerp}(q_i,q_{i+1};u)
+  \;=\; \frac{\sin\!\big((1-u)\Omega\big)}{\sin\Omega}\,q_i
+      \;+\; \frac{\sin(u\Omega)}{\sin\Omega}\,q_{i+1},
+  \qquad u\in[0,1],
+  \label{eq:camp:slerp}
+\end{equation}
+
+which traverses the geodesic of $S^3$ at constant angular velocity. Normalised
+linear interpolation follows the same path but at a non-uniform rate; writing
+$\theta(u) = \operatorname{atan2}\!\big(u\sin\Omega,\;(1-u)+u\cos\Omega\big)$
+for the angle it actually reaches, a third-order expansion in $\Omega$ gives
+
+\begin{equation}
+  \theta(u) - u\Omega
+  \;=\; \Omega^3\left(\frac{u^2}{2} - \frac{u}{6} - \frac{u^3}{3}\right)
+        + \mathcal{O}(\Omega^5),
+  \qquad
+  \max_u \big|\theta(u)-u\Omega\big| \approx 0.0161\,\Omega^3 .
+  \label{eq:camp:nlerp}
+\end{equation}
+
+At $\Omega = \pi/2$ this is $0.062$\,rad, or $3.6^\circ$ --- the familiar
+figure that motivates slerp. At the rates in play here it is nothing at all:
+the rover's yaw rate stays below $0.5$\,rad\,s$^{-1}$ and odometry is published
+at $84$\,Hz, so $\Omega \le 6\times10^{-3}$\,rad and the bound in
+\eqref{eq:camp:nlerp} evaluates to $3.5\times10^{-9}$\,rad.
+
+The consequential subtlety is elsewhere. The unit quaternions double-cover
+$SO(3)$: $q$ and $-q$ denote the \emph{same} rotation, and a publisher may emit
+either. If consecutive samples straddle a sign change,
+$\langle q_i,q_{i+1}\rangle < 0$, then \eqref{eq:camp:slerp} interpolates along
+the long arc, sweeping $2\pi - \Omega$ instead of $\Omega$. The remedy is one
+line --- replace $q_{i+1}$ by $-q_{i+1}$ whenever the inner product is
+negative --- and the asymmetry of the two errors is the point:
+
+\begin{equation}
+  \frac{\text{sign-flip error}}{\text{slerp-versus-lerp error}}
+  \;\approx\; \frac{\pi}{3.5\times10^{-9}}
+  \;\approx\; 9\times10^{8}.
+\end{equation}
+
+Nine orders of magnitude separate the failure everyone guards against from the
+one that is easy to omit. The validation written for this pipeline initially
+tested $q_w \approx 1$ at the origin, which a legitimately negated quaternion
+fails; the correct invariant is $|q_w| \approx 1$.
+
+\subsubsection{Origin alignment, and why its order is not free}
+
+Each series is expressed in its own initialisation frame. Alignment to a common
+origin is the rigid transformation
+
+\begin{equation}
+  \mathbf{p}'(t) = R_0^{\top}\big(\mathbf{p}(t) - \mathbf{p}_0\big),
+  \qquad
+  q'(t) = q_0^{-1} \otimes q(t),
+  \label{eq:camp:se3}
+\end{equation}
+
+with $(\mathbf{p}_0, q_0)$ the pose at the origin of the comparison. The
+operation must be applied \emph{after} resampling, not before, and the reason
+is a timing argument rather than an algebraic one.
+
+Let series $X$ have raw samples beginning at $t^X_0$, and let the common window
+begin at $T = \max_X t^X_0$, since the intersection of the supports --- not
+their union --- is the only interval on which every series is a measurement
+rather than an extrapolation. Aligning before resampling sets
+$(\mathbf{p}_0,q_0) = (\mathbf{p}_X(t^X_0), q_X(t^X_0))$, so that on the common
+grid
+
+\begin{equation}
+  \mathbf{p}'_X(T) = R_0^{\top}\big(\mathbf{p}_X(T) - \mathbf{p}_X(t^X_0)\big)
+  \;\ne\; \mathbf{0}
+  \qquad\text{whenever } t^X_0 < T,
+\end{equation}
+
+which is every series except the latest to start. The trajectories then begin
+at different points, and since the campaign's primary metric is loop closure
+--- the norm $\|\mathbf{p}(t_{\text{end}})-\mathbf{p}(t_{\text{start}})\|$ for
+a path returning to its start --- an origin offset enters the result directly
+and silently. Applying \eqref{eq:camp:se3} after resampling, with
+$(\mathbf{p}_0,q_0)$ taken at $T$, makes every series start at the origin by
+construction.
+
+\subsection{The campaign protocol}
+\label{ssec:camp:protocole}
+
+\subsubsection{Ordering, and the coverage condition}
+
+The launch order is not a convenience. Write $[s,e]$ for the temporal support
+of the recording and $[m_s,m_e]$ for that of the health monitor. The recording
+is admissible as evidence only if
+
+\begin{equation}
+  m_s \le s \quad\text{and}\quad m_e \ge e,
+  \label{eq:camp:couverture}
+\end{equation}
+
+that is, only if every instant of the bag is covered by health evidence.
+Violating the left inequality is the realistic failure: starting the monitor
+after the recorder leaves an initial interval --- exactly when nodes are
+starting and contention peaks --- with no observation, and a starvation
+occurring there would corrupt a file believed to be clean. Since the monitor
+additionally needs one window $W$ to fill before it can judge, the operational
+requirement is $m_s \le s - W$.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex, xscale=1.24, yscale=1.0]
+  \tikzset{
+    etape/.style={draw, rounded corners=1pt, minimum height=7mm,
+                 align=center, font=\scriptsize, fill=codebg, draw=codeframe},
+    gate/.style={etape, fill=alertred!8, draw=alertred!60}
+  }
+  \node[gate,  minimum width=19mm] (v1) at (0.95,2.4) {\textbf{1} ground checks\\
+                                                       \scriptsize temp, CPU, battery};
+  \node[gate,  minimum width=19mm] (v2) at (2.95,2.4) {\textbf{1bis} robot checks\\
+                                                       \scriptsize idle, throttle, disk};
+  \node[etape, minimum width=18mm] (s3) at (4.90,2.4) {\textbf{2} sqrtVINS (Pi)\\
+                                                       \scriptsize slowest to start};
+  \node[etape, minimum width=18mm] (s4) at (6.75,2.4) {\textbf{3} monitor\\
+                                                       \scriptsize + Pi telemetry};
+  \node[etape, minimum width=15mm] (s5) at (8.50,2.4) {\textbf{4} \texttt{rosbag}};
+
+  \foreach \a/\b in {v1/v2, v2/s3, s3/s4, s4/s5}
+    \draw[->, thick] (\a) -- (\b);
+
+  % support du moniteur
+  \draw[thick, color=accentblue] (6.75,1.30) -- (9.30,1.30);
+  \draw[thick, color=accentblue] (6.75,1.16) -- (6.75,1.44);
+  \draw[thick, color=accentblue] (9.30,1.16) -- (9.30,1.44);
+  \node[font=\scriptsize, color=accentblue, anchor=east] at (6.58,1.30)
+        {$[m_s,m_e]$ monitor};
+
+  % avance requise
+  \draw[<->, color=black!60] (6.78,0.78) -- (7.92,0.78);
+  \node[font=\scriptsize, color=black!60, anchor=south] at (7.35,0.84) {$\ge W$};
+
+  % support de l'enregistrement
+  \draw[thick, color=alertred] (7.95,0.28) -- (9.10,0.28);
+  \draw[thick, color=alertred] (7.95,0.14) -- (7.95,0.42);
+  \draw[thick, color=alertred] (9.10,0.14) -- (9.10,0.42);
+  \node[font=\scriptsize, color=alertred, anchor=east] at (7.78,0.28)
+        {$[s,e]$ bag};
+
+  \draw[->, thick] (0.0,-0.35) -- (9.7,-0.35)
+        node[below right, font=\scriptsize] {$t$};
+
+  \node[font=\scriptsize\itshape, anchor=west, align=left] at (0.0,-1.05)
+        {a run whose checks fail is \emph{refused}, not flagged: an inadmissible\\
+         measurement costs more to interpret than to repeat};
+\end{tikzpicture}
+\caption{Campaign sequence. Stages 1 and 1bis are vetoes. The monitor's support
+strictly contains the recording's, with at least one window $W$ of lead so that
+its sliding estimators are converged before the first message is written ---
+condition \eqref{eq:camp:couverture}.}
+\label{fig:camp:sequence}
+\end{figure}
+
+\subsubsection{Admission thresholds}
+
+Table~\ref{tab:camp:seuils} collects the conditions under which the campaign
+script refuses to start, each with the mechanism that justifies it. Two of them
+--- ground temperature and battery voltage --- were already established in
+Section~\ref{ssec:bilan} after they invalidated earlier runs; the three robot
+conditions are added here.
+
+\begin{table}[htbp]
+\centering
+\caption{Admission conditions. A run failing any of them is refused outright.}
+\label{tab:camp:seuils}
+\small
+\begin{tabular}{p{3.1cm} p{1.9cm} p{7.6cm}}
+\toprule
+quantity & veto & mechanism \\
+\midrule
+ground CPU temperature & $\ge 82^{\circ}$C & thermal throttling; the recorder
+falls behind and the loss is written into the bag indistinguishably from a
+sensor fault \\[2pt]
+browser CPU            & $\ge 50\,\%$      & measured cause of the above; the
+cockpit overlay alone reached $109\,\%$ \\[2pt]
+battery                & $<11.1$\,V        & below $\approx30\,\%$ charge yaw
+authority degrades, so a commanded rotation is not the rotation performed \\[2pt]
+robot idle             & $<25\,\%$         & $25\,\%$ of four cores is one core;
+sqrtVINS is single-threaded and needs it, Eq.~\eqref{eq:camp:util} \\[2pt]
+robot \texttt{throttled} & $\ne$ \texttt{0x0} & the SoC has clocked down; this
+is the mechanism behind the UART FIFO overruns of 2026-07-28 \\[2pt]
+robot disk             & $\ge 92\,\%$      & a full card has already crashed
+\texttt{leo.service} on this platform \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Where each observation is made}
+
+The monitor runs on the ground station and not on the robot. The reasoning is
+that a monitor built to detect CPU starvation must not contribute to the load
+it measures: subscribing to an $84$\,Hz stream costs real CPU on the very
+machine under test. All topics are visible from the ground through the shared
+master, so nothing is lost by observing from outside.
+
+That argument does not extend to the robot's own resource counters, and the
+distinction is worth making explicit because it looks like an exception.
+Reading \texttt{/proc/stat} and the SoC's throttling register every two seconds
+costs no measurable CPU --- there is no subscription, no deserialisation, no
+callback. It is also the only place the \emph{cause} can be seen: the ground
+monitor observes effects, a rate that falls, while saturation and clock
+throttling are visible only on the machine that suffers them. The campaign
+therefore samples both, and the post-run summary reports the minimum idle
+fraction alongside the rate transitions so the two can be correlated.
+
+The final verification closes the loop on the recording itself. Rates are
+recomputed \emph{from the bag} rather than taken from any live counter: a topic
+can publish at $18.4$\,Hz and still be written at $12$, if the recorder was the
+component under pressure. Only the file's own contents establish what was
+captured, which is the whole purpose of an admissibility check ---
+Eq.~\eqref{eq:camp:fhat} applied to the recording, with
+$N$ the message count and $t_N - t_1$ the bag duration.

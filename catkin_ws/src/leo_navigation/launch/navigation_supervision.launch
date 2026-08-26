@@ -13,6 +13,29 @@
   <arg name="gyro_recal_period"    default="0.0"/>
   <arg name="gyro_recal_max_delta" default="0.02"/>
   <arg name="accel_recal_period"    default="0.0"/>
+  <!-- Echelle accelero de la BRANCHE VINS (2026-08-25). Repond a la reserve
+       ecrite plus bas : "ideallement par un parametre separe, pas en changeant
+       celui que MINS partage" — c'est ce parametre-la.
+       1.1297 = 9.790 (gravite locale) / 8.66638 (brut MESURE le 25/08 sur 2108
+       echantillons, robot immobile confirme par les roues). L'echelle commune
+       1.1186 laissait un residu de -0.0958 m/s^2, soit -0.98 %, ce qui
+       doublement integre vaut ~17 km sur 10 min : fatal pour un VIO pur,
+       absorbe par MINS que les roues ancrent.
+       0.0 = branche inactive, /imu/data_vins devient une copie exacte de
+       /imu/data_clean. -->
+  <arg name="accel_scale_vins"     default="1.1297"/>
+  <arg name="vins_topic"           default="/imu/data_vins"/>
+  <!-- Source sqrtVINS vue par pose_selector, donc par le BOUTON DU COCKPIT.
+       /sqrtvins/odomimu est le nom CANONIQUE : il designe l'estimateur, pas
+       la machine qui l'execute. L'instance embarquee publie desormais sous ce
+       nom (node_name:=sqrtvins dans sqrtvins_robot.launch), exactement comme
+       celle du PC. Nommer le topic d'apres la machine obligeait chaque
+       consommateur — cockpit, export MATLAB, reechantillonneur — a savoir ou
+       tourne le filtre ; le 25/08 le passage au robot a fait perdre sa trace
+       a l'onglet Trajectory pour cette seule raison.
+       Les deux instances ne doivent pas tourner ensemble : un seul bouton
+       sqrtVINS au cockpit, il doit designer sans ambiguite. -->
+  <arg name="sqrtvins_topic"       default="/sqrtvins/odomimu"/>
   <arg name="accel_recal_max_delta" default="0.03"/>
   <arg name="wheel_still_time"     default="3.0"/>
   <arg name="zupt_accel_std_max"   default="0.05"/>
@@ -117,6 +140,12 @@
          un jour le sujet, c'est 1.1314 qu'il faut lui donner — idealement par
          un parametre separe, pas en changeant celui que MINS partage. -->
     <param name="accel_scale" value="1.1186"/>
+    <!-- Branche VINS separee : /imu/data_clean reste identique au octet pres
+         pour MINS. accel_recal_period, s'il est active, recalibre DESORMAIS
+         cette echelle-ci et non la commune — c'est ce qui rend la correction
+         de derive compatible avec le sanctuaire MINS. -->
+    <param name="accel_scale_vins" value="$(arg accel_scale_vins)"/>
+    <param name="vins_topic"       value="$(arg vins_topic)"/>
     <!-- Relayes depuis les <arg> ci-dessus : modifiables en ligne de
          commande, jamais a editer ici pour un essai. -->
     <param name="gyro_recal_period"    value="$(arg gyro_recal_period)"/>
@@ -235,6 +264,7 @@
     <param name="default_source" value="MINS"/>
     <param name="vins_topic"     value="/ov_msckf/odomimu"/>
     <param name="mins_topic"     value="/mins/imu/odom"/>
+    <param name="sqrtvins_topic" value="$(arg sqrtvins_topic)"/>
     <param name="odom_frame"     value="odom"/>
     <!-- ARBRE TF LINEAIRE (2026-07-30). Etait `base_link`, ce qui donnait a
          base_link DEUX PARENTS : la statique `base_footprint -> base_link` de

@@ -47,9 +47,14 @@ import math
 import os
 import sys
 
+# sqrtVINS apparait sous DEUX noms selon l'age du bag : /sqrtvins/odomimu
+# depuis le renommage du noeud embarque (2026-08-25), /ov_srvins/odomimu
+# avant. Les deux entrees portent la meme cle 'srv' ; un bag n'en contient
+# jamais que l'une, donc la seconde reste simplement vide.
 SERIES = [('MINS', 'mins', '/mins/imu/odom'),
           ('openVINS', 'vins', '/ov_msckf/odomimu'),
-          ('sqrtVINS', 'srv', '/ov_srvins/odomimu')]
+          ('sqrtVINS', 'srv', '/sqrtvins/odomimu'),
+          ('sqrtVINS (ancien nom)', 'srv', '/ov_srvins/odomimu')]
 
 RETOUR_ORIGINE = 0.5   # m — en deçà, on considère l'estimateur réinitialisé
 ELOIGNE = 5.0          # m — au-delà, il s'était vraiment éloigné avant

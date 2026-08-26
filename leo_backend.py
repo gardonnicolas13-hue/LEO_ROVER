@@ -384,6 +384,17 @@ ROBUST_REC_BAG2CSV    = os.path.join(_TOUT_ROOT, "tools", "bag_to_csv.py")
 ROBUST_REC_TOPICS = [
     "/mins/imu/odom", "/ov_msckf/odomimu", "/robot_pose_fused",
     "/leo_navigation/pose_source", "/firmware/wheel_odom",
+    # /sqrtvins/odomimu (2026-08-25) : le TROISIEME estimateur manquait a
+    # l'enregistrement. Consequence constatee sur le bag test2 du 25/08 —
+    # 32 minutes capturees, MINS et openVINS presents, sqrtVINS absent : la
+    # comparaison a trois annoncee par le cockpit etait impossible depuis le
+    # fichier, et rien ne le signalait.
+    # Le nom est CANONIQUE et non /ov_srvins/odomimu : l'instance embarquee
+    # tourne sous node_name:=sqrtvins, donc ce topic la designe qu'elle
+    # s'execute sur le Pi ou sur le PC.
+    # Son absence n'est PAS fatale a l'enregistrement : rosbag s'abonne a un
+    # topic encore inexistant et le capte des qu'il apparait.
+    "/sqrtvins/odomimu",
     # /tag_detections (2026-08-05) : les AprilTag posés aux coins du rectangle
     # sont enregistrés comme SIMPLE OBSERVATION, jamais appliqués à la pose.
     # C'est la distinction qui rend la mesure valide : si on recalait la pose
@@ -5566,8 +5577,53 @@ class LeoBackend:
         threading.Thread(target=self._fire_pose_source_switch, args=(source,),
                          daemon=True).start()
 
+    def _assurer_sqrtvins_pi(self):
+        """Garantit que sqrtVINS tourne SUR LE ROBOT avant qu'on y bascule.
+
+        Le bouton sqrtVINS du cockpit ne se contentait que de commuter la
+        source ; si le nœud embarqué n'était pas lancé, le clic ne produisait
+        rien de visible. Il démarre désormais l'instance du Pi au passage.
+
+        DÉTACHÉ, et on n'attend PAS. Le script vérifie les ressources du robot,
+        démarre au besoin le sanitizer IMU embarqué, puis attend que
+        /sqrtvins/odomimu publie — jusqu'à une minute. Bloquer là-dessus
+        gèlerait la réponse du cockpit. Ce n'est pas grave : la bascule
+        demandée juste après sera ARMÉE par pose_selector (source pas encore
+        vue, ou périmée) et s'appliquera d'elle-même à la première pose
+        publiée. Le mécanisme d'armement existait déjà ; il sert exactement à
+        ça.
+
+        Le script est IDEMPOTENT : un nœud déjà sain n'est jamais relancé —
+        redémarrer un estimateur qui publie lui ferait perdre trajectoire,
+        covariance et biais.
+        """
+        import subprocess
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "tools", "sqrtvins_pi_ctl.sh")
+        if not os.path.exists(script):
+            self._log(f"[sqrtvins-pi] {script} introuvable — bascule sans "
+                      "démarrage embarqué")
+            return
+        journal = os.path.join(os.path.dirname(script), "..", "logs",
+                               "sqrtvins_pi_ctl.log")
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(journal)), exist_ok=True)
+            fh = open(os.path.abspath(journal), "ab")
+            subprocess.Popen(["bash", script, "start"],
+                             stdout=fh, stderr=fh, start_new_session=True)
+            self._log("[sqrtvins-pi] démarrage embarqué demandé "
+                      "(journal: logs/sqrtvins_pi_ctl.log) — la bascule "
+                      "s'appliquera dès que le robot publiera")
+        except Exception as e:
+            self._log(f"[sqrtvins-pi] démarrage embarqué échoué : {e}")
+
     def _fire_pose_source_switch(self, source):
         source = (source or "").strip().upper()
+        # sqrtVINS ne tourne QUE sur le robot (voir sqrtvins_topic dans
+        # navigation_supervision.launch, pointé sur /sqrtvins/odomimu). Le
+        # clic doit donc pouvoir le démarrer, pas seulement le sélectionner.
+        if source == "SQRTVINS":
+            self._assurer_sqrtvins_pi()
         # Chemin nominal : service typé, seul capable d'atteindre SQRTVINS.
         if self._pose_source_srv_typed is not None:
             try:

@@ -464,9 +464,9 @@
     <p class="dim"><span data-i18n="traj_full_expl">Explications complètes, avec les commandes exactes et le
       pourquoi de chaque choix :</span></p>
     <a class="rlink" target="_blank" rel="noopener"
-       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787617946#page=450"><span data-i18n="traj_link_appd">→ Rapport, Annexe D : protocole complet (p.448 imprimée)</span></a><br>
+       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787684798#page=450"><span data-i18n="traj_link_appd">→ Rapport, Annexe D : protocole complet (p.448 imprimée)</span></a><br>
     <a class="rlink" target="_blank" rel="noopener"
-       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787617946#page=261"><span data-i18n="traj_link_1212">→ Rapport, §12.12.7 : un vrai exemple chiffré, déjà fait le 29/07 (p.259 imprimée)</span></a>
+       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787684798#page=261"><span data-i18n="traj_link_1212">→ Rapport, §12.12.7 : un vrai exemple chiffré, déjà fait le 29/07 (p.259 imprimée)</span></a>
   </div>
 </div>
 
@@ -595,8 +595,20 @@
     /* Les trois sorties BRUTES, pour la superposition comparative. 5 Hz
        suffisent a l'oeil et menagent le WebSocket, deja charge par la video. */
     Object.keys(CMP_TOPICS).forEach((k) => {
+      /* 100 ms, la MEME cadence que /robot_pose_fused ligne ~564 (2026-08-24).
+         Etait a 200 ms pour menager le WebSocket, et c'etait un biais de
+         comparaison : la source ACTIVE s'affiche via /robot_pose_fused a
+         10 Hz, tandis que les trois traces comparees ne recevaient que 5 Hz.
+         L'estimateur selectionne paraissait donc systematiquement deux fois
+         plus fluide que les deux autres -- une difference d'AFFICHAGE prise
+         pour une difference d'estimateur. Mesure des topics eux-memes :
+         MINS 84,8 Hz, openVINS 85,0 Hz, sqrtVINS 83,7 Hz, dt median 11 ms
+         pour les trois. Ils sont equivalents a la source.
+         Le cout reste borne : le rendu decime deja a 800 points par trace
+         (voir `pas` plus bas), donc doubler le debit d'entree ne double pas
+         le travail de dessin. */
       new ROSLIB.Topic({ ros, name: CMP_TOPICS[k], messageType: "nav_msgs/Odometry",
-                         throttle_rate: 200 })
+                         throttle_rate: 100 })
         .subscribe((m) => {
           const p = m.pose.pose.position;
           /* Lecture directe des trois estimateurs (2026-08-21). Mise a jour a

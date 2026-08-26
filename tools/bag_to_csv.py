@@ -45,7 +45,13 @@ TOPIC_MAP = {
     # anterieur ne contient pas ce topic : le writer etant ouvert
     # PARESSEUSEMENT (voir _writer_for plus bas), aucun fichier vide n'est cree
     # et la relecture des anciens bags reste inchangee.
+    # DEUX noms pour sqrtVINS, volontairement. Le noeud embarque a ete renomme
+    # le 2026-08-25 (node_name:=sqrtvins), donc les bags RECENTS portent
+    # /sqrtvins/odomimu tandis que les ANCIENS portent /ov_srvins/odomimu.
+    # Les deux pointent la meme colonne "srv" : un bag ne contient jamais que
+    # l'un des deux, et la relecture de l'historique reste possible.
     "/ov_srvins/odomimu":          ("srv",     "odom"),
+    "/sqrtvins/odomimu":           ("srv",     "odom"),
     "/robot_pose_fused":           ("fused",   "odom"),
     # /pose = sortie REELLE de carolus_astrobee (carolus_astrobee.cpp:362,
     # geometry_msgs/PoseStamped). C'est aussi le topic nomme explicitement par

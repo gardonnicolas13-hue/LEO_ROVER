@@ -1,0 +1,77 @@
+<launch>
+
+  <arg name="robot_ns" default="$(optenv ROS_NAMESPACE)" />
+  <arg name="mecanum_wheels" default="$(optenv MECANUM_WHEELS false)" />
+
+  <arg if="$(eval robot_ns == '')" name="tf_frame_prefix" value="" />
+  <arg if="$(eval robot_ns != '')" name="tf_frame_prefix" value="$(arg robot_ns)/" />
+
+  <param name="robot_description"
+    command="xacro /etc/ros/urdf/robot.urdf.xacro
+    link_prefix:='$(arg tf_frame_prefix)'
+    mecanum_wheels:='$(arg mecanum_wheels)'" />
+
+  <include file="$(find leo_bringup)/launch/leo_bringup.launch">
+    <arg name="upload_description" value="false" />
+    <arg name="tf_frame_prefix" value="$(arg tf_frame_prefix)" />
+    <arg name="mecanum_wheels" value="$(arg mecanum_wheels)" />
+  </include>
+
+  <rosparam command="load" file="/etc/ros/params.yaml" />
+  <include file="/etc/ros/laser.launch"/>
+
+  <param name="/raspicam_node/framerate" value="60"/>
+
+  <!-- COULEUR DESACTIVEE PAR DEFAUT (2026-08-26, MESURE).
+       Le flux couleur 640x480@15 ne sert QU'A la detection de balise Carolus
+       (carolus_detect.launch consomme /pc/camera/color/image_raw via un
+       throttle a 4 Hz). Quand Carolus ne tourne pas — le cas courant — le Pi
+       decode un flux que personne ne lit.
+       Gain MESURE ce jour : nodelet camera 133.4 % -> 85.0 % de CPU, idle
+       global 10.5 % -> 34.4 %, charge 7.16 -> 4.53. Les flux infra du VIO
+       restent a 14.6 / 14.1 Hz.
+       A NE PAS CONFONDRE avec l'essai du 28/07, qui coupait le REPUBLIEUR PC
+       et n'avait donne aucun gain : le cout est dans le PILOTE, pas dans la
+       compression JPEG.
+       SECURITE : la couleur avait provoque une PERTE DE CONTROLE le 27/07
+       (Pi a 87 C). La couper va donc dans le sens de la surete.
+       Pour un essai balise : roslaunch ... enable_color:=true -->
+  <arg name="enable_color" default="false"/>
+  <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+    <!-- Profil minimal permanent (2026-07-06) : infra 640x480@15 pour
+         MINS/cockpit (calibration Kalibr en 640x480), depth 640x480@15 pour
+         la detection d'obstacles, color OFF (1280x720 + compression theora
+         ecrasait le CPU du Pi : throttling thermique + desync rosserial). -->
+    <arg name="enable_color"  value="$(arg enable_color)"/>
+    <arg name="color_width"  value="640"/>
+    <arg name="color_height" value="480"/>
+    <arg name="color_fps"    value="15"/>
+    <arg name="enable_infra1" value="true"/>
+    <arg name="enable_infra2" value="true"/>
+    <arg name="infra_width"   value="640"/>
+    <arg name="infra_height"  value="480"/>
+    <arg name="infra_fps"     value="15"/>
+    <arg name="enable_depth"  value="true"/>
+    <arg name="depth_width"   value="640"/>
+    <arg name="depth_height"  value="480"/>
+    <arg name="depth_fps"     value="15"/>
+    <arg name="enable_sync"   value="false"/>
+  </include>
+
+  <!-- Persistance laser_power=0 / png_level=1 (2026-07-20) : ces deux
+       reglages dynamic_reconfigure ne survivaient pas a un redemarrage.
+       Appliques une fois au boot, apres un delai laissant le temps au
+       driver realsense (stereo_module) et au plugin image_transport
+       compressedDepth de publier leurs serveurs dynamic_reconfigure.
+       Non "required", sans respawn : un delai insuffisant un jour donne
+       ne fait pas echouer le reste de la pile, juste ce reglage-la
+       (relancer la stack une seconde fois suffit alors). -->
+  <node name="set_laser_power_boot" pkg="dynamic_reconfigure" type="dynparam"
+        args="set /camera/stereo_module &quot;{'laser_power': 0}&quot;"
+        launch-prefix="bash -c 'sleep 8; $0 $@'" respawn="false" required="false" />
+
+  <node name="set_png_level_boot" pkg="dynamic_reconfigure" type="dynparam"
+        args="set /camera/depth/image_rect_raw/compressedDepth &quot;{'png_level': 1}&quot;"
+        launch-prefix="bash -c 'sleep 8; $0 $@'" respawn="false" required="false" />
+
+</launch>

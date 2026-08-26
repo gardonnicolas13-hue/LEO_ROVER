@@ -842,11 +842,23 @@
     // (pas juste une couleur ou une animation), piloté par le SEUL topic
     // source de vérité (pose_source_pending), jamais déduit ailleurs.
     const POSE_SRC_STYLE = {
-      MINS: { active: ['border-plasma/40', 'bg-plasma/15', 'text-plasma'], dot: 'bg-plasma' },
-      VINS: { active: ['border-accent/40', 'bg-accent/15', 'text-accent'], dot: 'bg-accent' },
+      // ARME vs ACTIF (2026-08-25). Les deux jeux partagent la COULEUR de la
+      // source — la demande operateur du 24/07 tenait a ce que la cible se
+      // reconnaisse des le clic — mais seul l'ACTIF est REMPLI. L'arme n'a
+      // qu'un contour tirete : deux boutons colores ne peuvent plus se lire
+      // comme deux sources qui servent en meme temps, ce qui est impossible
+      // par construction (pose_selector n'a qu'un self.active).
+      MINS: { active: ['border-plasma/40', 'bg-plasma/15', 'text-plasma'],
+              armed:  ['border-plasma/60', 'border-dashed', 'text-plasma/70'],
+              dot: 'bg-plasma' },
+      VINS: { active: ['border-accent/40', 'bg-accent/15', 'text-accent'],
+              armed:  ['border-accent/60', 'border-dashed', 'text-accent/70'],
+              dot: 'bg-accent' },
       // 2026-08-21 : ambre, la couleur deja utilisee pour sqrtVINS partout
       // ailleurs sur le site (creneaux d'essai, trajectory.html).
-      SQRTVINS: { active: ['border-amber-400/40', 'bg-amber-400/15', 'text-amber-300'], dot: 'bg-amber-400' },
+      SQRTVINS: { active: ['border-amber-400/40', 'bg-amber-400/15', 'text-amber-300'],
+                  armed:  ['border-amber-400/60', 'border-dashed', 'text-amber-300/70'],
+                  dot: 'bg-amber-400' },
     };
     // Une seule liste, d'ou tout le reste se derive : ajouter une source ne
     // demande plus qu'une entree ici + le trio de noeuds HTML correspondant.
@@ -889,9 +901,14 @@
         // bleu dès le clic) — seul le point clignote encore (animate-pulse-glow)
         // + le label texte, pour garder un minimum de distinction avec
         // l'état vraiment actif sans réintroduire l'ambiguïté du 23/07.
+        // Retirer les TROIS jeux avant d'appliquer : oublier `armed` ici
+        // laisserait `border-dashed` colle au bouton une fois la bascule
+        // appliquee, et l'actif garderait un contour tirete a vie.
         POSE_SRC_IDLE.forEach(c => btn.classList.remove(c));
         st.active.forEach(c => btn.classList.remove(c));
-        const styleSet = (active || armed) ? st.active : POSE_SRC_IDLE;
+        (st.armed || []).forEach(c => btn.classList.remove(c));
+        const styleSet = active ? st.active
+                       : (armed ? (st.armed || st.active) : POSE_SRC_IDLE);
         styleSet.forEach(c => btn.classList.add(c));
 
         dot.className = 'block h-2 w-2 shrink-0 rounded-full ' +

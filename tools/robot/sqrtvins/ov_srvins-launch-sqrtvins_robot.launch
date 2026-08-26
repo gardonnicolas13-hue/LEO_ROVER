@@ -1,0 +1,71 @@
+<launch>
+  <!-- ========================================================================
+       sqrtVINS EN LOCAL SUR LE ROBOT — 2026-08-24.
+
+       POURQUOI CE FICHIER EXISTE PLUTOT QUE subscribe.launch.
+       Le launch amont declare le noeud `required="true"`. Quand le noeud
+       meurt, roslaunch ARRETE TOUT et rend la main — il n'y a aucune
+       relance. Or ce paquet crashe au demarrage de facon intermittente
+       (boost::lock_error, course d'initialisation : mesure sur PC, 4
+       demarrages sur 5, et le crash ne se reproduit PAS sous gdb, signature
+       d'une course sensible au temps).
+
+       Sur le PC ce crash est invisible parce que le launch y declare
+       respawn="true" : le noeud repart seul en quelques secondes. Sur le Pi,
+       avec required="true", le meme crash tuait la session entiere et
+       ressemblait a une panne definitive. Ce n'etait pas un crash different,
+       c'etait le meme crash SANS FILET.
+
+       respawn_delay="5" et non 0 : relancer instantanement sur une course
+       d'initialisation la reproduit a l'identique. Cinq secondes laissent le
+       systeme se decanter.
+
+       TOPICS LOCAUX. Ici la camera et l'IMU sont sur la meme machine :
+       /camera/... et /imu/data_clean_pi, sans le prefixe /pc/ des flux
+       republies cote PC. C'est precisement la difference architecturale que
+       ce deploiement doit mesurer — pas de saut WiFi entre le capteur et le
+       filtre.
+
+       /tf REMAPPE. Le noeud PC publie deja dans /tf_sqrtvins ; sans remap
+       distinct les deux instances ecriraient des transformations
+       concurrentes sur le meme arbre.
+       ======================================================================== -->
+
+  <arg name="verbosity"   default="WARNING"/>
+  <arg name="config"      default="leo"/>
+  <arg name="config_path"
+       default="$(find ov_srvins)/../config/$(arg config)/estimator_config.yaml"/>
+  <arg name="max_cameras" default="2"/>
+  <arg name="use_stereo"  default="true"/>
+  <!-- NOM DU NOEUD = NAMESPACE DE SES TOPICS (2026-08-25).
+       Defaut `sqrtvins`, donc /sqrtvins/odomimu — le nom CANONIQUE, celui
+       qu'attendent deja web/trajectory.html, tools/export_matlab.py,
+       tools/resample_trajectoires.py et le defaut de pose_selector.
+       Avant, ce noeud s'appelait `ov_srvins` et publiait /ov_srvins/odomimu :
+       en basculant sqrtVINS du PC vers le robot, l'onglet Trajectory perdait
+       sa trace et la comparaison a trois devenait impossible. Nommer le topic
+       d'apres la MACHINE obligeait chaque consommateur a savoir ou tourne le
+       filtre ; le nommer d'apres l'ESTIMATEUR rend ce detail invisible.
+       Pour faire tourner les DEUX instances en parallele (comparaison
+       architecture PC/Pi, cf. rapport 12.27.4) : node_name:=ov_srvins ici,
+       et l'instance PC garde /sqrtvins. -->
+  <arg name="node_name"   default="sqrtvins"/>
+
+      <!-- nice 10 (2026-08-26) : sqrtVINS CEDE le CPU a serial_node
+         (SCHED_FIFO 25), a la pile reseau et au pilote camera.
+         Il n a aucune contrainte temps reel dure — une pose qui arrive
+         20 ms plus tard reste exploitable — alors qu un octet UART
+         perdu ne se rattrape pas : wheel_states tombe, MINS perd son
+         ancrage, et le robot devient injoignable. Mesure du 26/08 :
+         10.5 % d idle, 78.8 C, throttled=0xe0000. -->
+    <node name="$(arg node_name)" pkg="ov_srvins" type="run_subscribe_msckf" launch-prefix="nice -n 10"
+        output="screen" clear_params="true"
+        respawn="true" respawn_delay="5">
+    <remap from="/tf" to="/tf_sqrtvins_pi"/>
+    <param name="verbosity"   type="string" value="$(arg verbosity)"/>
+    <param name="config_path" type="string" value="$(arg config_path)"/>
+    <param name="use_stereo"  type="bool"   value="$(arg use_stereo)"/>
+    <param name="max_cameras" type="int"    value="$(arg max_cameras)"/>
+  </node>
+
+</launch>

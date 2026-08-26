@@ -51,7 +51,13 @@ TOPICS=(
   # jamais demande. La cause n'etait donc pas reseau : ce script ne
   # l'enregistrait simplement pas. Sans cette ligne, aucune analyse MATLAB a
   # trois estimateurs n'est possible.
-  /ov_srvins/odomimu             # sqrtVINS (nav_msgs/Odometry), tourne SUR le Pi
+  # RENOMME le 2026-08-25 : /ov_srvins/odomimu -> /sqrtvins/odomimu. Le noeud
+  # embarque tourne desormais sous node_name:=sqrtvins, donc ses topics portent
+  # le nom CANONIQUE de l'estimateur et non celui de la machine. Sans ce
+  # changement ici, ce script aurait continue d'enregistrer un topic qui
+  # n'existe plus — soit exactement la panne de trace decrite juste au-dessus,
+  # une deuxieme fois.
+  /sqrtvins/odomimu              # sqrtVINS (nav_msgs/Odometry), tourne SUR le Pi
   /robot_pose_fused              # source active servie (nav_msgs/Odometry)
   /leo_navigation/pose_source    # "VINS"|"MINS" au fil du temps (std_msgs/String)
   /pose                          # fix balise CAROLUS (geometry_msgs/PoseStamped)
@@ -74,7 +80,7 @@ TOPICS=(
 # ── Vérif de présence des estimateurs (avertissement, pas blocage) ───────────
 echo ""
 echo "  [record_trajectories] cible : $BAG.bag"
-for t in /mins/imu/odom /ov_msckf/odomimu /ov_srvins/odomimu; do
+for t in /mins/imu/odom /ov_msckf/odomimu /sqrtvins/odomimu; do
   if timeout -k 3 6 rostopic info "$t" >/dev/null 2>&1; then
     echo "    ✓ $t publié"
   else
@@ -84,7 +90,7 @@ for t in /mins/imu/odom /ov_msckf/odomimu /ov_srvins/odomimu; do
     # sqrtVINS ne fait PAS partie de la pile lancée par le PC : il tourne sur le
     # Pi, à la demande. Son absence est donc le cas NORMAL, pas une anomalie —
     # le message le dit, sinon l'avertissement ci-dessus inquiète pour rien.
-    [ "$t" = /ov_srvins/odomimu ] && \
+    [ "$t" = /sqrtvins/odomimu ] && \
       echo "      (sqrtVINS : normal s'il n'a pas été lancé — il vit sur le Pi," && \
       echo "       pas dans la pile PC. Le bag restera à deux estimateurs.)"
   fi

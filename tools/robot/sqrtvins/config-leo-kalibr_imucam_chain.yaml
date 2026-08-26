@@ -1,0 +1,57 @@
+%YAML:1.0
+
+# LEO Rover — D455 stéréo IR, calibration Kalibr réelle de CE rover
+# (calibration_leo_d455/bag_final-camchain.yaml, reproj err ~0.2px, 640x480).
+# Mêmes intrinsèques que MINS (config_camera.yaml) et que openVINS PC
+# (catkin_ws/src/open_vins/config/leo/kalibr_imucam_chain.yaml) — source
+# unique de vérité, copiée ici verbatim, SEULS les rostopic changent.
+#
+# T_cam_imu = convention Kalibr (points IMU -> camera). C'est l'INVERSE du
+# T_imu_cam de MINS (seed caméra-avant validé par le T1.1 A/B du 2026-07-04 :
+# divergence Z réduite x5). R_CtoI = [[0,0,1],[-1,0,0],[0,-1,0]],
+# p_C0inI = (0.15, 0, 0.10), p_C1inI = (0.15, -0.0902, 0.10).
+#
+# topics /camera/... (SANS /pc/) : sqrtVINS tourne EN LOCAL sur le Pi, à
+# côté du pilote caméra qui publie déjà ces topics ici — pas de hop WiFi à
+# éviter puisqu'il n'y en a pas. C'est exactement la différence
+# architecturale que ce test doit mesurer (2026-08-13, demande Hector).
+cam0:
+    # EXTRINSEQUE CALIBREE (Kalibr), posee le 2026-08-25.
+    # Remplace une permutation d'axes ECRITE A LA MAIN (9 coefficients
+    # sur 9 exactement 0 ou +-1) qui n'avait jamais ete mesuree. Ecart
+    # avec la vraie geometrie : 5.83 deg de rotation et 17.2 cm de bras
+    # de levier camera-IMU. Consequences mesurables :
+    #   - sin(5.83 deg) x 9.79 = 0.994 m/s^2 de gravite qui fuit dans
+    #     l'horizontale, toujours dans la meme direction -> derive en
+    #     LIGNE DROITE a vitesse constante, robot immobile ;
+    #   - |omega x d| = 0.172 m/s de vitesse fantome a 1 rad/s, soit
+    #     l'ordre de grandeur de la vitesse max du rover (0.264 m/s).
+    # Les intrinseques et coefficients de distorsion de ce fichier sont
+    # IDENTIQUES a ceux du profil PC au chiffre pres : meme camera,
+    # meme session de calibration. Seule l'extrinseque avait ete
+    # remplacee ici.
+  T_cam_imu:
+      - [-0.0581984307, -0.9978039804, -0.0316252963, 0.0270963847]
+      - [-0.0760810736, 0.0360199519, -0.9964508183, 0.0197439029]
+      - [0.9954017344, -0.0555857874, -0.0780103027, -0.0002241989]
+      - [0.0000000000, 0.0000000000, 0.0000000000, 1.0000000000]
+  cam_overlaps: [1]
+  camera_model: pinhole
+  distortion_coeffs: [-0.06997975263296914, 0.01963062162082574, 0.0013849504890515055, 0.0019126352685073426]
+  distortion_model: radtan
+  intrinsics: [336.3721021512454, 338.48699154923884, 310.20007556292467, 243.17065929950277]
+  resolution: [640, 480]
+  rostopic: /camera/infra1/image_rect_raw
+cam1:
+  T_cam_imu:
+      - [-0.0735078045, -0.9968063873, -0.0312030273, -0.0625147288]
+      - [-0.0735074673, 0.0366179453, -0.9966221844, 0.0200386911]
+      - [0.9945819498, -0.0709658531, -0.0759644176, -0.0048481769]
+      - [0.0000000000, 0.0000000000, 0.0000000000, 1.0000000000]
+  cam_overlaps: [0]
+  camera_model: pinhole
+  distortion_coeffs: [-0.06322919408397377, 0.027949761557565952, 0.0023552449769369626, 0.0017721544432476029]
+  distortion_model: radtan
+  intrinsics: [337.61566220551015, 339.63530229437606, 320.43720360806583, 242.12247628870475]
+  resolution: [640, 480]
+  rostopic: /camera/infra2/image_rect_raw

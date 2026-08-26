@@ -13,8 +13,15 @@
 #
 # Il suppose un roscore DEJA en marche (celui du robot) et la pile de
 # navigation deja lancee — sqrtVINS ne consomme que des topics republies
-# (/pc/camera/... et /imu/data_clean), il n'en produit aucun dont MINS ou
-# openVINS dependent.
+# (/pc/camera/... et, DEPUIS LE 25/08, /imu/data_vins et non /imu/data_clean),
+# il n'en produit aucun dont MINS ou openVINS dependent.
+#
+# /imu/data_vins est la branche IMU dediee aux VINS : meme signal, mais avec
+# sa propre echelle accelero (accel_scale_vins), recalibrable sans toucher a
+# /imu/data_clean que MINS consomme. Sans elle, l'echelle commune laissait un
+# residu de -0.0968 m/s^2, soit ~17 km de derive doublement integree sur
+# 10 min. Si ce topic est muet, sqrtVINS n'aura AUCUNE IMU : verifier que
+# imu_sanitizer publie bien ~vins_topic.
 #
 # Usage :
 #   tools/launch_sqrtvins.sh                  # profil PC par defaut

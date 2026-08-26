@@ -324,6 +324,27 @@ class ImuSanitizer(object):
         self.accel_limit = rospy.get_param("~accel_limit", 160.0)
         # 9.790 (gravité locale réelle) / 8.7525 (mesuré brut) — voir en-tête.
         self.accel_scale = float(rospy.get_param("~accel_scale", 1.1186))
+        # ── BRANCHE VINS SÉPARÉE (2026-08-25) ────────────────────────────
+        # POURQUOI DEUX ÉCHELLES ET DEUX TOPICS.
+        # /imu/data_clean est consommé par MINS, openVINS, sqrtVINS ET le
+        # backend — vérifié par `rostopic info` le 25/08. Une seule échelle
+        # pour tous crée un conflit insoluble :
+        #   * l'échelle DÉRIVE (8.7525 -> 8.6664 m/s^2 de brut mesuré entre
+        #     deux campagnes), et un résidu de 0.0958 m/s^2 doublement intégré
+        #     vaut ~17 km sur 10 minutes — fatal pour un VIO pur ;
+        #   * MINS est ancré par les roues, survit à ce résidu, est validé,
+        #     et toute modification de son entrée est interdite.
+        # Corriger /imu/data_clean réparerait les VINS en cassant MINS ; ne
+        # rien faire laisse les VINS inexploitables. La sortie est de séparer
+        # les flux : /imu/data_clean reste identique au octet près pour MINS,
+        # et les VINS lisent /imu/data_vins avec leur propre échelle,
+        # recalibrable sans conséquence sur MINS.
+        #
+        # 0.0 = INACTIF : /imu/data_vins reste alors une copie exacte de
+        # /imu/data_clean. Le topic est publié dans TOUS les cas, pour qu'un
+        # estimateur configuré dessus ne se retrouve jamais sans IMU du tout
+        # parce que le paramètre n'a pas été passé.
+        self.accel_scale_vins = float(rospy.get_param("~accel_scale_vins", 0.0))
         # ── GYRO SCALE (ajouté 2026-07-29) ───────────────────────────────
         # Défaut 1.0 = AUCUNE correction, volontairement : ce facteur n'a
         # jamais été mesuré. La calibration du 28/07 s'est faite à UNE SEULE
@@ -441,6 +462,8 @@ class ImuSanitizer(object):
         self._reset_in_flight = False
 
         self.pub = rospy.Publisher(out_topic, SensorImu, queue_size=20)
+        vins_topic = rospy.get_param("~vins_topic", "/imu/data_vins")
+        self.pub_vins = rospy.Publisher(vins_topic, SensorImu, queue_size=20)
         # Latché : un abonné qui arrive en cours de route (dashboard, script
         # d'analyse) obtient l'état courant tout de suite, pas au prochain front.
         self.zupt_pub = rospy.Publisher(zupt_topic, Bool, queue_size=5, latch=True)
@@ -711,19 +734,30 @@ class ImuSanitizer(object):
         self._accel_recal_buf = []
         self._next_accel_recal_t = now + self.accel_recal_period
 
+        # La recalibration vise la branche VINS dès qu'elle est active, et
+        # JAMAIS /imu/data_clean dans ce cas : c'est précisément ce qui rend
+        # la correction de dérive compatible avec le sanctuaire MINS. Sans
+        # branche VINS, comportement d'origine inchangé.
+        vins = self.accel_scale_vins > 0.0
+        courante = self.accel_scale_vins if vins else self.accel_scale
+        quoi = "VINS" if vins else "commune"
+
         accepte, motif, nouvelle = evaluer_recal_accel_scale(
-            norme_moy, self.accel_scale, self.gravite_locale,
+            norme_moy, courante, self.gravite_locale,
             self.accel_recal_max_delta)
         if not accepte:
-            rospy.logwarn("[imu_sanitizer] recalib échelle accéléro REFUSÉE — "
-                          "%s. Échelle conservée (%.4f).", motif, self.accel_scale)
+            rospy.logwarn("[imu_sanitizer] recalib échelle accéléro (%s) REFUSÉE "
+                          "— %s. Échelle conservée (%.4f).", quoi, motif, courante)
             return
-        old = self.accel_scale
-        self.accel_scale = nouvelle
-        rospy.logwarn("[imu_sanitizer] recalib échelle accéléro APPLIQUÉE "
+        if vins:
+            self.accel_scale_vins = nouvelle
+        else:
+            self.accel_scale = nouvelle
+        rospy.logwarn("[imu_sanitizer] recalib échelle accéléro (%s) APPLIQUÉE "
                       "(%s) : x%.4f — remplace x%.4f (norme brute mesurée "
-                      "%.4f m/s^2 sur %d échantillons)",
-                      motif, nouvelle, old, norme_moy, int(n))
+                      "%.4f m/s^2 sur %d échantillons)%s",
+                      quoi, motif, nouvelle, courante, norme_moy, int(n),
+                      "" if vins else " — /imu/data_clean AFFECTÉ (MINS inclus)")
 
     def _check_freeze(self, raw_vals):
         if raw_vals == self._prev_vals:
@@ -838,6 +872,35 @@ class ImuSanitizer(object):
         out.linear_acceleration.x, out.linear_acceleration.y, out.linear_acceleration.z = vals[3:6]
         out.orientation_covariance[0] = -1.0  # no orientation estimate provided
         self.pub.publish(out)
+
+        # ── Copie pour les VINS, avec LEUR échelle accéléro ──────────────
+        # Republication plutôt que réécriture : /imu/data_clean vient d'être
+        # publié inchangé, donc MINS ne voit strictement aucune différence.
+        #
+        # Le rapport (accel_scale_vins / accel_scale) est appliqué au signal
+        # DÉJÀ mis à l'échelle, ce qui est exact : vals[3:6] valent brut *
+        # accel_scale, donc le produit vaut brut * accel_scale_vins. Ça vaut
+        # aussi pour le repli anti-glitch (_last_good, stocké en unités
+        # corrigées) et pour le clamp ZUPT (moyenne fenêtre, mêmes unités).
+        # SEULE exception : le repli en dur (0,0,9.790) utilisé quand un
+        # glitch survient avant tout échantillon sain — il est déjà exprimé
+        # en gravité locale et le rapport l'écarte de ~1 %. Cas rare, borné,
+        # et sans commune mesure avec le biais systématique qu'on retire.
+        if self.accel_scale_vins > 0.0:
+            r = self.accel_scale_vins / self.accel_scale
+            out_v = SensorImu()
+            out_v.header.stamp = out.header.stamp
+            out_v.header.frame_id = out.header.frame_id
+            out_v.angular_velocity = out.angular_velocity
+            out_v.linear_acceleration.x = vals[3] * r
+            out_v.linear_acceleration.y = vals[4] * r
+            out_v.linear_acceleration.z = vals[5] * r
+            out_v.orientation_covariance[0] = -1.0
+            self.pub_vins.publish(out_v)
+        else:
+            # Inactif : copie exacte, pour que le topic existe toujours et
+            # qu'un estimateur configuré dessus ne se retrouve jamais muet.
+            self.pub_vins.publish(out)
 
         # Periodic health line — a rising glitch rate is a real hardware signal
         # (loose IMU connector, failing sensor), worth surfacing not hiding.

@@ -35,6 +35,7 @@ catkin_install_python(PROGRAMS
   scripts/fill_mins_camchain.py
   scripts/wheel_remap.py
   scripts/vins_rotation_guard.py
+  scripts/pi_health_monitor.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
 # leo_backend_launch.sh is BASH, deliberately NOT in catkin_install_python —

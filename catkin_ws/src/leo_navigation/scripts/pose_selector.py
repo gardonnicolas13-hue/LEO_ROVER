@@ -106,6 +106,29 @@ SOURCES = ("VINS", "MINS", "SQRTVINS")
 # agit avant même que la source devienne sélectionnable.
 MAX_INITIAL_JUMP_M = 5.0
 
+# Âge au-delà duquel le dernier échantillon d'une source ne la rend PLUS
+# sélectionnable (2026-08-25, MESURÉ sur un cas réel).
+#
+# LE DÉFAUT. `_last_raw[src]` est écrit à chaque message et n'expirait jamais.
+# Une source qui a publié puis est MORTE gardait donc un échantillon non-None,
+# et `_switch_to()` appliquait la bascule : correction SE(3) calculée sur une
+# pose périmée, source déclarée active, puis plus aucun message n'arrivant,
+# `/robot_pose_fused` CESSAIT D'ÉMETTRE. Or ce topic alimente le mode AUTO et
+# l'approche balise — l'absence de pose y est bien plus dangereuse qu'une pose
+# douteuse, et rien ne la signalait.
+#
+# Constaté le 25/08 : le nœud `/sqrtvins` était mort en laissant son
+# inscription chez le master (« connection refused » au ping, topic toujours
+# listé, `pose_selector` toujours abonné). Cliquer sqrtVINS dans le cockpit
+# aurait réussi et tué la sortie fusionnée.
+#
+# 2 s = ~24 périodes du flux le plus lent des trois (MINS à ~12 Hz observé),
+# assez large pour ne jamais déclencher sur un simple hoquet réseau, assez
+# court pour qu'un opérateur ne bascule pas sur un cadavre. Une source jugée
+# périmée retombe sur le chemin ARMED qui existe déjà pour les sources jamais
+# vues : la bascule s'appliquera d'elle-même si la source revient.
+SOURCE_STALE_S = 2.0
+
 
 def _mat_from_odom(msg):
     p = msg.pose.pose.position
@@ -187,6 +210,14 @@ class PoseSelector(object):
         # even for the source that isn't currently active) so a switch can
         # compute the correction instantly instead of waiting on a new msg.
         self._last_raw = {src: None for src in SOURCES}
+        # Date d'ARRIVÉE (horloge locale) du dernier échantillon de chaque
+        # source. Volontairement l'arrivée et non header.stamp : un nœud mort
+        # laisse un stamp ancien mais un nœud dont l'horloge dérive laisserait
+        # un stamp trompeur, et c'est la fraîcheur de la RÉCEPTION qui dit si
+        # la source est encore vivante.
+        self._last_raw_t = {src: 0.0 for src in SOURCES}
+        self.source_stale_s = float(rospy.get_param("~source_stale_s",
+                                                    SOURCE_STALE_S))
         # SE3 correction applied to each source's raw pose before publishing.
         # Identity until the first switch away from that source.
         self._correction = {src: np.eye(4) for src in SOURCES}
@@ -284,6 +315,24 @@ class PoseSelector(object):
             return True, "already on %s" % new_source
 
         new_raw = self._last_raw[new_source]
+        # Garde de fraîcheur (voir SOURCE_STALE_S). Un échantillon trop vieux
+        # est traité EXACTEMENT comme une source jamais vue : on ne bascule
+        # pas, on arme. Rendre la source « non vue » plutôt qu'échouer permet
+        # de réutiliser tel quel le chemin ARMED, qui rebasculera tout seul si
+        # le nœud revient.
+        perime = False
+        if new_raw is not None:
+            age = rospy.get_time() - self._last_raw_t[new_source]
+            if age > self.source_stale_s:
+                rospy.logerr("[pose_selector] %s PÉRIMÉE : dernier message il y a "
+                             "%.1f s (> %.1f s). Bascule REFUSÉE — le nœud est "
+                             "probablement mort en laissant son inscription chez "
+                             "le master. Basculer aurait arrêté /robot_pose_fused, "
+                             "qui alimente le mode AUTO.",
+                             new_source, age, self.source_stale_s)
+                new_raw = None
+                perime = True
+
         if new_raw is not None:
             if self._pending is not None:
                 self._pending = None
@@ -300,11 +349,13 @@ class PoseSelector(object):
 
         self._pending = new_source
         self._publish_pending()
-        rospy.logwarn("[pose_selector] ARMED switch to %s: no message received on it "
-                       "yet; will apply automatically the instant one arrives — click "
-                       "again to cancel", new_source)
-        return True, ("ARMED: will switch to %s as soon as it publishes "
-                       "(click again to cancel)" % new_source)
+        motif = ("source périmée (nœud muet)" if perime
+                 else "no message received on it yet")
+        rospy.logwarn("[pose_selector] ARMED switch to %s: %s; will apply "
+                       "automatically the instant one arrives — click again to "
+                       "cancel", new_source, motif)
+        return True, ("ARMED: will switch to %s as soon as it publishes again "
+                       "(%s — click again to cancel)" % (new_source, motif))
 
     def _apply_switch(self, new_source, new_raw):
         if self._last_fused_mat is not None:
@@ -343,6 +394,7 @@ class PoseSelector(object):
                              MAX_INITIAL_JUMP_M)
                 return
         self._last_raw[source] = msg
+        self._last_raw_t[source] = rospy.get_time()
 
         if self._pending == source:
             # Source armée qui vient de publier pour la première fois —
