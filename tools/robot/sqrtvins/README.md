@@ -86,6 +86,16 @@ qualité géométrique des features, juste la confiance qu'on leur accorde.
 Aucune des trois valeurs ne bat `1.0` sur l'objectif réel (stabilité en
 rotation) ; conservé tel quel.
 
+**Le second défaut du reset sur divergence (C++, pas config)** — la config
+seule ne suffisait pas : la remise à zéro déclenchée par le patch amont
+`03_reset_on_divergence_20260824.patch` (voir `patches/README.md`) oubliait
+la covariance, provoquant 212 resets qui rejouaient presque la même
+divergence. Corrigé le 27/08 dans `VioManager.cpp` — voir
+**`patches/05_reset_covariance_20260827.patch`** pour le diff complet et le
+détail de la mesure. Ce fichier `.cpp` n'a pas d'équivalent dans ce dossier
+(qui ne couvre que la config/launch qui vit sur la carte SD) ; le patch
+versionné est sa seule trace dans le dépôt.
+
 **`T_cam_imu` calibrée** (`kalibr_imucam_chain.yaml`). Le robot portait une
 permutation d'axes ÉCRITE À LA MAIN — 9 coefficients sur 9 valant exactement
 0 ou ±1, ce qu'une calibration Kalibr ne produit jamais. Écart avec la vraie

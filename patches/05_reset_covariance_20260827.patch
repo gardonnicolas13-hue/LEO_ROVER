@@ -1,0 +1,40 @@
+diff --git a/ov_srvins/src/core/VioManager.cpp b/ov_srvins/src/core/VioManager.cpp
+--- a/ov_srvins/src/core/VioManager.cpp
++++ b/ov_srvins/src/core/VioManager.cpp
+@@ -327,6 +327,36 @@
+         etat_zero(3) = 1.0;  // quaternion identite (x,y,z,w) -> w = 1
+         state->imu->set_value(etat_zero);
+         state->imu->set_fej(etat_zero);
++
++        // COVARIANCE REMISE A ZERO ELLE AUSSI (2026-08-27, second defaut du
++        // meme reset). La MOYENNE etait remise a zero depuis le 24/08, mais
++        // pas l'incertitude : le facteur racine carree U_ survivait tel
++        // quel a la reinitialisation.
++        //
++        // CONSEQUENCE MESUREE : 212 resets captures sur une seule session,
++        // dont les (|v|, |p|) au declenchement clustent sur DEUX valeurs
++        // quasi exactes -- 3.00-3.09 m/s et 3.4 OU 3.6 m -- au lieu d'etre
++        // dispersees comme le serait une vraie divergence bruitee. Une
++        // covariance deja explosee au moment du reset donne un gain de
++        // Kalman disproportionne des la mise a jour suivante : l'etat tout
++        // juste remis a zero est immediatement recorrompu selon une forme
++        // que l'ancienne covariance encode encore, reproduisant presque
++        // la meme trajectoire de divergence a chaque cycle -- d'ou le motif
++        // periodique observe a l'ecran (~2.3 s), aussi bien a l'arret qu'en
++        // rotation (audit du 27/08).
++        //
++        // Memes valeurs que l'initialisation reelle a froid
++        // (StaticInitializer.cpp, "Just keep the default covariance
++        // prior") : duplique plutot que partage, cinq constantes ne valent
++        // pas l'indirection, mais DOIT rester synchronise avec elle si ces
++        // valeurs sont un jour retouchees.
++        VecX prior_diag = VecX::Ones(15);
++        prior_diag.topRows<3>() *= 0.017;    // q
++        prior_diag.segment<3>(3) *= 0.05;    // p
++        prior_diag.segment<3>(6) *= 0.01;    // v
++        prior_diag.segment<3>(9) *= 0.02;    // bg
++        prior_diag.segment<3>(12) *= 0.02;   // ba
++        StateHelper::set_initial_imu_square_root_covariance(state, prior_diag);
+       }
+       // L'initialiseur redemarre sur des mesures FRAICHES : sans purge il
+       // rebatirait l'etat sur la fenetre qui vient justement de diverger.

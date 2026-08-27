@@ -5,12 +5,19 @@ au commit `30fafc8`. Chacun se tient seul et peut être soumis, accepté ou
 rejeté séparément — ils sont volontairement découpés par *sujet*, pas par
 fichier.
 
+**Exception : le patch 05 (ajouté le 27/08) n'est pas indépendant** — c'est un
+correctif au patch 03, pas un nouveau sujet, et il ne s'applique qu'une fois
+03 déjà en place (voir §05).
+
 Appliquer dans l'ordre :
 
 ```bash
 cd <racine du dépôt sqrtVINS>
 git apply --check patches/01_llt_guards_20260824.patch   # toujours vérifier d'abord
 git apply         patches/01_llt_guards_20260824.patch
+# ... 02, 03, 04 ...
+git apply --check patches/05_reset_covariance_20260827.patch   # necessite 03 deja applique
+git apply         patches/05_reset_covariance_20260827.patch
 ```
 
 ---
@@ -133,3 +140,36 @@ capture montrait 1352 messages à 78 features de moyenne pendant que
 **Ce patch est optionnel pour l'amont** — c'est un outil de diagnostic, pas une
 correction. Il est fourni parce que sans lui, les mesures des patchs 01 à 03 ne
 sont pas reproductibles.
+
+---
+
+## 05 — Réinitialisation sur divergence : la covariance manquait
+
+Complète le patch 03 (s'applique par-dessus, une fois 01-03 en place). S'applique
+au même bloc de reset, dans le même fichier.
+
+**Le défaut.** Le patch 03 remet l'état MOYEN à zéro (quaternion, position,
+vitesse, biais) mais **pas** la covariance : le facteur racine carrée `U_`
+survivait tel quel à la réinitialisation. Un état frais avec une incertitude
+encore énorme donne, dès la mesure suivante, un gain de Kalman disproportionné
+— l'état tout juste remis à zéro est immédiatement recorrompu selon une forme
+que l'ancienne covariance encode encore.
+
+**Mesuré.** 212 resets capturés en une session, dont les `(|v|, |p|)` au
+déclenchement clustent sur deux valeurs quasi exactes — 3,00–3,09 m/s et 3,4
+OU 3,6 m — au lieu d'être dispersées comme le serait une vraie divergence
+bruitée. Le filtre rejouait presque la même trajectoire de divergence à
+chaque cycle, d'où le motif périodique observé à l'écran (~2,3 s), aussi bien
+à l'arrêt qu'en rotation.
+
+**Le remède.** `StateHelper::set_initial_imu_square_root_covariance()` sur les
+mêmes 15 termes diagonaux que l'initialisation à froid
+(`StaticInitializer.cpp`) : q=0,017, p=0,05, v=0,01, bg=0,02, ba=0,02. Dupliqué
+plutôt que partagé — cinq constantes ne valent pas l'indirection — mais doit
+rester synchronisé avec l'initialiseur si ces valeurs sont un jour retouchées.
+
+**Résultat.** À l'arrêt : 212 resets/session → **0 reset sur 10 min**, saut
+maximal < 1 mm (mesuré isolément, avant toute autre modification). En
+rotation active, combiné à la resynchronisation de config du patch de suivi
+de piste (`tools/robot/sqrtvins/`, 2026-08-27) : 52 sauts de position > 0,3 m
+sur 60 s (dont plusieurs de 5-10 m) → **0**.
