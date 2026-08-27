@@ -115,6 +115,76 @@ timeout -k 5 15 rosrun dynamic_reconfigure dynparam set /camera/stereo_module en
 timeout -k 5 15 rosrun dynamic_reconfigure dynparam set /camera/stereo_module exposure 8000 > /dev/null 2>&1
 timeout -k 5 15 rosrun dynamic_reconfigure dynparam set /camera/stereo_module gain 64 > /dev/null 2>&1
 
+# ── sqrtVINS : relance CE QUI TOURNAIT, sans jamais en démarrer un second ───
+# (2026-08-27, audit TF Validator) Motivation identique à MINS/openVINS
+# ci-dessus : sqrtVINS aussi ne relit sa configuration QU'AU DÉMARRAGE, et ce
+# script l'ignorait totalement jusqu'ici — une extrinsèque éditée et
+# sauvegardée depuis tf_validator.html (instance PC, config/leo_pc/) ne
+# prenait donc effet qu'après un redémarrage manuel du nœud, jamais signalé.
+#
+# EXCLUSIVITÉ, jamais les deux à la fois. sqrtvins_pi_ctl.sh le documente en
+# détail : le cockpit n'a qu'un bouton sqrtVINS, et deux instances publiant
+# sur le même topic canonique /sqrtvins/odomimu le rendraient ambigu. Ce bloc
+# ne DÉMARRE donc jamais une instance qui n'était pas déjà active — il relance
+# CELLE qui tournait, et rien d'autre.
+#
+# Détection par /proc/PID/exe, ni pgrep -f ni pgrep -x : les deux ont été des
+# pièges réels sur ce projet — pgrep -f s'attrape parfois lui-même (sa propre
+# ligne de commande contient le motif) ; pgrep -x échoue toujours ici car le
+# noyau tronque comm à 15 caractères et run_subscribe_msckf en compte 19.
+# Même idiome que sqrtvins_pi_ctl.sh, pour ne pas réintroduire l'un ou l'autre.
+PC_SQRT=$(for d in /proc/[0-9]*; do
+  readlink "$d/exe" 2>/dev/null | grep -q 'sqrtvins_ws.*run_subscribe_msckf' \
+    && basename "$d"
+done)
+
+if [ -n "$PC_SQRT" ]; then
+  echo "sqrtVINS (PC) actif -> relance pour recharger sa configuration"
+  for p in $PC_SQRT; do kill -INT "$p" 2>/dev/null; done
+  pkill -INT -f 'roslaunch ov_srvins sqrtvins_pc' 2>/dev/null
+  sleep 4
+  # SIGKILL en tout dernier recours seulement : un -9 direct laisserait
+  # l'inscription chez le master, et pose_selector se retrouverait abonné à
+  # un fantôme — déjà vécu le 25/08 (« connection refused » au ping, topic
+  # toujours listé).
+  for d in /proc/[0-9]*; do
+    readlink "$d/exe" 2>/dev/null | grep -q 'sqrtvins_ws.*run_subscribe_msckf' \
+      && kill -KILL "$(basename "$d")" 2>/dev/null
+  done
+  nohup /home/lab272/TOUT/tools/launch_sqrtvins.sh \
+        > /home/lab272/TOUT/logs/sqrtvins.log 2>&1 &
+  disown
+  # Même discipline d'attente que MINS ci-dessus (socket.setdefaulttimeout
+  # avant rospy, sonde bornée) : sans elle un lien dégradé fait pendre le
+  # script au lieu d'échouer proprement.
+  t0=$(date +%s)
+  until { timeout -k 3 12 python3 -c "
+import socket
+socket.setdefaulttimeout(8)
+import rospy
+from nav_msgs.msg import Odometry
+rospy.init_node('wait_sqrtvins_pc', anonymous=True)
+rospy.wait_for_message('/sqrtvins/odomimu', Odometry, timeout=8)
+" > /dev/null 2>&1; } 2>/dev/null; do
+    [ $(( $(date +%s) - t0 )) -gt 60 ] && { echo "sqrtVINS (PC) : pas de publication après 60s -- voir logs/sqrtvins.log"; break; }
+    sleep 3
+  done
+  [ $(( $(date +%s) - t0 )) -le 60 ] && echo "sqrtVINS (PC) relancé et opérationnel après $(( $(date +%s) - t0 ))s"
+
+elif bash /home/lab272/TOUT/tools/sqrtvins_pi_ctl.sh status 2>/dev/null | grep -q 'sqrtVINS (Pi) : MARCHE'; then
+  echo "sqrtVINS (Pi) actif -> vérification/relance via sqrtvins_pi_ctl.sh"
+  # start() est idempotent : ne relance réellement que si le topic est muet,
+  # sinon confirme juste que tout va bien — pas de perte d'état inutile sur
+  # un filtre embarqué qui tourne déjà correctement. L'édition TF Validator
+  # n'écrit QUE config/leo_pc/ (instance PC) : la configuration de l'instance
+  # embarquée, elle, n'a pas changé — rien de plus à faire ici que confirmer
+  # sa santé.
+  bash /home/lab272/TOUT/tools/sqrtvins_pi_ctl.sh start
+
+else
+  echo "sqrtVINS : aucune instance active -- rien à relancer"
+fi
+
 for i in 1 2 3; do
   out=$(timeout -k 5 10 rosservice call /pose_selector/set_source "data: true" 2>&1)
   echo "$out" | grep -q "success: True" && { echo "  switched to MINS"; break; }

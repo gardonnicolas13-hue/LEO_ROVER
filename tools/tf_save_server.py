@@ -27,6 +27,18 @@ CE QUI EST ÉCRIT
   openVINS  kalibr_imucam_chain.yaml  T_cam_imu  — INVERSÉ avant écriture,
             puisque la page manipule partout la pose « capteur dans le repère
             IMU » et qu'openVINS stocke la convention opposée.
+  sqrtVINS  config/leo_pc/kalibr_imucam_chain.yaml  T_cam_imu — INVERSÉ,
+            même convention Kalibr qu'openVINS (charge_sqrtvins() dans
+            export_tf_frames.py réutilise déjà charge_camchain_kalibr(),
+            la même fonction que pour openVINS : mêmes maths ici).
+            AJOUTÉ le 2026-08-27 — absent jusque-là (audit du 2026-08-26) :
+            une édition sqrtVINS dans la page atteignait ce serveur, qui ne
+            savait pas où l'écrire, et répondait « aucun repère marqué
+            modifié » — un mensonge silencieux, l'opérateur en avait bien
+            modifié un. Voir SRV_CHAIN ci-dessous.
+            Seule leo_pc est écrite : c'est le fichier que charge
+            l'instance PC. L'instance EMBARQUÉE (config/leo/, sur le Pi) a
+            sa propre copie, délibérément séparée — voir tools/robot/sqrtvins/.
 
 Le remplacement est CHIRURGICAL (mêmes expressions régulières que
 fill_mins_camchain.py) : seules les quatre lignes de la matrice changent. Les
@@ -67,6 +79,12 @@ MINS_WHEEL = os.path.join(RACINE, 'LEO_Rover_Navigation_System', 'MINS-master',
                           'mins', 'config', 'leo', 'config_wheel.yaml')
 OV_CHAIN = os.path.join(RACINE, 'catkin_ws', 'src', 'open_vins', 'config',
                         'leo', 'kalibr_imucam_chain.yaml')
+# leo_pc, pas leo : c'est le fichier que charge l'instance PC de sqrtVINS
+# (tools/launch_sqrtvins.sh), et c'est celui qu'export_tf_frames.py relit
+# (charge_sqrtvins() -> SRV_CFG = .../config/leo_pc). Écrire ailleurs
+# rendrait la page et le fichier réellement chargé incohérents entre eux.
+SRV_CHAIN = os.path.join(RACINE, 'sqrtvins_ws', 'src', 'sqrtVINS', 'config',
+                         'leo_pc', 'kalibr_imucam_chain.yaml')
 JOURNAL = os.path.join(RACINE, 'calib_data', 'tf_edits.log')
 PORT = 8010
 
@@ -174,7 +192,7 @@ def ecrit(payload):
     # été imposée contre l'avis du contrôle, pas qu'elle l'a satisfait.
     forcer = bool(payload.get('forcer'))
     refus = []
-    for nom_est in ('MINS', 'openVINS'):
+    for nom_est in ('MINS', 'openVINS', 'sqrtVINS'):
         for f in est.get(nom_est, {}).get('frames', []):
             if not f.get('modifie') or not re.match(r'cam\d+$', f.get('nom', '')):
                 continue
@@ -234,6 +252,27 @@ def ecrit(payload):
                 + ('' if n else ' — ANCRAGE INTROUVABLE'))
         open(OV_CHAIN, 'w').write(txt)
 
+    # ── sqrtVINS : caméras (T_cam_imu) — INVERSION obligatoire ──────────────
+    # Même convention Kalibr qu'openVINS (voir charge_sqrtvins() dans
+    # export_tf_frames.py, qui appelle charge_camchain_kalibr() — la MÊME
+    # fonction que pour openVINS) : même inversion, même structure d'écriture.
+    # Seule l'instance PC (leo_pc) est écrite ici ; l'instance embarquée
+    # (config/leo/, sur la carte SD du Pi) n'est pas atteinte par ce serveur
+    # — voir SRV_CHAIN et tools/robot/sqrtvins/README.md.
+    srv_frames = {f['nom']: f for f in est.get('sqrtVINS', {}).get('frames', [])}
+    srv_cams = {n: f for n, f in srv_frames.items()
+                if re.match(r'cam\d+$', n) and f.get('modifie')}
+    if srv_cams:
+        txt = open(SRV_CHAIN).read()
+        bak = sauvegarde(SRV_CHAIN); rapport['sauvegardes'].append(bak)
+        for nom, f in sorted(srv_cams.items()):
+            T = invert_se3(np.asarray(f['T'], dtype=float))
+            txt, n = remplace_matrice(txt, nom, 'T_cam_imu', T)
+            (rapport['ecrits'] if n else rapport['erreurs']).append(
+                'sqrtVINS %s T_cam_imu (inversé)' % nom
+                + ('' if n else ' — ANCRAGE INTROUVABLE'))
+        open(SRV_CHAIN, 'w').write(txt)
+
     if not rapport['ecrits'] and not rapport['erreurs']:
         rapport['ignores'].append('aucun repère marqué « modifié »')
 
@@ -256,7 +295,7 @@ def ecrit(payload):
             relu = json.load(open(os.path.join(RACINE, 'web', 'tf_frames.json')))
             rapport['regenere'] = relu.get('genere')
             ecarts = []
-            for e in ('MINS', 'openVINS'):
+            for e in ('MINS', 'openVINS', 'sqrtVINS'):
                 voulus = {f['nom']: f for f in est.get(e, {}).get('frames', [])
                           if f.get('modifie')}
                 sur_disque = {f['nom']: f
@@ -290,7 +329,7 @@ def ecrit(payload):
                 ' ; '.join(rapport['ecrits'])))
             for motif in rapport.get('forces', []):
                 fh.write('    FORCÉ malgré : %s\n' % motif.split('.')[0])
-            for e in ('MINS', 'openVINS'):
+            for e in ('MINS', 'openVINS', 'sqrtVINS'):
                 for f in est.get(e, {}).get('frames', []):
                     if f.get('modifie'):
                         fh.write('    %-9s %-6s T=%s\n' % (

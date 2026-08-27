@@ -925,18 +925,33 @@
   $("edSave").addEventListener("click", function () {
     var m = modifies();
     if (!m.length) return;
-    /* Confirmation explicite : ce clic modifie des fichiers que les deux
-       estimateurs ET le pilotage relisent au prochain lancement. */
+    /* Confirmation explicite : ce clic modifie des fichiers que les
+       estimateurs TOUCHÉS (jusqu'à 3 depuis le 2026-08-21 : MINS, openVINS,
+       sqrtVINS — plus « les deux », périmé depuis) ET le pilotage relisent
+       au prochain lancement. */
     var force = $("edForcer").checked;
+    /* Liste NOMMÉE, pas générique : chaque entrée de m() est
+       "Estimateur·repère" (voir modifies()), donc on en extrait l'ensemble
+       des estimateurs réellement modifiés — celui-là et pas un autre — pour
+       que l'opérateur voie explicitement CE QUI va être réécrit. Calculé
+       dynamiquement : ajouter un 4e estimateur un jour n'exigera aucune
+       retouche ici (2026-08-27, audit TF Validator).
+       Object.keys(...).sort() plutôt que l'ordre de découverte : un ordre
+       stable évite qu'un même ensemble de repères affiche deux phrasés
+       différents selon l'ordre d'itération du navigateur. */
+    var estTouches = Object.keys(m.reduce(function (acc, s) {
+      acc[s.split("·")[0]] = true; return acc;
+    }, {})).sort();
     if (!confirm((force
           ? "FORÇAGE DU CONTRÔLE DE SÉCURITÉ\n\nLe contrôle qui refuse une "
             + "caméra ne regardant pas vers l'avant va être outrepassé.\n\n"
           : "")
                  + "Écrire " + m.length + " repère(s) dans les fichiers de "
-                 + "configuration ?\n\n" + m.join("\n")
+                 + "configuration de " + estTouches.join(", ") + " ?\n\n"
+                 + m.join("\n")
                  + "\n\nUne sauvegarde horodatée est créée avant écriture.\n"
-                 + "Les estimateurs ne reliront ces valeurs qu'au PROCHAIN "
-                 + "lancement de la pile.")) return;
+                 + estTouches.join(", ") + " ne relira" + (estTouches.length > 1 ? "ont" : "")
+                 + " ces valeurs qu'au PROCHAIN lancement de la pile.")) return;
     statut("écriture en cours…", "att");
     fetch("http://127.0.0.1:8010/save_tf", {
       method: "POST",
