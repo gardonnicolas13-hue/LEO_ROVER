@@ -19,7 +19,7 @@ calib_cam_timeoffset: false
 calib_imu_intrinsics: false # if imu intrinsics should be calibrated (rotation and skew-scale matrix)
 calib_imu_g_sensitivity: false # if gyroscope gravity sensitivity (Tg) should be calibrated
 
-max_clones: 11 # how many clones in the sliding window
+max_clones: 25 # aligne openVINS 2026-08-21 (resync 27/08, etait reste a 11 sur ce profil)
 max_slam: 0
 max_slam_in_update: 0
 max_msckf_in_update: 40 # how many MSCKF features to use in the update
@@ -120,8 +120,8 @@ filepath_gt: "/tmp/ov_groundtruth.txt"
 # our front-end feature tracking parameters
 # we have a KLT and descriptor based (KLT is better implemented...)
 use_klt: true # if true we will use KLT, otherwise use a ORB descriptor + robust matching
-num_pts: 150
-fast_threshold: 15
+num_pts: 300
+fast_threshold: 30
 grid_x: 10
 grid_y: 8
 min_px_dist: 20
@@ -139,7 +139,7 @@ use_aruco: false
 num_aruco: 1024
 downsize_aruco: true
 
-fi_refine_features: false
+fi_refine_features: true
 # fi_min_dist: 0.2
 # fi_max_dist: 20.0
 # fi_max_baseline: 200
@@ -150,12 +150,15 @@ fi_refine_features: false
 
 # camera noises and chi-squared threshold multipliers
 up_msckf_sigma_px: 1
-up_msckf_chi2_multipler: 1
+up_msckf_chi2_multipler: 5 # aligne openVINS 2026-08-21 (resync 27/08)
 up_slam_sigma_px: 1
 init_slam_chi2_multipler: 1
 up_slam_chi2_multipler: 1
 up_aruco_sigma_px: 1
 up_aruco_chi2_multipler: 1
+
+# triangulation: plafond distance/base (resync 27/08, alignement leo_pc/openVINS)
+fi_max_baseline: 200 # aligne openVINS 2026-08-21
 
 # masks for our images
 use_mask: false
