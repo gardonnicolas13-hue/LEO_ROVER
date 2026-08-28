@@ -97,6 +97,14 @@
 # 100 Mo qui motive cette liste blanche.
 !/patches/
 
+# ── 4d. patches_openvins/ : meme mecanisme, projet amont different ─────────
+# patches/ ci-dessus est nomme et documente pour rpng/sqrtVINS specifiquement.
+# Le meme defaut (reset sur divergence sans remise a zero de la covariance,
+# cf sqrtVINS patches/05) existait aussi dans rpng/open_vins (2026-08-28) --
+# un projet amont distinct, donc un repertoire distinct plutot que de melanger
+# les deux series sous un titre qui n'en couvrirait qu'un.
+!/patches_openvins/
+
 # ── 5. data : les donnees derivees, pas les enregistrements bruts ──────────
 # Les .bag totalisent 760 Mo, dont un .bag.active de 506 Mo (enregistrement
 # interrompu). Ils sont irremplacables mais depassent ce qu'un depot git doit

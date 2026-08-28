@@ -1,0 +1,45 @@
+diff --git a/ov_msckf/src/core/VioManager.cpp b/ov_msckf/src/core/VioManager.cpp
+--- a/ov_msckf/src/core/VioManager.cpp
++++ b/ov_msckf/src/core/VioManager.cpp
+@@ -334,6 +334,41 @@
+       PRINT_WARNING(RED "[RESET]: divergence prouvee -- |v| = %.3f m/s, "
+                         "|p| = %.1f m. Reinitialisation complete du filtre.\n" RESET,
+                     v_norme, p_norme);
++
++      // ETAT REMIS A ZERO EXPLICITEMENT (2026-08-28, porte de sqrtVINS
++      // patches/03_reset_on_divergence_20260824.patch). Se contenter de
++      // is_initialized_vio=false et compter sur try_to_initialize() est le
++      // "premier jet" documente dans ce meme patch : mesure sur ce robot,
++      // 1392 resets enchaines ont laisse la position s'accumuler jusqu'a
++      // 40 857 m au lieu de repartir de zero. Ordre du vecteur d'etat IMU
++      // (16x1, PoseJPL+v+bg+ba) : quaternion(4), position(3), vitesse(3),
++      // biais gyro(3), biais accel(3).
++      {
++        Eigen::Matrix<double, 16, 1> etat_zero = Eigen::Matrix<double, 16, 1>::Zero();
++        etat_zero(3) = 1.0; // quaternion identite (x,y,z,w) -> w = 1
++        state->_imu->set_value(etat_zero);
++        state->_imu->set_fej(etat_zero);
++      }
++
++      // COVARIANCE REMISE A ZERO ELLE AUSSI (2026-08-28, porte de
++      // patches/05_reset_covariance_20260827.patch, trouve sur sqrtVINS).
++      // La MOYENNE etait remise a zero ci-dessus, mais pas l'incertitude :
++      // sans cette remise a zero, la covariance restee explosee donne un
++      // gain de Kalman disproportionne des la mesure suivante -- l'etat
++      // tout juste remis a zero est immediatement recorrompu selon une
++      // forme que l'ancienne covariance encode encore. Memes valeurs que
++      // l'initialisation reelle a froid (ov_init/src/static/StaticInitializer.cpp,
++      // bloc "Create base covariance") : q=0.02, p=0.05, v=0.01, bg=0.02,
++      // ba=0.02 -- duplique plutot que partage, doit rester synchronise
++      // avec cet initialiseur si ces valeurs sont un jour retouchees.
++      {
++        Eigen::MatrixXd prior_cov = std::pow(0.02, 2) * Eigen::MatrixXd::Identity(15, 15);
++        prior_cov.block(0, 0, 3, 3) = std::pow(0.02, 2) * Eigen::Matrix3d::Identity(); // q
++        prior_cov.block(3, 3, 3, 3) = std::pow(0.05, 2) * Eigen::Matrix3d::Identity(); // p
++        prior_cov.block(6, 6, 3, 3) = std::pow(0.01, 2) * Eigen::Matrix3d::Identity(); // v
++        StateHelper::set_initial_covariance(state, prior_cov, {state->_imu});
++      }
++
+       is_initialized_vio = false;
+       has_moved_since_zupt = false;
+       trackFEATS->get_feature_database()->cleanup();
