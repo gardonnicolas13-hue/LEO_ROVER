@@ -1,7 +1,7 @@
 diff --git a/ov_msckf/src/core/VioManager.cpp b/ov_msckf/src/core/VioManager.cpp
 --- a/ov_msckf/src/core/VioManager.cpp
 +++ b/ov_msckf/src/core/VioManager.cpp
-@@ -334,6 +334,41 @@
+@@ -334,6 +334,70 @@
        PRINT_WARNING(RED "[RESET]: divergence prouvee -- |v| = %.3f m/s, "
                          "|p| = %.1f m. Reinitialisation complete du filtre.\n" RESET,
                      v_norme, p_norme);
@@ -21,6 +21,31 @@ diff --git a/ov_msckf/src/core/VioManager.cpp b/ov_msckf/src/core/VioManager.cpp
 +        state->_imu->set_fej(etat_zero);
 +      }
 +
++      // CLONES PURGES (2026-08-28, defaut trouve APRES le depot du patch 05 :
++      // 9089 resets consecutifs mesures sur ce robot, |v|/|p| CROISSANT DE
++      // FACON QUASI EXPONENTIELLE d'un reset au suivant -- 3 m/8 m/184 m/
++      // 16 km/530 000 km/2 200 000 km sur les resets #1/#10/#100/#1000/#5000/
++      // #9089. set_initial_covariance() ci-dessous ne touche QUE le bloc
++      // diagonal IMU-IMU de state->_Cov ; les clones de la fenetre glissante
++      // (state->_clones_IMU) restaient en place avec leur PROPRE covariance
++      // et leurs cross-termes avec l'IMU intacts. Une nouvelle mesure
++      // triangulee contre ces clones perimes produit une mise a jour fausse,
++      // appliquee avec une confiance disproportionnee (covariance IMU toute
++      // fraiche, donc petite) -- l'etat repart divergent immediatement, en
++      // pire a chaque cycle. StateHelper::marginalize() retaille proprement
++      // state->_Cov (pas un simple .clear() de la map, qui laisserait
++      // state->_Cov a la mauvaise taille).
++      {
++        std::vector<std::shared_ptr<ov_type::PoseJPL>> clones_a_purger;
++        for (const auto &kv : state->_clones_IMU) {
++          clones_a_purger.push_back(kv.second);
++        }
++        for (const auto &clone : clones_a_purger) {
++          StateHelper::marginalize(state, clone);
++        }
++        state->_clones_IMU.clear();
++      }
++
 +      // COVARIANCE REMISE A ZERO ELLE AUSSI (2026-08-28, porte de
 +      // patches/05_reset_covariance_20260827.patch, trouve sur sqrtVINS).
 +      // La MOYENNE etait remise a zero ci-dessus, mais pas l'incertitude :
@@ -32,6 +57,10 @@ diff --git a/ov_msckf/src/core/VioManager.cpp b/ov_msckf/src/core/VioManager.cpp
 +      // bloc "Create base covariance") : q=0.02, p=0.05, v=0.01, bg=0.02,
 +      // ba=0.02 -- duplique plutot que partage, doit rester synchronise
 +      // avec cet initialiseur si ces valeurs sont un jour retouchees.
++      // Placee APRES la purge des clones ci-dessus : state->_Cov doit deja
++      // etre a sa taille propre (15x15, plus rien que l'IMU) avant d'y
++      // ecrire ce bloc, sinon l'ecriture vise les mauvais indices une fois
++      // les clones retires ensuite.
 +      {
 +        Eigen::MatrixXd prior_cov = std::pow(0.02, 2) * Eigen::MatrixXd::Identity(15, 15);
 +        prior_cov.block(0, 0, 3, 3) = std::pow(0.02, 2) * Eigen::Matrix3d::Identity(); // q

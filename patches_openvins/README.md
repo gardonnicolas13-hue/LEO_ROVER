@@ -42,9 +42,26 @@ carrée) :
    Dupliqué plutôt que partagé — doit rester synchronisé avec cet
    initialiseur si ces valeurs sont un jour retouchées.
 
-**Compilé et vérifié** (`catkin build ov_msckf`, 2026-08-28) : 0 avertissement,
-0 échec. Pas encore mesuré en conditions réelles sur ce dépôt (openVINS
-tourne côté PC, pas embarqué) — même protocole que pour sqrtVINS (rotation
-active, comptage des sauts > 0,3 m, comparaison du lacet cumulé à MINS) à
-faire avant de considérer ce patch validé sur le terrain, pas seulement à la
-compilation.
+**Correction du 2026-08-28 (même soirée) : la première version de ce patch
+était incomplète et a produit une régression mesurée en direct.** Compilée
+et deployée sans purge des clones, elle a produit 9089 resets consécutifs,
+`|v|`/`|p|` croissant de façon quasi exponentielle d'un reset au suivant —
+3 m / 8 m / 184 m / 16 km / 530 000 km / 2 200 000 km aux resets #1 / #10 /
+#100 / #1000 / #5000 / #9089. Cause : `set_initial_covariance()` ne touche
+que le bloc diagonal IMU-IMU de `state->_Cov` ; les clones de la fenêtre
+glissante (`state->_clones_IMU`) restaient en place avec leurs cross-termes
+de covariance intacts. Une mesure triangulée contre ces clones périmés
+produit une mise à jour fausse, appliquée avec une confiance disproportionnée
+(covariance IMU toute fraîche donc petite) — divergence immédiate, pire à
+chaque cycle. Ajout : purge complète des clones via
+`StateHelper::marginalize()` (retaille proprement `state->_Cov`, pas un
+simple `.clear()` de la map) **avant** la remise à zéro de la covariance.
+
+**Vérifié en direct** (pas seulement à la compilation) : redémarré, surveillé
+~1,5 min de fonctionnement réel (48 631 lignes de log, dont des mesures et
+mises à jour normales) — **0 reset**, contre 9089 avec la version
+incomplète. Source VINS rebasculée active, relais `/robot_pose_fused`
+confirmé continu sur 6 s (497 échantillons, pas de gel). Reste à faire :
+protocole rotation + comptage de sauts > 0,3 m complet, comme pour sqrtVINS
+— cette vérification n'est qu'un premier passage en conditions réelles, pas
+la validation complète.
