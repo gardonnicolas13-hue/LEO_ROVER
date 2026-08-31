@@ -3368,6 +3368,162 @@ about to disconnect and that reopening will require the local address.
 Verified end to end: closed (public \code{530}, local \code{200}), still closed
 after $95$\,s and a full watchdog tick, then reopened (public \code{200}).
 
+\section{The handoff package: helping another lab reproduce this setup}
+\label{ap:handoff-package}
+
+This section documents \code{leo\_rover\_pour\_connor.zip}, a self-contained
+archive built to answer a specific, recurring request: \emph{another team has
+the same hardware, their estimator will not stay stable, and they need a
+known-good reference to compare against}. It was first assembled in August 2026
+for a colleague at Florida Tech whose MINS instance diverged within seconds of
+startup, and the same package answers the same question for anyone who follows.
+
+\noindent \textbf{When to send it.} Use it when someone reports an estimator
+that goes unstable \emph{immediately} rather than drifting slowly. That symptom
+is almost never a defect in MINS or openVINS; it is a configuration or
+calibration mismatch, and the fastest resolution is a line-by-line
+\code{diff} against configuration files that are known to run. Prose describing
+the settings is far slower and far less reliable than the files themselves.
+
+\subsection{What is inside, and why each piece is there}
+
+\begin{lstlisting}[language=bash]
+leo_rover_pour_connor.zip
+  README.txt                     <- read this first, English
+  config_MINS_leo/               <- the 7 live MINS config files
+    config.yaml
+    config_imu.yaml
+    config_camera.yaml
+    config_estimator.yaml
+    config_init.yaml
+    config_wheel.yaml
+    config_system.yaml
+  documentation/
+    main.pdf                              <- this report
+    patches_sqrtVINS_README.md
+    patches_openVINS_README.md
+    rpng_sqrtvins_zupt_bug_report.md
+    robot_sqrtVINS_config_README.md
+\end{lstlisting}
+
+\noindent \textbf{\code{config\_MINS\_leo/}} holds the seven MINS configuration
+files exactly as they run on this rover, copied from
+\code{LEO\_Rover\_Navigation\_System/MINS-master/mins/config/leo/}. These are the
+core of the package. The recipient should not adopt them wholesale --- their
+extrinsics and noise densities belong to \emph{this} unit --- but should diff
+them against their own and examine every difference deliberately.
+
+\noindent \textbf{\code{documentation/}} holds the reasoning behind the values.
+\code{main.pdf} is this report, whose calibration sections explain the
+camera--IMU extrinsic convention and the inertial calibration limits. The two
+\code{patches\_*} files document defects found in the estimators themselves,
+with measured before-and-after numbers; they matter because a recipient chasing
+a divergence may be chasing a known upstream bug rather than their own
+configuration. \code{rpng\_sqrtvins\_zupt\_bug\_report.md} is the ZUPT bug
+report filed upstream. \code{robot\_sqrtVINS\_config\_README.md} explains, value
+by value, why each embedded parameter is set as it is --- useful as a model of
+the reasoning even for a reader who never runs sqrtVINS.
+
+\noindent \textbf{Everything in the archive is written in English}, including
+the comments inside the YAML files. This is deliberate: the working language of
+this repository is French, and an archive that leaks French comments into
+another lab's configuration is a package that will be misread. If you rebuild
+the archive, preserve that property.
+
+\subsection{The five causes worth checking first}
+
+The package is most useful when paired with a diagnostic order. Every case of
+immediate instability diagnosed on this platform so far traced back to one of
+the following. They are listed in the order worth testing --- cheapest and most
+frequently implicated first --- not in order of theoretical interest:
+
+\begin{enumerate}
+  \item \textbf{Camera--IMU extrinsic, direction and frame convention.}
+  Kalibr emits \code{T\_cam\_imu} (points in the IMU frame mapped into the
+  camera frame); MINS expects the \emph{inverse}. Loading one where the other
+  is expected raises no error --- it feeds the filter a wrong rotation from the
+  first frame, and divergence follows within seconds. A single axis flip, or an
+  optical-frame versus body-frame mismatch, produces the same signature. This
+  is the most common cause by a wide margin.
+
+  \item \textbf{Static initialization window.} MINS estimates its initial
+  gravity direction and gyroscope bias from a stationary period at startup.
+  If the rover is handled, bumped, or still settling during that window, the
+  alignment locks in tilted, gravity leaks into the horizontal axes, and the
+  doubly integrated residual produces an \emph{accelerating} drift. Measured on
+  this rover after an initialization disturbed by hardware work in progress:
+  772\,m/min of vertical drift with the robot standing still.
+  A clean restart with the platform untouched brought the same estimator to
+  0.02\,m/min horizontal and 0.02\,m/min
+  vertical --- a factor of roughly $3\times10^{4}$, from one variable.
+
+  \item \textbf{Time alignment between camera and IMU.} Tens of milliseconds
+  are enough to break the tight coupling. Check that a time offset is set
+  explicitly, or that online estimation of it is enabled, particularly when the
+  two sensors are served by separate drivers.
+
+  \item \textbf{IMU noise densities and random walks.} Values taken from a
+  datasheet rather than an Allan-variance characterization of the specific unit
+  leave the filter overconfident: small residuals are amplified into large
+  corrections instead of being absorbed. The failure does not look like a typo;
+  it looks like a broken estimator.
+
+  \item \textbf{Publication rates and dropped frames.} A degraded IMU rate or
+  intermittently dropped images produces the same early instability and costs
+  nothing to rule out with \code{rostopic hz} on both streams.
+\end{enumerate}
+
+\begin{trapbox}{Check the cheap cause before the expensive one}
+Cause 2 --- an initialization that was not static --- costs a single restart to
+test. Cause 1 requires reading and re-deriving a transform. Test in that order,
+not in order of intellectual interest. On the evening of 2026-08-31, roughly
+forty minutes were spent verifying inputs that all turned out to be healthy
+(IMU magnitude within 0.7\,\% of local gravity, wheel joint states at
+19.5\,Hz with no gap above 0.10\,s, camera images with a pixel standard
+deviation near 31, and every MINS configuration file byte-identical to the
+committed version) before the initialization window was even considered.
+\end{trapbox}
+
+\subsection{Rebuilding the archive}
+
+The archive is not tracked in Git; it is regenerated on demand so that it always
+carries the configuration currently in service. To rebuild it, stage the seven
+MINS configuration files and the five documents listed above, add an English
+\code{README.txt} describing each directory, and compress the result. Two checks
+before sending:
+
+\begin{lstlisting}[language=bash]
+# 1. every YAML must still parse under OpenCV FileStorage,
+#    which is stricter than a standard YAML parser
+python3 -c "import cv2,sys; fs=cv2.FileStorage(sys.argv[1],0); \
+            print(fs.isOpened())" <file>
+
+# 2. no French must remain in any text file
+LC_ALL=C grep -rlP "[\\x80-\\xFF]" <staging directory>
+\end{lstlisting}
+
+\noindent The second check exists because the first version of this archive
+shipped with three README files and two YAML comment blocks still in French,
+which would have forced the recipient to translate the very material meant to
+save them time.
+
+\subsection{What the package deliberately does not contain}
+
+No source code, no build artefacts, and no workspace. The recipient is expected
+to have a working MINS build already --- their problem is that it runs and
+diverges, not that it does not run. Including a workspace would add gigabytes,
+would embed absolute paths from this machine, and would invite the recipient to
+replace a build that is probably fine. The archive is a \emph{reference to
+compare against}, not an installation.
+
+\noindent It also contains no bag file. If a diff of the configuration files
+does not resolve the problem, the correct next step is to ask the recipient for
+a short recording of \emph{their} system --- ten to fifteen seconds covering the
+static initialization window and the first motion --- which localizes the fault
+far faster than exchanging descriptions of it.
+
+
+
 \section{Troubleshooting and lessons learned}
 \label{ap:repro-trouble}
 This section is the distilled cost of the campaign. Each entry is a real
