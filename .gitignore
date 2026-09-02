@@ -71,6 +71,14 @@
 /LEO_Rover_Navigation_System/MINS-master/mins/config/leo/*
 !/LEO_Rover_Navigation_System/MINS-master/mins/config/leo/*.yaml
 
+# Profil embarque (2026-09-02, §D.14 du rapport) : variante mono/downsample
+# evaluee pour faire tourner MINS sur le Pi. Non adoptee (verdict no-go
+# mesure), mais versionnee pour que l'arithmetique soit rejouable sur un
+# materiel plus rapide sans la re-deriver.
+!/LEO_Rover_Navigation_System/MINS-master/mins/config/leo_pi/
+/LEO_Rover_Navigation_System/MINS-master/mins/config/leo_pi/*
+!/LEO_Rover_Navigation_System/MINS-master/mins/config/leo_pi/*.yaml
+
 # ── 4b. docs/ : fichiers nommement inclus, un par un ────────────────────────
 # Trou trouve par l'audit du 2026-08-03 : §D.10.3 dit « Follow
 # docs/protocole_calibration_terrain.md » et ce fichier n'a jamais ete

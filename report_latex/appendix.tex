@@ -3524,6 +3524,176 @@ far faster than exchanging descriptions of it.
 
 
 
+\section{Running MINS on the robot: a feasibility audit, and why the answer is no}
+\label{ap:mins-embedded}
+
+The Lab holds two complementary configurations: a local MINS running on the
+robot's own computer, and the LEO configuration documented here, where MINS
+runs on a ground workstation. This section records the measurements behind
+that split, so the decision is auditable rather than assumed --- and so that a
+future student with faster embedded hardware can re-run the arithmetic instead
+of re-deriving it.
+
+\subsection{What was compared}
+
+A colleague supplied a MINS tree (referred to here as \code{MINS\_MC}) with the
+suggestion that disabling dynamic cloning would let MINS run natively on the
+Raspberry Pi. Inspecting that tree gave three findings worth recording.
+
+\noindent \textbf{First, the tree is an unmodified upstream clone} of
+\code{rpng/mins}, not a tuned configuration. Its only substantive change is
+\code{mins/launch/subscribe.launch}, converted from rosbag playback to live
+topic subscription with remaps --- a genuinely useful piece of work, and the
+part worth adopting.
+
+\noindent \textbf{Second, the advice has a real provenance.} The upstream
+\code{Robomaster\_S1} profile ships with exactly \code{clone\_freq: 30} and
+\code{dynamic\_cloning: false}. The suggestion was not invented; it was read
+off a reference profile for a comparable small ground robot.
+
+\noindent \textbf{Third, and this is the trap:} that profile and ours are tuned
+in opposite directions on different axes.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Parameter & \code{Robomaster\_S1} & our \code{leo} \\
+\midrule
+cameras & mono, \code{use\_stereo: false} & stereo, two cameras \\
+\code{downsample} & true & false \\
+\code{do\_calib\_ext} / \code{do\_calib\_dt} & false / false & true / true \\
+resolution & $640\times360$ & $640\times480$ \\
+\code{n\_pts} & 1500 & 300 \\
+grid & $15\times15$ (225 cells) & $10\times8$ (80) \\
+\code{clone\_freq} & 30 & 20 \\
+\code{dynamic\_cloning} & false & true \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The RoboMaster profile saves heavily on the image path --- mono, downsampled,
+no online calibration --- and spends that budget on tracking: 1500 features,
+225 grid cells, a fixed 30\,Hz clone rate. Ours does the reverse: an expensive
+image path, but only 300 features and an adaptive clone rate.
+
+\begin{trapbox}{Transplanting two parameters out of a balanced profile}
+Lifting \code{clone\_freq: 30} and \code{dynamic\_cloning: false} into the
+\code{leo} profile \emph{without} also adopting mono and \code{downsample}
+combines the expensive half of both profiles. The settings are not wrong; they
+are load-bearing for a configuration whose other choices compensate for them.
+Parameters copied between profiles must be copied as a set, or not at all.
+\end{trapbox}
+
+\subsection{The measurement}
+
+\noindent \textbf{Cost on the workstation.} With the robot stationary and
+dynamic cloning settled at its floor of 9\,Hz --- a best case, not a typical
+one --- MINS consumes \textbf{85\,\% of one core} of an Intel i7-8700. Its own
+timing breakdown reads CAM 18\,ms, IMU 2\,ms, wheels 0\,ms: \textbf{the camera
+path is 90\,\% of the cost}, which is where any optimisation must act.
+
+\begin{trapbox}{The 5.4$\times$ margin that is not a margin}
+MINS prints \code{Total: 20ms / 111ms (5.4X)}. That figure covers only its
+update path. Total process CPU is the 85\,\% measured externally --- image
+callbacks, ROS deserialisation and the KLT front end are not counted in the
+20\,ms. Reading 5.4$\times$ as available headroom overstates the budget by
+roughly a factor of four, and would turn a no-go into an apparent go.
+\end{trapbox}
+
+\noindent \textbf{Relative performance.} Rather than assume a ratio, both
+machines ran the same single-threaded floating-point benchmark: \textbf{436
+versus 108} operations per second, so the Cortex-A72 is \textbf{4.05$\times$}
+slower per core than the i7-8700. This benchmark likely flatters the Pi, since
+its BLAS kernels are well optimised for NEON while MINS also runs OpenCV KLT
+and Eigen on small matrices, where the x86 advantage is wider. A planning range
+of 4--6$\times$ is therefore appropriate.
+
+\noindent \textbf{The arithmetic.} At 4$\times$, MINS needs roughly
+\textbf{3.4 of the Pi's 4 cores}; at 6$\times$, more than the machine has. Of
+those four cores, about \textbf{2.3 are free} with the camera driver running.
+
+\noindent \textbf{What settles it is thermal, not arithmetic.} The Pi already
+idles at 70.6\,$^\circ$C with the throttle flag armed. Sustained load
+drives it to the 80--85\,$^\circ$C threshold, where the clock drops
+to 600\,MHz --- a further $\approx2.5\times$ loss, arriving exactly when the
+margin is thinnest. This platform has already been observed becoming
+unreachable under load. Placing the state estimator on the wrong side of that
+failure mode is not a tuning question.
+
+\subsection{Verdict, and what would change it}
+
+\textbf{MINS stays on the ground station.} A \code{leo\_pi} profile exists
+(\code{mins/config/leo\_pi/}) applying the three levers that matter --- mono,
+\code{downsample: true}, online calibration disabled --- which are the same
+three the upstream RoboMaster profile pulls. It may well run. It is
+nonetheless not adopted, for two reasons stated plainly: the saving is
+\emph{estimated, not measured}, and going mono removes stereo from a platform
+where \textbf{the camera is the only sensor constraining $z$} (§\ref{ap:handoff-package}
+records what happens when that constraint is lost).
+
+The decision would be revisited on different hardware --- a Jetson-class
+board --- not by tuning harder on this one.
+
+\subsection{ROS 1, tf2, and the source changes that were already needed}
+
+Two platform decisions are settled and should not be revisited.
+
+\noindent \textbf{ROS 1 (Noetic) is structural, not preference.} Both machines
+run Noetic exclusively. The binding constraint is the motor and sensor link:
+the CORE2 board speaks to the Pi over \code{rosserial}, which exists only for
+ROS 1. The ROS 2 equivalent is micro-ROS, which requires reflashing the
+microcontroller firmware --- a hardware change, not a configuration one.
+Everything downstream (the \code{rosmon} supervision, the rosbridge cockpit,
+the three estimator workspaces) sits on that foundation.
+
+\noindent \textbf{The ROS 1 source changes are the tf1 to tf2 migration, and
+they are already done here.} Upstream MINS still uses the legacy
+\code{tf::TransformBroadcaster} on its ROS 1 path. Four files carry it, and
+all four were migrated to \code{tf2\_ros} in this tree on 2026-07-22:
+
+\begin{center}
+\begin{tabular}{lc}
+\toprule
+File (ROS 1 path) & legacy \code{tf} occurrences upstream \\
+\midrule
+\code{mins/src/core/ROSPublisher.cpp} & 12 \\
+\code{mins/src/sim/SimVisualizer.cpp} & 5 \\
+\code{mins/src/core/ROSPublisher.h} & 1 \\
+\code{mins/src/sim/SimVisualizer.h} & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The \code{ROS2*} counterparts already used \code{tf2} upstream and
+were unaffected. Anyone asking which files need source changes to run MINS
+under ROS 1 is asking about these four.
+
+\subsection{Which camera: RGB or the IR stereo pair}
+
+For pose estimation on this platform the IR stereo pair is the correct choice,
+for one theoretical and one hardware reason.
+
+\noindent The theoretical reason is scale: a calibrated stereo pair observes
+metric scale directly, where a monocular stream depends on the IMU and wheels
+to recover it. Both openVINS and sqrtVINS support stereo --- \code{use\_stereo:
+true}, \code{max\_cameras: 2}, sharing the same \code{TrackKLT} front end --- so
+neither is limited to monocular, and both already run stereo here.
+
+\noindent The hardware reason is specific to this unit and decides the matter
+regardless: \textbf{the D455's colour stream fails RGB8 format negotiation on
+this camera}, root-caused earlier in the project. The \code{infra1} mono8 feed
+is the confirmed reliable stream and is what every calibration recording in
+this work used. The cockpit displays greyscale IR for the same reason. The
+colour stream is additionally disabled by default because enabling it costs the
+camera nodelet 133\,\% of a core against 85\,\%.
+
+\noindent An RGB-versus-IR accuracy comparison on this rover would therefore be
+measuring a defective stream against a working one, not two valid options.
+Repeating it on a unit with a healthy colour pipeline would be a fair test; on
+this one it is not.
+
+
+
 \section{Troubleshooting and lessons learned}
 \label{ap:repro-trouble}
 This section is the distilled cost of the campaign. Each entry is a real

@@ -1,0 +1,51 @@
+%YAML:1.0
+# need to specify the file type at the top!
+
+# ============================================================================
+# CAROLUS AS "INDOOR GPS" — the global anchor that eliminates VIO/wheel drift.
+# ----------------------------------------------------------------------------
+# MINS's VICON input is a global 6-DOF pose fix (geometry_msgs/PoseStamped) in a
+# fixed world frame — semantically identical to a motion-capture / surveyed-
+# landmark measurement. The Carolus beacon system produces exactly this: the
+# rover's pose relative to a fixed, known beacon (beacon_link), from the earlier
+# tf_bridge.py / tf2_code.py work. Feeding Carolus into this slot gives MINS a
+# drift-free global reference whenever a beacon is in view — the "virtual GPS /
+# optimal precision" goal — WITHOUT the lat/lon + 20m-datum machinery the real
+# GPS input (config_gps) needs and which makes no sense indoors.
+#
+# The bridge leo_navigation/scripts/carolus_vicon_bridge.py converts Carolus
+# detections into the PoseStamped this expects.
+#
+# DISABLED until the bridge is verified publishing on the topic below AND the
+# beacon's global coordinates are surveyed (Stage 3 of the enable ladder).
+# ============================================================================
+
+vicon:
+  # flip true once carolus_vicon_bridge is verified
+  enabled: false
+  max_n: 1
+  # ~3 deg orientation std of a Carolus fix
+  noise_o: 0.05
+  # ~5 cm position std of a Carolus fix
+  noise_p: 0.05
+  do_calib_dt: true
+  # refine T_imu_vicon online from the seed below
+  do_calib_ext: true
+  init_cov_dt: 1e-3
+  init_cov_ex_o: 1e-3
+  init_cov_ex_p: 1e-3
+  chi2_mult: 1
+
+vicon0:
+  timeoffset: 0.0
+  # T_imu_vicon: IMU -> the body point whose global pose Carolus reports.
+  # The bridge reports the pose of base_link, so this is IMU->base_link.
+  # PLACEHOLDER identity — refined online (do_calib_ext) and easy to seed from
+  # the URDF base_link<-imu_frame once available.
+  T_imu_vicon:
+    - [1.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0]
+  # nommage privé MINS (verrouillage exclusivité 2026-07-08)
+  topic: "/mins/external_ref/carolus"

@@ -1,0 +1,25 @@
+%YAML:1.0
+# need to specify the file type at the top!
+
+sys:
+  # 1 (DEBUG), not 2 (INFO): all of IW_Initializer's diagnostic messages
+  # (waiting-for-data, gravity convergence, static/dynamic-init attempts) are
+  # PRINT1 -- at verbosity 2 they're silently filtered (Print_Logger.cpp:
+  # "if (level < current_print_level) return;"), which looked exactly like
+  # "the initializer isn't doing anything" when it may have been running the
+  # whole time. Raise back to 2 once init is understood/working.
+  verbosity: 1
+  save_timing: true
+  path_timing: "MINS_DIR/../../../../outputs/leo/timing.txt"
+  save_state: false
+  path_state: "MINS_DIR/../../../../outputs/leo/state/"
+  save_trajectory: true
+  path_trajectory: "MINS_DIR/../../../../outputs/leo/traj.txt"
+  save_prints: false
+  exp_id: 0
+
+  # Live operation (subscribe.launch) ignores path_bag; set only for offline
+  # replay of a recorded LEO bag via rosbag.launch.
+  path_bag: ""
+  bag_start: 0
+  bag_durr: -1

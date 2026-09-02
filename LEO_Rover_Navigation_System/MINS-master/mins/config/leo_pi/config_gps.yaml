@@ -1,0 +1,24 @@
+%YAML:1.0
+# need to specify the file type at the top!
+
+# No GNSS on the LEO Rover — global anchoring is done by Carolus via the VICON
+# input instead (see config_vicon.yaml). Kept present-but-disabled so the config
+# set matches MINS's expected file layout.
+gps:
+  enabled: false
+  max_n: 1
+  do_calib_ext: false
+  do_calib_dt: false
+  init_distance: 20.0
+  init_closed_form: true
+  init_cov_dt: 1e-3
+  init_cov_ex: 1e-1
+  init_cov_inflation: 2.0
+  chi2_mult: 9999
+  overwrite_noise: true
+  noise: 3.0
+
+gps0:
+  timeoffset: 0.0
+  pGinI: [0.0, 0.0, 0.0]
+  topic: "/gps/fix"
