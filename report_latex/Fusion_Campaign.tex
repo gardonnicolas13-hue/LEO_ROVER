@@ -9183,6 +9183,124 @@ on every telemetry tick.
     \code{UpdaterMSCKF.cpp} with the same discipline, not attempted;
     no driven test follows until that source is found, per this
     item's own at-rest-first condition \\
+42 & \textbf{MINS ROS1 entry point was an empty stub: the binary loaded its
+    configuration and exited without subscribing to anything} (patched
+    locally 2026-08-31; independently corroborated 2026-09-04).
+    Upstream \code{mins/src/run\_subscribe.cpp} implements the ROS2 path in
+    full (\code{rclcpp::init}, executor, spin) but leaves the
+    \code{\#elif ROS\_AVAILABLE == 1} branch empty, a gap dating from the
+    ROS2 port two years earlier: every other file and directory under
+    \code{mins/src/} carries a recent upstream commit, that one file does
+    not. On ROS1 the node printed \code{op->load\_print()}'s summary and
+    returned, with no crash and no error message, so the failure presents
+    as a successful run. Patched here by mirroring the ROS2 flow
+    (\code{ros::init}, a \code{NodeHandle}, \code{ROSPublisher} and
+    \code{ROSSubscriber}, \code{ros::spin()}). M. Crane reached the same
+    defect independently and patched it as a parallel file
+    (\code{run\_subscribe\_MWC.cpp}), which establishes one dormant
+    upstream bug rather than two divergent MINS versions &
+    document the patch in the body text, not only in the source comment;
+    adopt the defensive configuration-path read from Crane's version
+    (\code{nh->param<std::string>} with \code{argv[1]} retained as the
+    fallback default), which tolerates a launch file passing the path
+    through \code{<param>} instead of \code{args=}, the exact failure
+    already documented in \S\ref{ap:repro-argsparam} \\
+43 & \textbf{MINS stays on the ground station: the embedded option is closed
+    on measurement, not on a failed attempt} (architecture decision,
+    \S\ref{ap:mins-embedded}). MINS was never executed on the Pi; the
+    verdict rests on an extrapolation whose inputs were each measured.
+    MINS costs $85\,\%$ of one i7-8700 core with the robot stationary and
+    dynamic cloning at its $9$\,Hz floor, a best case; the camera path is
+    $90\,\%$ of that cost. A single-core floating-point benchmark put the
+    workstation at $4.05\times$ the Pi 4B ($436$ against $108$
+    operations/s), which places MINS near $3.4$ Pi cores against roughly
+    $2.3$ free. The thermal margin closes the question rather than the
+    arithmetic: the Pi idles at $70.6\,^{\circ}$C with the throttle flag
+    already armed, and the $80$--$85\,^{\circ}$C threshold drops the clock
+    to $600$\,MHz. Neither that threshold nor the $600$\,MHz state has been
+    observed under MINS load, because no such load was ever applied. A
+    \code{leo\_pi} profile exists (mono, \code{downsample: true}, online
+    calibration off) and may well run, but it is unmeasured and it costs
+    stereo on a platform where the camera is the only sensor constraining
+    $z$ &
+    keep the estimator on the ground station and treat the embedded path
+    as reopened only by different hardware (Jetson class), not by further
+    tuning; if the \code{leo\_pi} profile is ever to be claimed as viable,
+    measure it on the target rather than extrapolating a second time \\
+44 & \textbf{Battery below the project's own threshold, coincident with a
+    silent motor-command failure; the link is plausible and undemonstrated}
+    (2026-09-02). During an investigation into the rover not moving,
+    \code{/firmware/battery} read a stable $9.33$--$9.41$\,V across ten
+    samples, against the $10.3$\,V threshold this project sets in
+    \code{leo\_backend.py} and against the $10.3$\,V that had already
+    produced motor torque sag on 2026-07-10
+    (\S\ref{sec:precision-campaign}). Concurrently
+    \code{pwm\_duty\_cycle} read $[0,0,0,0]$, \code{/cmd\_vel} reported
+    \code{Subscribers: None} (the CORE2 rosserial subscription was not
+    registered at all), and $261$ checksum errors were logged in two
+    minutes, while telemetry continued normally at $20.1$\,Hz on wheel
+    states and $87$\,Hz on the IMU. Healthy telemetry is therefore not
+    evidence of a healthy power rail, since telemetry draws almost no
+    current. The chain brownout $\to$ failed rosserial negotiation $\to$ no
+    subscriber $\to$ no motion is consistent with every observation but has
+    not been demonstrated &
+    recharge and re-read \code{/cmd\_vel}: if \code{Subscribers: None}
+    persists at full voltage the fault is separate and must be diagnosed on
+    its own terms. Independently of that outcome, surface battery voltage
+    as an operator-visible alarm below $10.3$\,V rather than leaving it a
+    value one has to think to query, and read it first in any future motor
+    or actuation investigation \\
+45 & \textbf{Dual-IMU evaluation requested: MINS propagates from exactly one
+    IMU, so this is an engineering effort and not a configuration change}
+    (H. Gutierrez, 2026-09-04; scoping done, nothing implemented).
+    \code{State} holds a single \code{shared\_ptr<IMU>}, there is one
+    \code{feed\_measurement\_imu()} entry point, and the five updater types
+    present (\code{cam}, \code{wheel}, \code{vicon}, \code{gps},
+    \code{lidar}) include no IMU updater, because in this architecture the
+    IMU drives propagation rather than correcting it. On this rover the
+    D455's onboard IMU is additionally not active anywhere: every
+    IMU-derived topic traces back to the CORE2 body unit. \textbf{Phase A
+    was executed on 2026-09-06 and returned a blocking negative result.}
+    The motion module is confirmed present at four independent levels (USB
+    descriptor exposing a \code{HID} interface; kernel modules
+    \code{hid\_sensor\_accel\_3d} and \code{hid\_sensor\_gyro\_3d} loaded;
+    IIO nodes \code{accel\_3d} and \code{gyro\_3d}; and the driver's own
+    \code{Motion Module was found}), and it was disabled only by omission:
+    \code{/etc/ros/robot.launch} never overrode the upstream defaults
+    \code{enable\_gyro: false} and \code{enable\_accel: false}. Enabling it
+    publishes \code{/camera/imu} (\code{sensor\_msgs/Imu}, gyro 200\,Hz,
+    accelerometer 100\,Hz) --- but the RealSense node then never reaches
+    \code{RealSense Node Is Up}, restarts in a loop, and \emph{all three
+    image streams stop}. Both publication modes fail identically
+    (\code{linear\_interpolation} and \code{none}), so the interpolation
+    thread is not the cause. Two candidate explanations were eliminated by
+    measurement: USB bandwidth (the link negotiates 3.20 at
+    5000\,Mbit/s) and the libusb \code{control\_transfer} warning storm,
+    which is present with the IMU disabled as well. The configuration was
+    reverted and the chain reverified. Separately, the driver reports
+    \code{IMU Calibration is not available}, so this unit carries no
+    factory IMU calibration. Kalibr as installed ships no IMU-to-IMU
+    extrinsic tool; \code{tools/compose\_imu\_extrinsics.py} now chains two
+    camera-IMU calibrations through the shared camera, validated against
+    Kalibr's independently computed stereo baseline to
+    $4.6\times10^{-15}$\,mm &
+    The driver stall is now the critical path: nothing in any dual-IMU
+    strategy is reachable until it is understood. Treat it as a timeboxed
+    spike (librealsense version, kernel HID binding, camera firmware, in
+    that order) and re-plan afterwards. Phase B, only if the IMU can be
+    brought up without losing the cameras: characterise it by Allan
+    variance rather than assuming the existing densities apply, then use it
+    as the sole propagating IMU to establish whether it beats the CORE2
+    unit at all, before implementing an IMU updater on the pattern of the
+    existing \code{wheel} updater. Joint dual-IMU propagation is a third,
+    far larger effort touching \code{State}, \code{StateHelper} and the
+    propagator, and is not recommended as a continuation of either phase.
+    A standing reservation applies to all of them: the dominant inertial
+    error here is a \emph{scale} error on the CORE2 accelerometer that
+    drifts over weeks, and least-squares averaging with a second,
+    uncalibrated IMU does not remove a systematic scale error --- the
+    defensible gain is fault \emph{detection}, obtainable from a
+    consistency monitor far cheaper than a fusion node \\
 \end{longtable}
 \end{center}
 

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="icon" type="image/svg+xml" href="leo_icon.svg" />
 <title>LEO ROVER — Response to Pr. Gutierrez: Quaternion, Relocalization, Pose Control &amp; sqrtVINS</title>
-<script src="i18n.js?v=r33"></script>
+<script src="i18n.js?v=r35"></script>
 <script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
@@ -104,8 +104,9 @@
         <a href="index.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788373841" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788726919" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
+        <a href="mins_tuning.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_mins">MINS Tuning</a>
         <a href="system.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
         <a href="navigation_modes.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
@@ -134,8 +135,9 @@
         <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788373841" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788726919" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
+        <a href="mins_tuning.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_mins">MINS Tuning</a>
         <a href="system.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
         <a href="navigation_modes.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
@@ -150,25 +152,27 @@
 
   <!-- ══════════════════ HERO ══════════════════ -->
   <section class="mx-auto max-w-4xl px-5 pb-8 pt-16">
-    <p class="font-mono text-xs uppercase tracking-[.3em] text-accent">// response to supervisor review · 2026-08-12 – 2026-08-13</p>
+    <p class="font-mono text-xs uppercase tracking-[.3em] text-accent">// response to supervisor review · 2026-08-12 – 2026-09-06</p>
     <h1 class="mt-3 font-display text-4xl font-black tracking-tight sm:text-5xl">
-      <span class="text-gradient">The Carolus Quaternion, Relocalization Theory, Pose-Regulation Control &amp; sqrtVINS</span>
+      <span class="text-gradient">The Carolus Quaternion, Relocalization Theory, Pose-Regulation Control, sqrtVINS &amp; the Dual-IMU Question</span>
     </h1>
     <p class="mt-4 max-w-2xl text-zinc-400">
-      Four items from Pr. Gutierrez, worked through with full derivations,
+      Five items from Pr. Gutierrez, worked through with full derivations,
       source-code verification, and — where a claim could be tested — an
       actual running check. Every equation below is also in the Technical
       Guide PDF, page-referenced throughout.
     </p>
     <div class="mt-5 flex flex-wrap gap-3 text-[11px]">
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788373841#page=327" target="_blank" rel="noopener"
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788726919#page=327" target="_blank" rel="noopener"
          class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.21, p.325 — Quaternion</a>
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788373841#page=333" target="_blank" rel="noopener"
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788726919#page=333" target="_blank" rel="noopener"
          class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.22, p.331 — Relocalization</a>
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788373841#page=472" target="_blank" rel="noopener"
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788726919#page=472" target="_blank" rel="noopener"
          class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">Appendix D.15, p.470 — Pose control</a>
-      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788373841#page=320" target="_blank" rel="noopener"
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788726919#page=320" target="_blank" rel="noopener"
          class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">§12.20, p.318 — sqrtVINS</a>
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788726919#page=369" target="_blank" rel="noopener"
+         class="rounded bg-accent/10 px-2.5 py-1 font-mono text-accent ring-1 ring-accent/30 hover:bg-accent/20 transition">Registry item 45, p.367 — Dual-IMU</a>
     </div>
   </section>
 
@@ -453,6 +457,159 @@
           everywhere else on this site — no driven test until stationary is stable — none was run against
           the patched build, and none is claimed. The patch is offered to RPNG as a real, verified fix for
           the logic bug it targets, not as a fix for the platform's divergence as a whole.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ FOLLOW-UP: DUAL IMU ══════════════════ -->
+  <section id="dualimu" class="mx-auto max-w-4xl px-5 pb-20 scroll-mt-20">
+    <div class="tile glass animate-fade-up p-6 sm:p-8">
+      <p class="section-label">// follow-up · 2026-09-06</p>
+      <h2 class="font-display text-2xl font-bold text-white">"Use both IMUs — map them onto a virtual frame and fuse"</h2>
+      <div class="doc-body mt-2">
+        <p>The honest answer first: <strong>the D455's IMU is definitely there, and enabling it currently
+        costs us every camera stream on the robot</strong>. That single fact reshapes the plan, because the
+        cheapest possible experiment — swapping the estimator onto the D455's IMU to see whether it is simply
+        the better sensor — is a one-line configuration change on paper and not performable in practice.
+        Everything below was measured on 2026-09-06; the configuration was reverted the same day and the
+        robot is running normally.</p>
+
+        <h3>The hardware is there — confirmed four independent ways</h3>
+        <p>Rather than trust any single indication, the motion module was verified at four levels that fail
+        independently of one another:</p>
+        <table class="compare-table">
+          <thead><tr><th>Level</th><th>Evidence</th></tr></thead>
+          <tbody>
+            <tr><td>USB descriptor</td><td><code>HID — Intel(R) RealSense(TM)</code> interface — the path the IMU uses</td></tr>
+            <tr><td>Kernel modules</td><td><code>hid_sensor_accel_3d</code>, <code>hid_sensor_gyro_3d</code>, <code>hid_sensor_trigger</code> loaded</td></tr>
+            <tr><td>IIO bus</td><td><code>iio:device0 → accel_3d</code>, <code>iio:device1 → gyro_3d</code></td></tr>
+            <tr><td>RealSense driver</td><td>logs <code>Motion Module was found</code></td></tr>
+          </tbody>
+        </table>
+        <p>It had never been switched on, and the reason is mundane: <code>/etc/ros/robot.launch</code>
+        includes <code>rs_camera.launch</code> without overriding its upstream defaults, which are
+        <code>enable_gyro: false</code> and <code>enable_accel: false</code>. Enabled, the driver publishes
+        <code>/camera/imu</code> (<code>sensor_msgs/Imu</code>) at gyro 200&nbsp;Hz and accelerometer
+        100&nbsp;Hz. <code>linear_interpolation</code> was chosen over <code>copy</code> deliberately —
+        <code>copy</code> repeats the last sample of whichever sensor has not yet updated, injecting a
+        zero-order-hold artefact into an inertial estimator.</p>
+
+        <h3>But enabling it stalls the driver and takes the cameras down</h3>
+        <p>With the IMU on, the RealSense node never completes initialisation: it never reaches
+        <code>RealSense Node Is Up</code>, restarts in a loop, and all three image streams stop. Both
+        publication modes were tested to isolate the cause:</p>
+        <table class="compare-table">
+          <thead><tr><th>Configuration</th><th><code>Node Is Up</code></th><th>Image streams</th></tr></thead>
+          <tbody>
+            <tr><td><code>unite_imu_method: linear_interpolation</code></td><td class="num" style="color:#FC3D21">never</td><td class="num" style="color:#FC3D21">none</td></tr>
+            <tr><td><code>unite_imu_method: none</code> (raw split streams)</td><td class="num" style="color:#FC3D21">never</td><td class="num" style="color:#FC3D21">none</td></tr>
+            <tr><td>IMU disabled (restored)</td><td class="num" style="color:#3fdc97">yes</td><td class="num" style="color:#3fdc97">all three</td></tr>
+          </tbody>
+        </table>
+        <p class="fig-caption">Both modes fail identically, so the interpolation thread is not responsible —
+        enabling the motion module at all is what stalls the driver. Registry item 45, p.367.</p>
+
+        <div class="verdict-box verdict-no">
+          <strong>The cheap test is not available, and that is the schedule risk.</strong> Running the
+          estimator on the D455's IMU instead of the CORE2 unit would have been the fastest way to learn
+          whether the second sensor is simply better — and it cannot be done while enabling that IMU blinds
+          the vehicle. Two candidate explanations are already eliminated by measurement: USB bandwidth is not
+          the constraint (the link negotiates USB 3.20 at 5000&nbsp;Mbit/s), and the libusb
+          <code>control_transfer</code> warning storm is a red herring, since it is present with the IMU
+          disabled as well — 2238 warnings in three minutes on a perfectly healthy stack. Remaining
+          candidates, in order of likelihood: the librealsense version on the Pi, the kernel HID binding, the
+          camera firmware revision. Separately, the driver reports <code>IMU Calibration is not available</code>,
+          so this unit has never had <code>rs-imu-calibration</code> run on it — its IMU would arrive
+          uncalibrated.
+        </div>
+
+        <h3>A documentation error worth correcting</h3>
+        <p>The report contradicted itself, and the correction is now in place. The appendix attributed the
+        Allan-variance noise densities in <code>kalibr_imu_chain.yaml</code> to "the D455 IMU", while the main
+        text correctly stated that the D455's IMU is not active anywhere. Every estimator consumes the
+        <strong>body IMU on the CORE2 board</strong>, along
+        <code>/firmware/imu → /imu/data_raw → /imu/data_clean</code>, measured at 88.8&nbsp;Hz. The
+        distinction matters because the camera–IMU extrinsic we calibrate is the transform to the
+        <em>body</em> IMU; the two frames are not interchangeable. The same confusion sat in this site's own
+        operations dashboard, where the attitude panel still displayed <code>/camera/imu/data_raw</code> as
+        its source although the code had been moved to <code>/imu/data_clean</code> weeks earlier — a
+        subscriber waiting on a topic with no publisher never complains, which is how it survived unnoticed.</p>
+
+        <h3>The IMU-to-IMU extrinsic, validated against an independent answer</h3>
+        <p><code>tools/compose_imu_extrinsics.py</code> implements
+        <code>T_imu1_imu2 = T_imu1_cam · inverse(T_imu2_cam)</code>, reads either convention in use here
+        (Kalibr's <code>T_cam_imu</code> or MINS's <code>T_imu_cam</code>), and rejects any matrix that is not
+        a proper rigid transform — a reflection from a transposed block composes without error and returns a
+        plausible but wrong answer.</p>
+        <p>It was validated against ground truth already present in our Kalibr output rather than on synthetic
+        cases alone. Both cameras share the IMU as a bridging frame, so
+        <code>T_cam1_cam0 = T_cam1_imu · inverse(T_cam0_imu)</code> has exactly the form of the requested
+        equation — and Kalibr computes the same quantity independently as <code>T_cn_cnm1</code>:</p>
+        <table class="compare-table">
+          <thead><tr><th>Quantity</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Stereo baseline, composed by the script</td><td class="num">89.7661 mm</td></tr>
+            <tr><td>Stereo baseline, Kalibr's own <code>T_cn_cnm1</code></td><td class="num">89.7661 mm</td></tr>
+            <tr><td>Residual, translation</td><td class="num" style="color:#3fdc97">4.6 × 10⁻¹⁵ mm</td></tr>
+            <tr><td>Residual, rotation</td><td class="num" style="color:#3fdc97">5.7 × 10⁻⁶ °</td></tr>
+          </tbody>
+        </table>
+        <p class="fig-caption">Floating-point round-off — the strongest agreement this data can express. One
+        caveat on the input side: our deployed body-IMU–camera extrinsic is still a tape-measure seed refined
+        online, not a completed <code>kalibr_calibrate_imu_camera</code> solution, and a composition is never
+        more accurate than the least accurate transform entering it.</p>
+
+        <h3>What Strategy 1 would cost</h3>
+        <p>One engineer full time, counting the calibration work the approach genuinely depends on:</p>
+        <table class="compare-table">
+          <thead><tr><th>Work package</th><th>Days</th></tr></thead>
+          <tbody>
+            <tr><td>Unblock the D455 IMU in the driver (root cause unknown)</td><td class="num" style="color:#FC3D21">3–5</td></tr>
+            <tr><td>Kalibr camera–IMU run, then compose the IMU-to-IMU extrinsic</td><td class="num">2–3</td></tr>
+            <tr><td>Inter-IMU time synchronisation (separate hardware clocks)</td><td class="num">2–3</td></tr>
+            <tr><td>The node: buffering, interpolation, frame transport, least-squares fusion, publication</td><td class="num">3–4</td></tr>
+            <tr><td>Allan-variance characterisation of both IMUs, to weight the least squares</td><td class="num">2–3</td></tr>
+            <tr><td>Validation against current single-IMU MINS on the closed-loop protocol</td><td class="num">3–4</td></tr>
+            <tr><td>Integration and documentation</td><td class="num">1–2</td></tr>
+            <tr><td><strong>Total</strong></td><td class="num"><strong>16–24 working days</strong></td></tr>
+          </tbody>
+        </table>
+        <p class="fig-caption">Roughly three and a half to five working weeks. The first line carries
+        <strong>unbounded risk</strong>: every other line can be sized from experience, that one is a
+        diagnosis of a fault whose cause is not yet known. A librealsense version bump might resolve it in a
+        day; a kernel or camera-firmware issue on the Pi 4B could exceed the whole remaining schedule. Best
+        treated as a timeboxed spike rather than left on the critical path.</p>
+
+        <p>The mathematics is the least risky part. Mapping both IMUs onto a virtual frame is rigid-body
+        transport, <code>a_Iv = a_Ii + α × r + ω × (ω × r)</code>, and with this geometry the lever arm is
+        roughly 180&nbsp;mm — so at 1&nbsp;rad/s the centrifugal term alone reaches 0.18&nbsp;m/s², well above
+        the accelerometer noise floor and therefore a term that must be compensated rather than neglected.
+        The difficulty is the plumbing, and above all the time synchronisation: the two IMUs run on different
+        hardware clocks, at 88.8&nbsp;Hz and 200&nbsp;Hz.</p>
+
+        <h3>A reservation on expected benefit</h3>
+        <div class="verdict-box verdict-partial">
+          <strong>A least-squares fusion would not remove the error that actually dominates here.</strong>
+          Our leading inertial error is not noise but a <em>scale</em> error on the CORE2 accelerometer: at
+          rest it reads about <span style="color:#eab308">8.66&nbsp;m/s²</span> where it should read
+          <span style="color:#3fdc97">9.790</span>, and that factor drifts over weeks — we re-measure and
+          re-apply it as <code>accel_scale</code>, most recently the same day as these tests. Least squares is
+          optimal for zero-mean noise; a multiplicative scale error violates that premise by construction.
+          Combining a mis-scaled IMU with a second one carrying no factory calibration yields a weighted
+          average of two biased estimates — still biased, and arguably harder to diagnose, since the error
+          would then be spread across both channels instead of sitting visibly on one.<br/><br/>
+          Where a second IMU genuinely helps is <strong>detection</strong>. Two independent inertial sources
+          rigidly mounted on one body must agree once the lever-arm terms are removed, so any residual
+          disagreement is direct evidence of a scale or bias fault — replacing our current, unsatisfying
+          method of catching the drift through periodic stationary hand measurements. That benefit is real,
+          but it is diagnostic rather than estimative, and a consistency monitor delivers it for a small
+          fraction of the fusion node's cost.<br/><br/>
+          The proposed sequence, offered for discussion rather than as a conclusion: timebox the driver
+          investigation first, since nothing is reachable without it; then build the consistency monitor,
+          which is cheap and quantifies what the second IMU actually tells us; and commit to the virtual-IMU
+          node only if that measurement shows the two carry genuinely complementary information beyond fault
+          detection.
         </div>
       </div>
     </div>

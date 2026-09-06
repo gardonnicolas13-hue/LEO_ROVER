@@ -3279,8 +3279,21 @@ scratch:
   is populated from the same camchain (the prepared
   \code{fill\_mins\_camchain.py} helper maps one to the other). The IMU noise
   densities in \code{kalibr\_imu\_chain.yaml} come from an Allan-variance
-  characterisation of the D455 IMU (or the manufacturer figures inflated for
-  margin).
+  characterisation of the \emph{body} IMU carried on the CORE2 control board
+  (or the manufacturer figures inflated for margin). That is the only
+  inertial source any estimator consumes, along the chain
+  \code{/firmware/imu} $\rightarrow$ \code{/imu/data\_raw} $\rightarrow$
+  \code{/imu/data\_clean} (and \code{/imu/data\_vins} for the two VINS
+  branches).
+
+  \emph{It is not the D455's own IMU.} That distinction matters because the
+  two are not interchangeable: they sit in different frames, and the
+  camera--IMU extrinsic $^{I}\mathbf{T}_{C}$ calibrated here is the transform
+  to the \emph{body} IMU. The D455's motion module is physically present ---
+  it enumerates as a USB HID interface and the RealSense driver reports
+  \code{Motion Module was found} --- but it is disabled in the driver, and
+  the streams it would publish on \code{/camera/imu} have never been used by
+  this project (Table~\ref{tab:openitems}).
 \item \textbf{Verify.} The live reprojection-error monitor
   (\code{calibration\_monitor.py}, surfaced on the cockpit's calibration
   panel) reports the current chain's health; the acceptance threshold used

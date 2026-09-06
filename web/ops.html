@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="icon" type="image/svg+xml" href="leo_icon.svg" />
 <title>LEO ROVER — Operations Cockpit</title>
-<script src="i18n.js?v=r33"></script>
+<script src="i18n.js?v=r35"></script>
 <script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
@@ -190,8 +190,9 @@
         <a href="index.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg bg-white/5 px-2.5 py-2 text-[13px] text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788373841" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788726919" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
+        <a href="mins_tuning.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_mins">MINS Tuning</a>
         <a href="system.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
         <a href="navigation_modes.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
@@ -229,8 +230,9 @@
         <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg bg-white/5 px-3 py-2.5 text-sm text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788373841" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788726919" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
+        <a href="mins_tuning.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_mins">MINS Tuning</a>
         <a href="system.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
         <a href="navigation_modes.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
@@ -592,13 +594,13 @@
             <p class="mb-2 text-[11px] uppercase tracking-wider text-zinc-500" data-i18n="ops_drive_hint">Manual control (hold)</p>
             <div class="mx-auto grid w-40 grid-cols-3 gap-1.5">
               <span></span>
-              <button type="button" data-drive="up" class="grid h-12 place-items-center rounded-lg bg-white/5 ring-1 ring-white/10 transition hover:bg-accent/20 active:bg-accent/40"><i data-lucide="chevron-up" class="h-5 w-5"></i></button>
+              <button type="button" data-drive="up" data-i18n-aria="ops_drive_up" class="grid h-12 place-items-center rounded-lg bg-white/5 ring-1 ring-white/10 transition hover:bg-accent/20 active:bg-accent/40"><i data-lucide="chevron-up" class="h-5 w-5"></i></button>
               <span></span>
-              <button type="button" data-drive="left" class="grid h-12 place-items-center rounded-lg bg-white/5 ring-1 ring-white/10 transition hover:bg-accent/20 active:bg-accent/40"><i data-lucide="chevron-left" class="h-5 w-5"></i></button>
-              <button type="button" data-drive="stop" class="grid h-12 place-items-center rounded-lg bg-alert/15 text-alert ring-1 ring-alert/30 transition hover:bg-alert/25"><i data-lucide="square" class="h-4 w-4"></i></button>
-              <button type="button" data-drive="right" class="grid h-12 place-items-center rounded-lg bg-white/5 ring-1 ring-white/10 transition hover:bg-accent/20 active:bg-accent/40"><i data-lucide="chevron-right" class="h-5 w-5"></i></button>
+              <button type="button" data-drive="left" data-i18n-aria="ops_drive_left" class="grid h-12 place-items-center rounded-lg bg-white/5 ring-1 ring-white/10 transition hover:bg-accent/20 active:bg-accent/40"><i data-lucide="chevron-left" class="h-5 w-5"></i></button>
+              <button type="button" data-drive="stop" data-i18n-aria="ops_drive_stop" class="grid h-12 place-items-center rounded-lg bg-alert/15 text-alert ring-1 ring-alert/30 transition hover:bg-alert/25"><i data-lucide="square" class="h-4 w-4"></i></button>
+              <button type="button" data-drive="right" data-i18n-aria="ops_drive_right" class="grid h-12 place-items-center rounded-lg bg-white/5 ring-1 ring-white/10 transition hover:bg-accent/20 active:bg-accent/40"><i data-lucide="chevron-right" class="h-5 w-5"></i></button>
               <span></span>
-              <button type="button" data-drive="down" class="grid h-12 place-items-center rounded-lg bg-white/5 ring-1 ring-white/10 transition hover:bg-accent/20 active:bg-accent/40"><i data-lucide="chevron-down" class="h-5 w-5"></i></button>
+              <button type="button" data-drive="down" data-i18n-aria="ops_drive_down" class="grid h-12 place-items-center rounded-lg bg-white/5 ring-1 ring-white/10 transition hover:bg-accent/20 active:bg-accent/40"><i data-lucide="chevron-down" class="h-5 w-5"></i></button>
               <span></span>
             </div>
             <p class="mt-2 text-center text-[11px] text-zinc-600" data-i18n="ops_keys_hint">or keyboard arrows ↑ ↓ ← →</p>
@@ -1026,7 +1028,14 @@
         <p class="mt-1 text-center font-mono text-[9px] uppercase tracking-[.22em] text-plasma/35">// COMMS RELAY</p>
       </section>
 
-      <!-- ATTITUDE / ARTIFICIAL HORIZON (roll & pitch from /camera/imu/data_raw)
+      <!-- ATTITUDE / ARTIFICIAL HORIZON (roll & pitch from /imu/data_clean)
+           SOURCE : /imu/data_clean, l'IMU CORE2 assainie — PAS l'IMU du D455.
+           Ce panneau a annoncé /camera/imu/data_raw jusqu'au 2026-09-06 : un
+           reliquat de la v3.49, qui avait rebranché le code sur l'IMU CORE2
+           sans corriger l'étiquette ni ce commentaire. L'IMU du D455 est
+           physiquement présente mais désactivée dans le pilote ; ce topic n'a
+           donc jamais eu de publieur, et un abonné ROS qui attend un topic
+           jamais publié ne se plaint pas — d'où des mois de silence.
            Complète le trio CPU · NETWORK · ATTITUDE annoncé par l'en-tête de
            section ci-dessus. Le calcul, le rendu canvas et les 4 clés i18n
            (ops_horizon_*) existaient déjà dans app.js/i18n.js depuis la mise
@@ -1057,7 +1066,7 @@
             </div>
             <div class="flex items-center gap-1.5 pt-2 font-mono text-[10px] text-zinc-600">
               <span id="imuStatusDot" class="led-dot text-zinc-700"><span class="block h-2 w-2 rounded-full bg-current"></span></span>
-              <span id="imuStatusTxt">/camera/imu/data_raw</span>
+              <span id="imuStatusTxt">/imu/data_clean</span>
             </div>
           </div>
         </div>
@@ -1260,7 +1269,7 @@
   <script src="vendor/three.min.js"></script>
   <script src="vendor/gsap.min.js"></script>
   <script src="vendor/ScrollTrigger.min.js"></script>
-  <script src="3d_engine.js?v=r2"></script>
+  <script src="3d_engine.js?v=r3"></script>
   <script>
     (function() {
       // Téléphones : GPU/batterie plus faibles -> fond + satellite allégés.
