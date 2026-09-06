@@ -32,6 +32,12 @@ catkin_install_python(PROGRAMS
   scripts/pose_selector.py
   scripts/imu_sanitizer.py
   scripts/carolus_vicon_bridge.py
+  # Ecrit le 30/07 et jamais cable : sans cette ligne catkin ne genere pas le
+  # relais devel/, donc roslaunch ne peut pas le resoudre par pkg/type. C'est
+  # LUI qui publie `beacon_link`, le repere que carolus_vicon_bridge ci-dessus
+  # attend pour produire /mins/external_ref/carolus — sans quoi ce topic reste
+  # muet, ce qu'il etait depuis toujours.
+  scripts/carolus_tf_bridge.py
   scripts/fill_mins_camchain.py
   scripts/wheel_remap.py
   scripts/vins_rotation_guard.py

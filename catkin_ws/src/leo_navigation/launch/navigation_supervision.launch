@@ -139,7 +139,7 @@
          La mesure du 20/08 est conservee ici en clair : si openVINS redevient
          un jour le sujet, c'est 1.1314 qu'il faut lui donner — idealement par
          un parametre separe, pas en changeant celui que MINS partage. -->
-    <param name="accel_scale" value="1.1186"/>
+    <param name="accel_scale" value="1.1297"/>
     <!-- Branche VINS separee : /imu/data_clean reste identique au octet pres
          pour MINS. accel_recal_period, s'il est active, recalibre DESORMAIS
          cette echelle-ci et non la commune — c'est ce qui rend la correction
@@ -166,6 +166,29 @@
          imu_sanitizer.py. OFF par défaut, pas encore validé sur le robot. -->
     <param name="zupt_clamp_enable"    value="$(arg zupt_clamp_enable)"/>
   </node>
+
+  <!-- Producteur de `beacon_link` (cable le 2026-09-06). Ecrit le 30/07, il
+       n'avait jamais ete raccorde — d'ou un /mins/external_ref/carolus muet
+       DEPUIS TOUJOURS : carolus_vicon_bridge ci-dessous interroge le TF
+       beacon_link -> base_link et ne publie rien tant que ce repere n'existe
+       pas. Il doit donc demarrer AVANT lui, d'ou sa place ici.
+       Il s'abonne a /pose (sortie reelle de carolus_astrobee) et publie
+       camera_frame -> carolus_raw (dynamique, avec la permutation d'axes
+       X_leo=-Z_c, Y_leo=-X_c, Z_leo=-Y_c) puis beacon_link -> odom (statique,
+       figee au PREMIER fix).
+       Parametres laisses aux DEFAUTS et non surcharges : verification faite le
+       2026-09-06 via tf2, `camera_frame` existe bien et pend sous base_link.
+       publish_body_chain reste a False : le passer a True republierait la
+       chaine du document de reference et donnerait DEUX PARENTS a base_link.
+       RESERVE MESUREE, a trancher au premier essai avec balise : /pose est
+       estampille camera_infra1_optical_frame, or ce noeud rattache la
+       detection a camera_frame. Les deux different de 15 cm (0.022, 0, 0.151)
+       et 113,3 deg. La permutation d'axes absorbe la rotation ; la
+       TRANSLATION, elle, n'est absorbee par rien. Si l'ancre montre un biais
+       de position CONSTANT alors que le deplacement est correctement suivi,
+       c'est ce bras de levier qu'il faut corriger, pas la convention. -->
+  <node name="carolus_tf_bridge" pkg="leo_navigation" type="carolus_tf_bridge.py"
+        output="screen" respawn="true" respawn_delay="5"/>
 
   <node name="carolus_vicon_bridge" pkg="leo_navigation" type="carolus_vicon_bridge.py"
         output="screen" respawn="true" respawn_delay="5">
