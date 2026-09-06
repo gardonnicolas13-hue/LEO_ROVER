@@ -1,0 +1,60 @@
+--- a/mins/src/run_subscribe.cpp	2026-09-06 17:05:46.173632011 -0400
++++ b/mins/src/run_subscribe.cpp	2026-09-06 17:05:46.173632011 -0400
+@@ -34,6 +34,7 @@
+ #elif ROS_AVAILABLE == 1
+ #include "core/ROSPublisher.h"
+ #include "core/ROSSubscriber.h"
++#include <ros/ros.h>
+ #endif
+ #include "core/SystemManager.h"
+ #include "options/Options.h"
+@@ -63,6 +64,30 @@
+   options.automatically_declare_parameters_from_overrides(true);
+   auto node = std::make_shared<rclcpp::Node>("mins_subscribe", options);
+   node->get_parameter<std::string>("config_path", config_path);
++#elif ROS_AVAILABLE == 1
++  // Upstream gap: this file previously had no ROS1 counterpart to the ROS2
++  // block above (only #include'd ROSPublisher/ROSSubscriber but never
++  // instantiated them), so `rosrun mins subscribe` on ROS1 loaded the config,
++  // printed op->load_print()'s summary, and exited immediately without ever
++  // subscribing to anything. Fixed by mirroring the ROS2 flow with ros::init
++  // + ros::NodeHandle + ros::spin() below.
++  ros::init(argc, argv, "mins_subscribe");
++  // PRIVATE node handle ("~"), matching openVINS's own run_subscribe_msckf.cpp
++  // and Mike's MINS fix. It has to be private: roslaunch places a <param>
++  // declared inside a <node> tag in that node's PRIVATE namespace, so a global
++  // handle would look up /config_path, never find it, and fall back to argv[1]
++  // forever — a fix that looks correct and does nothing.
++  // Safe for every topic here, and this was checked rather than assumed:
++  // ROSPublisher advertises absolute names ("/mins/imu/odom", ...) and every
++  // topic in config/leo/*.yaml is absolute as well; a leading '/' makes a name
++  // immune to the handle's namespace. If a relative topic name is ever added
++  // to that config, it WILL be remapped under /mins_subscribe/ by this handle.
++  auto nh = std::make_shared<ros::NodeHandle>("~");
++  // Config path: ROS parameter first, argv[1] as fallback. config_path already
++  // holds argv[1] when one was passed, so handing it in as the default gives
++  // exactly that precedence — and unlike passing argv[1] literally it stays
++  // defined when argc == 1, where argv[1] is NULL rather than a string.
++  nh->param<std::string>("config_path", config_path, config_path);
+ #endif
+   std::cout << "Loading config from path: " << config_path << std::endl;
+   // Load the config
+@@ -79,6 +104,9 @@
+ #if ROS_AVAILABLE == 2
+   shared_ptr<ROS2Publisher> pub = make_shared<ROS2Publisher>(node, sys, op);
+   shared_ptr<ROS2Subscriber> sub = make_shared<ROS2Subscriber>(node, sys, pub);
++#elif ROS_AVAILABLE == 1
++  shared_ptr<ROSPublisher> pub = make_shared<ROSPublisher>(nh, sys, op);
++  shared_ptr<ROSSubscriber> sub = make_shared<ROSSubscriber>(nh, sys, pub);
+ #endif
+ 
+   // Ensure we read in all parameters required
+@@ -93,6 +121,8 @@
+   executor.add_node(node);
+   executor.spin();
+   // Spin off to ROS
++#elif ROS_AVAILABLE == 1
++  ros::spin();
+ #endif
+ 
+   // Final visualization

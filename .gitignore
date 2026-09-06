@@ -113,6 +113,15 @@
 # les deux series sous un titre qui n'en couvrirait qu'un.
 !/patches_openvins/
 
+# ── 4e. patches_mins/ : troisieme amont, meme raisonnement ─────────────────
+# rpng/MINS cette fois. Le point d'entree ROS1 (mins/src/run_subscribe.cpp)
+# n'avait jamais ete ecrit apres le portage vers ROS2 : le binaire chargeait sa
+# configuration et sortait sans s'abonner a rien, code de retour 0. Le code
+# tiers lui-meme reste hors git (regle 67 ci-dessous, arbre vendorise) -- le
+# patch EST la trace versionnee de notre divergence avec l'amont, et il a ete
+# verifie reproduire notre fichier deploye au octet pres.
+!/patches_mins/
+
 # ── 5. data : les donnees derivees, pas les enregistrements bruts ──────────
 # Les .bag totalisent 760 Mo, dont un .bag.active de 506 Mo (enregistrement
 # interrompu). Ils sont irremplacables mais depassent ce qu'un depot git doit
@@ -126,6 +135,12 @@
 # ── 6. web : ressources lourdes exclues ────────────────────────────────────
 /web/models/
 /web/exports/
+# Archive de transfert servie par mins_tuning.html (2026-09-02). Binaire de
+# 2,7 Mo REGENERE a la demande : l'annexe D.13 pose explicitement qu'il doit
+# toujours porter la configuration EN SERVICE, pas un instantane fige dans
+# l'historique git. Le versionner garantirait qu'il derive de la config reelle.
+# Le regenerer : cp leo_rover_pour_connor.zip web/downloads/leo_rover_mins_handoff.zip
+/web/downloads/
 
 # ── 7. Artefacts Python ────────────────────────────────────────────────────
 __pycache__/
