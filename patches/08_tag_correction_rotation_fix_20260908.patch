@@ -1,0 +1,121 @@
+# Verified with `git apply --check`, same method as patches 06/07.
+diff -ruN a/ov_srvins/src/ros/TagPoseCorrector.cpp b/ov_srvins/src/ros/TagPoseCorrector.cpp
+--- a/ov_srvins/src/ros/TagPoseCorrector.cpp	2026-09-07 16:37:49.893676850 -0400
++++ b/ov_srvins/src/ros/TagPoseCorrector.cpp	2026-09-07 16:37:21.921804687 -0400
+@@ -83,8 +83,8 @@
+     s.p_TagInCam = Vec3((DataType)p.x, (DataType)p.y, (DataType)p.z);
+     // apriltag_ros's own convention, Eigen's (x,y,z,w) -- matches this
+     // codebase's rot_2_quat/quat_2_Rot ordering, see quat_ops.h.
+-    s.q_CtoTag = Vec4((DataType)q.x, (DataType)q.y, (DataType)q.z,
+-                      (DataType)q.w);
++    s.q_TagToCam = Vec4((DataType)q.x, (DataType)q.y, (DataType)q.z,
++                        (DataType)q.w);
+ 
+     auto &buf = _streak[id];
+ 
+@@ -94,8 +94,8 @@
+     // the point of the gate. Anchoring to the first entry catches that.
+     if (!buf.empty()) {
+       const double dp = (s.p_TagInCam - buf.front().p_TagInCam).norm();
+-      const Mat3 R_a = ov_core::quat_2_Rot(buf.front().q_CtoTag);
+-      const Mat3 R_b = ov_core::quat_2_Rot(s.q_CtoTag);
++      const Mat3 R_a = ov_core::quat_2_Rot(buf.front().q_TagToCam);
++      const Mat3 R_b = ov_core::quat_2_Rot(s.q_TagToCam);
+       const Mat3 R_err = R_a.transpose() * R_b;
+       const double cos_half_angle =
+           std::min(1.0, std::max(-1.0, (double)(R_err.trace() - 1.0) / 2.0));
+@@ -134,15 +134,28 @@
+     const Mat3 R_ItoC = calib_it->second->Rot();
+     const Vec3 p_IinC = calib_it->second->pos();
+ 
+-    // World := tag frame. See the header comment for the full derivation;
+-    // this is its final form, verified independently two different ways
+-    // before being written here:
+-    //   R_GtoI = R_ItoC^T * R_CtoTag^T
+-    //   p_IinG = R_CtoTag^T * (p_IinC - p_TagInCam)
+-    const Mat3 R_CtoTag = ov_core::quat_2_Rot(latest.q_CtoTag);
+-    const Mat3 R_TagFromCam = R_CtoTag.transpose();
+-    const Mat3 R_GtoI = R_ItoC.transpose() * R_TagFromCam;
+-    const Vec3 p_IinG = R_TagFromCam * (p_IinC - latest.p_TagInCam);
++    // World := tag frame. CORRECTED 2026-09-08 -- the rotation below had an
++    // erroneous extra transpose from 2026-09-07 through the field test that
++    // validated the POSITION half of this formula. Root cause: the
++    // apriltag_ros quaternion is Tag->Camera (rotates a tag-frame vector
++    // into the camera frame -- confirmed against ROS's own Pose convention,
++    // "pose of the tag, in the camera frame"), but the old code stored it in
++    // a variable named "R_CtoTag" and then transposed it again, undoing the
++    // very quantity it already was. Renamed to its true meaning so this
++    // cannot silently recur.
++    //
++    // Re-derived twice by hand (point-tracking through the chain, and
++    // separately via the composition rule R_ItoTag = R_CamToTag * R_ItoC),
++    // AND checked numerically against an independent 4x4 homogeneous-matrix
++    // ground truth (inv(T_TagToCam) @ T_ItoC): the corrected rotation
++    // matches to 3e-16, the old one was off by up to 1.57 in a matrix
++    // entry -- not a rounding issue, a wrong answer.
++    //   R_GtoI = R_ItoC^T * R_TagToCam            (no extra transpose)
++    //   p_IinG = R_TagToCam^T * (p_IinC - p_TagInCam)   (unchanged: this
++    //            half was already correct, confirmed by the same check)
++    const Mat3 R_TagToCam = ov_core::quat_2_Rot(latest.q_TagToCam);
++    const Mat3 R_GtoI = R_ItoC.transpose() * R_TagToCam;
++    const Vec3 p_IinG = R_TagToCam.transpose() * (p_IinC - latest.p_TagInCam);
+     const Vec4 q_GtoI = ov_core::rot_2_quat(R_GtoI);
+ 
+     if (_app->reset_to_known_pose(q_GtoI, p_IinG)) {
+diff -ruN a/ov_srvins/src/ros/TagPoseCorrector.h b/ov_srvins/src/ros/TagPoseCorrector.h
+--- a/ov_srvins/src/ros/TagPoseCorrector.h	2026-09-07 16:37:49.893676850 -0400
++++ b/ov_srvins/src/ros/TagPoseCorrector.h	2026-09-07 16:37:21.921804687 -0400
+@@ -32,23 +32,31 @@
+  *     R_ItoC, p_IinC   -- camera-IMU extrinsic (state->calib_IMUtoCAM),
+  *                          "rotate an IMU-frame vector into the camera
+  *                          frame" / "IMU origin, in camera coordinates"
+- *     R_CtoTag, p_TagInCam -- the apriltag_ros detection: R_CtoTag is R^T of
+- *                          the reported quaternion (that quaternion is
+- *                          Tag->Camera, i.e. rotates a TAG-frame vector into
+- *                          the CAMERA frame -- same direction convention as
+- *                          R_ItoC above, both are "rotate FROM the named
+- *                          frame INTO the camera frame"), p_TagInCam is the
+- *                          reported position directly.
++ *     R_TagToCam, p_TagInCam -- the apriltag_ros detection, taken directly
++ *                          as reported: R_TagToCam = quat_2_Rot(quaternion)
++ *                          rotates a TAG-frame vector into the CAMERA frame
++ *                          (ROS's own convention for "pose of the tag, in
++ *                          the camera frame" -- same direction as R_ItoC
++ *                          above: both "rotate FROM the named frame INTO
++ *                          the camera frame"), p_TagInCam is the reported
++ *                          position directly.
+  *
+  *   Then, with World := Tag:
+- *     R_GtoI = R_ItoC^T * R_CtoTag^T             (== (R_CtoTag*R_ItoC)^T)
+- *     p_IinG = R_CtoTag^T * (p_IinC - p_TagInCam)  ... wait, see .cpp: the
+- *              exact expression used there is written directly in terms of
+- *              R_TagFromCam = R_CtoTag^T to avoid re-deriving in code.
++ *     R_GtoI = R_ItoC^T * R_TagToCam
++ *     p_IinG = R_TagToCam^T * (p_IinC - p_TagInCam)
++ *
++ * CORRECTED 2026-09-08: an earlier version of this file stored the raw
++ * quaternion in a variable named "R_CtoTag" and then transposed it again in
++ * the .cpp, silently undoing it -- the variable's NAME implied the opposite
++ * of what it actually held. That extra transpose passed a live field test
++ * because the POSITION formula (unaffected) is what a quick visual check
++ * mostly shows; it was caught by re-deriving twice by independent methods
++ * and checking numerically against a 4x4 homogeneous-matrix ground truth
++ * (see the .cpp for the exact result: 3e-16 vs 1.57 error). Lesson: name
++ * variables for what they hold, not for the direction you expect to need.
+  *
+  * Re-derive by tracking a point at the IMU origin through camera frame then
+- * into the tag frame if this ever needs auditing -- the full derivation is
+- * in the project session notes, not reproduced a third time here.
++ * into the tag frame if this ever needs auditing again.
+  *
+  * WHY A RESET, NOT AN UPDATER: see VioManager::reset_to_known_pose's
+  * docstring. Short version: sqrtVINS/openVINS has no absolute-pose Updater
+@@ -98,7 +106,7 @@
+   /// agreement with the next one.
+   struct Sighting {
+     Vec3 p_TagInCam;
+-    Vec4 q_CtoTag;  // apriltag_ros's own quaternion, camera->tag, unmodified
++    Vec4 q_TagToCam;  // apriltag_ros's own quaternion, tag->camera, unmodified
+   };
+ 
+   std::shared_ptr<ros::NodeHandle> _nh;

@@ -280,3 +280,45 @@ tools/launch_sqrtvins.sh tag_correction_enabled:=true
 (pas seulement un parseur XML générique) avec le workspace sqrtVINS
 correctement sourcé — confirme que toutes les substitutions `$(arg …)`
 existantes se résolvent encore sans erreur après l'ajout.
+
+---
+
+## 08 — Correctif de rotation : une transposition en trop (2026-09-08)
+
+**Trouvé en relisant le patch 06 pour préparer la Phase 2**, pas au hasard :
+généraliser à des poses de tag *absolues* rend une erreur de rotation
+mesurable et fausse, alors qu'en Phase 1 (repère monde = repère du tag) une
+même erreur ne produit qu'un repère arbitraire mais cohérent — ce qui a
+probablement permis à l'essai terrain du 07/09 de « réussir » quand même :
+seule la position (correcte) est ce qu'on remarque en vérifiant vite.
+
+**Le défaut.** Le quaternion brut d'`apriltag_ros` était stocké dans une
+variable nommée `R_CtoTag`, puis transposé une seconde fois dans le calcul
+final — annulant silencieusement la quantité qu'il contenait déjà. La
+convention réelle (confirmée contre la sémantique `geometry_msgs/Pose` de
+ROS, « pose du tag, dans le repère caméra ») est **Tag→Caméra**, pas
+Caméra→Tag : le nom de la variable était l'inverse de ce qu'elle contenait.
+
+**Vérifié par un test numérique indépendant**, pas seulement re-dérivé à la
+main (une seconde dérivation à la main peut reproduire la même erreur si
+elle repose sur la même hypothèse fautive) : matrices homogènes 4×4
+arbitraires, vérité terrain calculée par composition directe
+(`inv(T_TagToCam) @ T_ItoC`), comparée aux deux formules.
+
+| | erreur rotation (max, élément de matrice) | erreur position |
+|---|---|---|
+| Formule déployée (fautive) | **1,57** | 2,5×10⁻¹⁶ m |
+| Formule corrigée | **3,3×10⁻¹⁶** | 2,5×10⁻¹⁶ m |
+
+La position était juste depuis le début — c'est probablement pour ça que le
+test terrain a semblé marcher.
+
+**Le remède.** Suppression de la transposition en trop, et **renommage** de
+la variable vers son sens réel (`R_TagToCam`) pour qu'un futur lecteur ne
+retombe pas dans le même piège en se fiant au nom plutôt qu'à ce que la
+variable contient réellement.
+
+**Vérifié.** Compile de nouveau proprement (`All 2 packages succeeded`,
+0 avertissement). sqrtVINS n'étant pas lancé au moment du correctif, aucun
+processus vivant touché. **Non revérifié en direct** — le prochain essai
+terrain devra confirmer l'orientation, pas seulement la position.
