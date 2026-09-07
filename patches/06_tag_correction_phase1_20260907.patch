@@ -1,0 +1,597 @@
+# Generated 2026-09-07, verified with `git apply --check` against a
+# reconstructed pre-edit snapshot (see patches/06 note in README.md).
+diff -ruN a/ov_srvins/cmake/ROS1.cmake b/ov_srvins/cmake/ROS1.cmake
+--- a/ov_srvins/cmake/ROS1.cmake	2026-09-07 16:00:41.182411827 -0400
++++ b/ov_srvins/cmake/ROS1.cmake	2026-09-07 15:59:36.566742662 -0400
+@@ -1,7 +1,7 @@
+ cmake_minimum_required(VERSION 3.3)
+ 
+ # Find ROS build system
+-find_package(catkin QUIET COMPONENTS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core)
++find_package(catkin QUIET COMPONENTS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core apriltag_ros)
+ 
+ # Describe ROS project
+ option(ENABLE_ROS "Enable or disable building with ROS (if it is found)" ON)
+@@ -18,7 +18,7 @@
+ if (catkin_FOUND AND ENABLE_ROS)
+     add_definitions(-DROS_AVAILABLE=1)
+     catkin_package(
+-            CATKIN_DEPENDS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core
++            CATKIN_DEPENDS roscpp rosbag tf std_msgs geometry_msgs sensor_msgs nav_msgs visualization_msgs image_transport cv_bridge ov_core apriltag_ros
+             INCLUDE_DIRS src/
+             LIBRARIES ov_srvins_lib
+     )
+@@ -109,7 +109,7 @@
+         )
+ 
+ if (catkin_FOUND AND ENABLE_ROS)
+-    list(APPEND LIBRARY_SOURCES src/ros/ROS1Visualizer.cpp src/ros/ROSVisualizerHelper.cpp)
++    list(APPEND LIBRARY_SOURCES src/ros/ROS1Visualizer.cpp src/ros/ROSVisualizerHelper.cpp src/ros/TagPoseCorrector.cpp)
+ endif ()
+ 
+ file(GLOB_RECURSE LIBRARY_HEADERS "src/*.h")
+diff -ruN a/ov_srvins/package.xml b/ov_srvins/package.xml
+--- a/ov_srvins/package.xml	2026-09-07 16:00:41.182411827 -0400
++++ b/ov_srvins/package.xml	2026-09-07 15:59:36.570742641 -0400
+@@ -32,6 +32,8 @@
+     <depend condition="$ROS_VERSION == 1">image_transport</depend>
+     <depend condition="$ROS_VERSION == 1">cv_bridge</depend>
+     <depend condition="$ROS_VERSION == 1">ov_core</depend>
++    <!-- TagPoseCorrector (Phase 1 AprilTag drift correction, 2026-09-07) -->
++    <depend condition="$ROS_VERSION == 1">apriltag_ros</depend>
+ 
+     <!-- ROS2: Dependencies needed to compile this package. -->
+     <buildtool_depend condition="$ROS_VERSION == 2">ament_cmake</buildtool_depend>
+diff -ruN a/ov_srvins/src/core/VioManager.cpp b/ov_srvins/src/core/VioManager.cpp
+--- a/ov_srvins/src/core/VioManager.cpp	2026-09-07 16:00:24.654496427 -0400
++++ b/ov_srvins/src/core/VioManager.cpp	2026-09-07 15:59:36.554742722 -0400
+@@ -913,6 +913,75 @@
+   }
+ }
+ 
++bool VioManager::reset_to_known_pose(const Eigen::Matrix<DataType, 4, 1> &q_GtoI,
++                                     const Eigen::Matrix<DataType, 3, 1> &p_IinG) {
++  // A correction only makes sense once there is a converged state to
++  // correct. Before that, try_to_initialize() is already running and knows
++  // nothing about tags; forcing a pose in here would fight it.
++  if (!is_initialized_vio) {
++    PRINT_WARNING(YELLOW
++                  "[TAG-RESET]: ignored, filter not yet initialized\n" RESET);
++    return false;
++  }
++  // Defensive: a detector artefact (bad Jacobian upstream, NaN corner, ...)
++  // must never be able to silently corrupt the filter with a non-rotation.
++  // Same spirit as this project's llt_guard pattern elsewhere -- check
++  // rather than trust.
++  const DataType q_norm_err = std::abs(q_GtoI.norm() - DataType(1.0));
++  if (!q_GtoI.allFinite() || !p_IinG.allFinite() || q_norm_err > DataType(1e-3)) {
++    PRINT_WARNING(
++        RED "[TAG-RESET]: rejected, invalid pose (|q|=%.6f, finite=%d/%d)\n" RESET,
++        (double)q_GtoI.norm(), q_GtoI.allFinite(), p_IinG.allFinite());
++    return false;
++  }
++
++  PRINT_WARNING(
++      GREEN "[TAG-RESET]: re-anchoring to tag pose -- p_IinG = %.3f,%.3f,%.3f\n" RESET,
++      (double)p_IinG(0), (double)p_IinG(1), (double)p_IinG(2));
++
++  // Deliberately reuses the EXACT primitives already validated by the
++  // divergence-reset above (feed_measurement_imu), not the lighter pattern
++  // in initialize_with_gt: that one only ever runs before any clone/landmark
++  // exists (true cold start for simulation), so overwriting state->imu alone
++  // is safe there. Here, mid-session, existing SLAM clones and landmarks are
++  // tied to the PRE-correction trajectory -- leaving them in place while
++  // jumping the IMU pose would make them geometrically inconsistent with the
++  // new pose. Forcing a full cold re-init (is_initialized_vio = false, both
++  // feature databases purged) is the provably-consistent choice, at the
++  // disclosed cost of a brief re-convergence pause -- see the docstring in
++  // VioManager.h.
++  is_initialized_vio = false;
++  has_moved_since_zupt = false;
++  {
++    Eigen::Matrix<DataType, 16, 1> etat_pose =
++        Eigen::Matrix<DataType, 16, 1>::Zero();
++    etat_pose.block(0, 0, 4, 1) = q_GtoI;
++    etat_pose.block(4, 0, 3, 1) = p_IinG;
++    // velocity, gyro bias, accel bias left at zero: the tag gives a pose, not
++    // a velocity or bias estimate, and zero is the same neutral prior the
++    // divergence-reset above and StaticInitializer's cold start both use.
++    state->imu->set_value(etat_pose);
++    state->imu->set_fej(etat_pose);
++
++    // Same 15-diagonal prior as the divergence reset and StaticInitializer's
++    // cold start (q=0.017, p=0.05, v=0.01, bg=0.02, ba=0.02) -- duplicated
++    // rather than shared for the same reason noted there: keep in sync by
++    // hand if these are ever retuned.
++    VecX prior_diag = VecX::Ones(15);
++    prior_diag.topRows<3>() *= 0.017;   // q
++    prior_diag.segment<3>(3) *= 0.05;   // p
++    prior_diag.segment<3>(6) *= 0.01;   // v
++    prior_diag.segment<3>(9) *= 0.02;   // bg
++    prior_diag.segment<3>(12) *= 0.02;  // ba
++    StateHelper::set_initial_imu_square_root_covariance(state, prior_diag);
++  }
++  trackFEATS->get_feature_database()->cleanup();
++  if (trackARUCO != nullptr) {
++    trackARUCO->get_feature_database()->cleanup();
++  }
++  return true;
++}
++
+ void VioManager::initialize_with_gt(Eigen::Matrix<double, 17, 1> imustate) {
+ 
+   // Initialize the system
+diff -ruN a/ov_srvins/src/core/VioManager.h b/ov_srvins/src/core/VioManager.h
+--- a/ov_srvins/src/core/VioManager.h	2026-09-07 16:00:24.654496427 -0400
++++ b/ov_srvins/src/core/VioManager.h	2026-09-07 15:59:36.554742722 -0400
+@@ -112,6 +112,34 @@
+    */
+   void initialize_with_gt(Eigen::Matrix<double, 17, 1> imustate);
+ 
++  /**
++   * @brief Phase 1 AprilTag drift correction (2026-09-07). Rigidly re-anchors
++   * the filter to a known absolute pose -- e.g. one derived from a stably
++   * detected fiducial of known physical size -- by reusing exactly the
++   * state/covariance reset primitives already validated by the
++   * divergence-reset mechanism in feed_measurement_imu, seeded with this
++   * pose instead of identity/zero.
++   *
++   * Like that mechanism, this forces is_initialized_vio = false: the next
++   * measurement goes through a full cold re-initialisation rather than an
++   * in-place correction. That is a deliberate, disclosed Phase 1 trade-off,
++   * not an oversight -- it keeps this change provably consistent (identical
++   * code path to the already-proven divergence reset) instead of risking a
++   * partial state jump that leaves existing SLAM landmarks/clones geometrically
++   * inconsistent with the new pose.
++   *
++   * @param q_GtoI Global-to-IMU quaternion (JPL, x,y,z,w order) -- same
++   * convention as state->imu's own orientation, see initialize_with_gt's
++   * docstring: [time,q_GtoI,p_IinG,v_IinG,b_gyro,b_accel]
++   * @param p_IinG IMU position in the global frame
++   * @return true if applied. False if not yet initialized (a correction only
++   * makes sense once there IS a converged state to correct) or if q_GtoI is
++   * not a valid unit quaternion (defensive check: a detector artefact should
++   * never be able to silently corrupt the filter).
++   */
++  bool reset_to_known_pose(const Eigen::Matrix<DataType, 4, 1> &q_GtoI,
++                           const Eigen::Matrix<DataType, 3, 1> &p_IinG);
++
+   /// If we are initialized or not
+   bool initialized() { return is_initialized_vio; }
+ 
+diff -ruN a/ov_srvins/src/core/VioManagerOptions.cpp b/ov_srvins/src/core/VioManagerOptions.cpp
+--- a/ov_srvins/src/core/VioManagerOptions.cpp	2026-09-07 15:59:53.698654921 -0400
++++ b/ov_srvins/src/core/VioManagerOptions.cpp	2026-09-07 15:59:36.550742743 -0400
+@@ -62,8 +62,49 @@
+   print_and_load_noise(parser);
+   print_and_load_state(parser);
+   print_and_load_trackers(parser);
++  print_and_load_tag_correction(parser);
+ }
+ 
++void VioManagerOptions::print_and_load_tag_correction(
++    std::shared_ptr<ov_core::YamlParser> parser) {
++  // Phase 1 drift correction via a single known AprilTag (2026-09-07).
++  // OFF by default: this is new, unvalidated on this platform, and must not
++  // silently activate on every sqrtVINS profile (leo, leo_pc, ...).
++  PRINT_DEBUG("TAG CORRECTION PARAMETERS:\n");
++  if (parser != nullptr) {
++    parser->parse_config("tag_correction_enabled", tag_correction_enabled,
++                         false);
++    parser->parse_config("tag_correction_topic", tag_correction_topic, false);
++    parser->parse_config("tag_correction_cam_id", tag_correction_cam_id,
++                         false);
++    // Comma-separated, not std::vector<int>: no exercised precedent for
++    // parse_config<std::vector<int>> anywhere in this codebase (checked
++    // before writing this), whereas the string+split pattern is proven
++    // elsewhere (leo_navigation's config_wheel.yaml sub_topics). Phase 1
++    // ships a single id; Phase 2 just adds more to the same string.
++    parser->parse_config("tag_correction_ids", tag_correction_ids, false);
++    parser->parse_config("tag_correction_stable_count",
++                         tag_correction_stable_count, false);
++    parser->parse_config("tag_correction_pos_tol_m", tag_correction_pos_tol_m,
++                         false);
++    parser->parse_config("tag_correction_rot_tol_deg",
++                         tag_correction_rot_tol_deg, false);
++    parser->parse_config("tag_correction_cooldown_s",
++                         tag_correction_cooldown_s, false);
++  }
++  PRINT_DEBUG("  - tag_correction_enabled: %s\n",
++             tag_correction_enabled ? "true" : "false");
++  PRINT_DEBUG("  - tag_correction_topic: %s\n", tag_correction_topic.c_str());
++  PRINT_DEBUG("  - tag_correction_cam_id: %d\n", tag_correction_cam_id);
++  PRINT_DEBUG("  - tag_correction_stable_count: %d\n",
++             tag_correction_stable_count);
++  PRINT_DEBUG("  - tag_correction_pos_tol_m: %.3f\n",
++             tag_correction_pos_tol_m);
++  PRINT_DEBUG("  - tag_correction_rot_tol_deg: %.3f\n",
++             tag_correction_rot_tol_deg);
++  PRINT_DEBUG("  - tag_correction_cooldown_s: %.3f\n",
++             tag_correction_cooldown_s);
++}
+ 
+ void VioManagerOptions::print_and_load_estimator(
+     std::shared_ptr<ov_core::YamlParser> parser) {
+diff -ruN a/ov_srvins/src/core/VioManagerOptions.h b/ov_srvins/src/core/VioManagerOptions.h
+--- a/ov_srvins/src/core/VioManagerOptions.h	2026-09-07 16:00:10.418569309 -0400
++++ b/ov_srvins/src/core/VioManagerOptions.h	2026-09-07 15:59:36.550742743 -0400
+@@ -114,6 +114,17 @@
+       std::shared_ptr<ov_core::YamlParser> parser = nullptr);
+ 
+   /**
++   * @brief Phase 1 AprilTag drift correction (2026-09-07). Prints and loads
++   * the settings that gate TagPoseCorrector: which topic/tag ids to trust,
++   * how many consecutive consistent detections before acting, and the
++   * cooldown between corrections.
++   *
++   * @param parser If not null, this parser will be used to load our parameters
++   */
++  void print_and_load_tag_correction(
++      std::shared_ptr<ov_core::YamlParser> parser = nullptr);
++
++  /**
+    * @brief This function will load print out all simulated parameters.
+    * This allows for visual checking that everything was loaded properly from
+    * ROS/CMD parsers.
+@@ -200,6 +211,45 @@
+   /// Mask images for each camera
+   std::map<size_t, cv::Mat> masks;
+ 
++  // TAG CORRECTION (Phase 1, 2026-09-07) ===============================
++  // Periodically re-anchors the filter to a known AprilTag when TagPose
++  // Corrector (ros/TagPoseCorrector.h) sees one stably. OFF by default.
++
++  /// Master switch. False means TagPoseCorrector is never instantiated.
++  bool tag_correction_enabled = false;
++
++  /// apriltag_ros detection topic. Defaults to the SAME /tag_detections the
++  /// rest of this project already runs (one detector, several consumers) --
++  /// do not stand up a second apriltag_ros node.
++  std::string tag_correction_topic = "/tag_detections";
++
++  /// Which camera's extrinsic (camera_extrinsics / calib_IMUtoCAM) the
++  /// detection's frame_id corresponds to. This platform's stereo pair is
++  /// infra1=0, infra2=1; the shared apriltag_ros node reads infra1.
++  int tag_correction_cam_id = 0;
++
++  /// Comma-separated tag ids to trust, e.g. "0" for Phase 1 or "0,1,2" once
++  /// Phase 2 adds more -- see the note on parse_config<std::vector<int>> in
++  /// VioManagerOptions.cpp for why this is a string and not a vector.
++  std::string tag_correction_ids = "0";
++
++  /// Consecutive detections of the SAME id, mutually agreeing within the
++  /// tolerances below, required before a correction is applied. Rejects a
++  /// single noisy/oblique frame rather than resetting on it.
++  int tag_correction_stable_count = 5;
++
++  /// Position agreement tolerance between consecutive detections, metres.
++  double tag_correction_pos_tol_m = 0.03;
++
++  /// Orientation agreement tolerance between consecutive detections, degrees.
++  double tag_correction_rot_tol_deg = 5.0;
++
++  /// Minimum time between two corrections, seconds. Each correction forces
++  /// is_initialized_vio = false (see VioManager::reset_to_known_pose), i.e. a
++  /// full cold re-init -- this must not re-fire every frame the tag is in
++  /// view.
++  double tag_correction_cooldown_s = 10.0;
++
+   // TRACKERS ===============================
+ 
+   /// If we should process two cameras are being stereo or binocular. If
+diff -ruN a/ov_srvins/src/ros/TagPoseCorrector.cpp b/ov_srvins/src/ros/TagPoseCorrector.cpp
+--- a/ov_srvins/src/ros/TagPoseCorrector.cpp	1969-12-31 19:00:00.000000000 -0500
++++ b/ov_srvins/src/ros/TagPoseCorrector.cpp	2026-09-07 16:01:12.482251657 -0400
+@@ -0,0 +1,152 @@
++#include "TagPoseCorrector.h"
++
++#include <algorithm>
++#include <cmath>
++#include <sstream>
++#include <string>
++
++#include "core/VioManager.h"
++#include "core/VioManagerOptions.h"
++#include "state/State.h"
++#include "utils/print.h"
++#include "utils/quat_ops.h"
++
++using namespace ov_srvins;
++
++namespace {
++
++/// Comma-separated "0,1,2" -> {0,1,2}. Empty/whitespace entries are skipped
++/// rather than throwing: a trailing comma in the YAML should not crash the
++/// estimator over a formatting slip.
++std::set<int> parse_id_list(const std::string &csv) {
++  std::set<int> out;
++  std::stringstream ss(csv);
++  std::string tok;
++  while (std::getline(ss, tok, ',')) {
++    size_t a = tok.find_first_not_of(" \t");
++    size_t b = tok.find_last_not_of(" \t");
++    if (a == std::string::npos) continue;
++    try {
++      out.insert(std::stoi(tok.substr(a, b - a + 1)));
++    } catch (const std::exception &e) {
++      PRINT_WARNING(YELLOW "[TAG-CORRECTOR]: could not parse tag id '%s', "
++                           "skipped\n" RESET,
++                    tok.c_str());
++    }
++  }
++  return out;
++}
++
++}  // namespace
++
++TagPoseCorrector::TagPoseCorrector(std::shared_ptr<ros::NodeHandle> nh,
++                                   std::shared_ptr<VioManager> app,
++                                   const VioManagerOptions &params)
++    : _nh(nh), _app(app), _last_correction(ros::Time(0)) {
++  _trusted_ids = parse_id_list(params.tag_correction_ids);
++  _cam_id = params.tag_correction_cam_id;
++  _stable_count = std::max(1, params.tag_correction_stable_count);
++  _pos_tol_m = params.tag_correction_pos_tol_m;
++  _rot_tol_rad = params.tag_correction_rot_tol_deg * M_PI / 180.0;
++  _cooldown_s = params.tag_correction_cooldown_s;
++
++  if (_trusted_ids.empty()) {
++    PRINT_WARNING(
++        RED "[TAG-CORRECTOR]: tag_correction_enabled is true but "
++            "tag_correction_ids parsed to an empty set -- nothing will ever "
++            "trigger a correction. Check the YAML.\n" RESET);
++  }
++
++  _sub = _nh->subscribe<apriltag_ros::AprilTagDetectionArray>(
++      params.tag_correction_topic, 5, &TagPoseCorrector::callback_tags, this);
++
++  std::string ids_str;
++  for (int id : _trusted_ids) ids_str += std::to_string(id) + " ";
++  PRINT_INFO(GREEN
++             "[TAG-CORRECTOR]: armed on %s, trusted ids = { %s}, cam%d, "
++             "%d consecutive within %.3f m / %.1f deg, %.1f s cooldown\n" RESET,
++             params.tag_correction_topic.c_str(), ids_str.c_str(), _cam_id,
++             _stable_count, _pos_tol_m, params.tag_correction_rot_tol_deg,
++             _cooldown_s);
++}
++
++void TagPoseCorrector::callback_tags(
++    const apriltag_ros::AprilTagDetectionArrayConstPtr &msg) {
++  for (const auto &det : msg->detections) {
++    if (det.id.empty()) continue;
++    const int id = det.id.front();
++    if (_trusted_ids.find(id) == _trusted_ids.end()) continue;
++
++    const auto &p = det.pose.pose.pose.position;
++    const auto &q = det.pose.pose.pose.orientation;
++    Sighting s;
++    s.p_TagInCam = Vec3((DataType)p.x, (DataType)p.y, (DataType)p.z);
++    // apriltag_ros's own convention, Eigen's (x,y,z,w) -- matches this
++    // codebase's rot_2_quat/quat_2_Rot ordering, see quat_ops.h.
++    s.q_CtoTag = Vec4((DataType)q.x, (DataType)q.y, (DataType)q.z,
++                      (DataType)q.w);
++
++    auto &buf = _streak[id];
++
++    // Compare against the streak's FIRST entry rather than the previous one:
++    // pairwise-adjacent agreement lets the estimate drift step by step
++    // within tolerance each time and still "agree" every step, defeating
++    // the point of the gate. Anchoring to the first entry catches that.
++    if (!buf.empty()) {
++      const double dp = (s.p_TagInCam - buf.front().p_TagInCam).norm();
++      const Mat3 R_a = ov_core::quat_2_Rot(buf.front().q_CtoTag);
++      const Mat3 R_b = ov_core::quat_2_Rot(s.q_CtoTag);
++      const Mat3 R_err = R_a.transpose() * R_b;
++      const double cos_half_angle =
++          std::min(1.0, std::max(-1.0, (double)(R_err.trace() - 1.0) / 2.0));
++      const double dtheta = std::acos(cos_half_angle);
++      if (dp > _pos_tol_m || dtheta > _rot_tol_rad) {
++        PRINT_DEBUG(
++            "[TAG-CORRECTOR]: id=%d streak broken (dp=%.4f m, dtheta=%.2f "
++            "deg), restarting\n",
++            id, dp, dtheta * 180.0 / M_PI);
++        buf.clear();
++      }
++    }
++    buf.push_back(s);
++    if ((int)buf.size() < _stable_count) continue;
++
++    if ((ros::Time::now() - _last_correction).toSec() < _cooldown_s) {
++      PRINT_DEBUG("[TAG-CORRECTOR]: id=%d stable but still in cooldown\n",
++                 id);
++      buf.clear();
++      continue;
++    }
++
++    // ---- Stable detection accepted: compute and apply the correction ----
++    // Use the MOST RECENT sighting in the streak, not the first: it is the
++    // freshest measurement of a tag/camera geometry that has not moved.
++    const Sighting &latest = buf.back();
++    buf.clear();
++
++    auto calib_it = _app->get_state()->calib_IMUtoCAM.find(_cam_id);
++    if (calib_it == _app->get_state()->calib_IMUtoCAM.end()) {
++      PRINT_WARNING(RED "[TAG-CORRECTOR]: no calibration for cam%d, "
++                        "cannot apply correction\n" RESET,
++                    _cam_id);
++      continue;
++    }
++    const Mat3 R_ItoC = calib_it->second->Rot();
++    const Vec3 p_IinC = calib_it->second->pos();
++
++    // World := tag frame. See the header comment for the full derivation;
++    // this is its final form, verified independently two different ways
++    // before being written here:
++    //   R_GtoI = R_ItoC^T * R_CtoTag^T
++    //   p_IinG = R_CtoTag^T * (p_IinC - p_TagInCam)
++    const Mat3 R_CtoTag = ov_core::quat_2_Rot(latest.q_CtoTag);
++    const Mat3 R_TagFromCam = R_CtoTag.transpose();
++    const Mat3 R_GtoI = R_ItoC.transpose() * R_TagFromCam;
++    const Vec3 p_IinG = R_TagFromCam * (p_IinC - latest.p_TagInCam);
++    const Vec4 q_GtoI = ov_core::rot_2_quat(R_GtoI);
++
++    if (_app->reset_to_known_pose(q_GtoI, p_IinG)) {
++      _last_correction = ros::Time::now();
++    }
++  }
++}
+diff -ruN a/ov_srvins/src/ros/TagPoseCorrector.h b/ov_srvins/src/ros/TagPoseCorrector.h
+--- a/ov_srvins/src/ros/TagPoseCorrector.h	1969-12-31 19:00:00.000000000 -0500
++++ b/ov_srvins/src/ros/TagPoseCorrector.h	2026-09-07 16:01:12.478251678 -0400
+@@ -0,0 +1,124 @@
++/*
++ * Sqrt-VINS: A Sqrt-filter-based Visual-Inertial Navigation System
++ *
++ * TagPoseCorrector -- Phase 1 AprilTag drift correction (2026-09-07).
++ *
++ * Subscribes to the project-wide /tag_detections (apriltag_ros), and for a
++ * configured allow-list of tag ids, waits for N consecutive detections of
++ * the SAME id that mutually agree within a tolerance, then computes the
++ * IMU's pose in the tag's own frame and calls
++ * VioManager::reset_to_known_pose() to re-anchor the filter.
++ *
++ * DESIGN NOTES
++ *
++ * World = tag frame, by definition, every time. There is no "first sighting
++ * fixes the origin" special case (unlike this project's own
++ * carolus_tf_bridge.py, which DOES latch beacon_link on the first fix): the
++ * physical tag never moves, so re-deriving "IMU pose in the tag's frame"
++ * from scratch on every stable detection gives the identical answer as
++ * latching would, without needing to carry state across sightings. Simpler,
++ * and there is nothing to get out of sync.
++ *
++ * GEOMETRY (verified by two independent derivations before this was
++ * written, and cross-checked against three separate places in this
++ * codebase that all describe the same calib_IMUtoCAM convention:
++ * UpdaterHelper.cpp's R_ItoC/p_IinC, VioManagerOptions.h's own comment
++ * "(q_ItoC, p_IinC)", and Propagator.cpp's R_Gtoi = state->imu->Rot(), which
++ * pins the STATE's own convention to Global-to-IMU, matching
++ * VioManager::initialize_with_gt's documented ordering
++ * [q_GtoI,p_IinG,v_IinG,...]):
++ *
++ *   Given:
++ *     R_ItoC, p_IinC   -- camera-IMU extrinsic (state->calib_IMUtoCAM),
++ *                          "rotate an IMU-frame vector into the camera
++ *                          frame" / "IMU origin, in camera coordinates"
++ *     R_CtoTag, p_TagInCam -- the apriltag_ros detection: R_CtoTag is R^T of
++ *                          the reported quaternion (that quaternion is
++ *                          Tag->Camera, i.e. rotates a TAG-frame vector into
++ *                          the CAMERA frame -- same direction convention as
++ *                          R_ItoC above, both are "rotate FROM the named
++ *                          frame INTO the camera frame"), p_TagInCam is the
++ *                          reported position directly.
++ *
++ *   Then, with World := Tag:
++ *     R_GtoI = R_ItoC^T * R_CtoTag^T             (== (R_CtoTag*R_ItoC)^T)
++ *     p_IinG = R_CtoTag^T * (p_IinC - p_TagInCam)  ... wait, see .cpp: the
++ *              exact expression used there is written directly in terms of
++ *              R_TagFromCam = R_CtoTag^T to avoid re-deriving in code.
++ *
++ * Re-derive by tracking a point at the IMU origin through camera frame then
++ * into the tag frame if this ever needs auditing -- the full derivation is
++ * in the project session notes, not reproduced a third time here.
++ *
++ * WHY A RESET, NOT AN UPDATER: see VioManager::reset_to_known_pose's
++ * docstring. Short version: sqrtVINS/openVINS has no absolute-pose Updater
++ * at all (checked: MSCKF, SLAM, ZeroVelocity are the only three; TrackAruco
++ * treats marker corners as ordinary point features, not a 6-DOF fix). Adding
++ * a real Updater means new Jacobians and a new noise model on an estimator
++ * that has already had several subtle, hard-to-spot bugs found and fixed
++ * this project (ZUPT gating, LLT without .info() checks, a reset that
++ * forgot to also reset covariance). Reusing the already-proven
++ * divergence-reset primitives is deliberately the smaller, lower-risk
++ * change for a Phase 1.
++ *
++ * PHASE 2/3: multiple tags need only a smarter choice of WHICH detection to
++ * trust when several are visible (closest / most stable) -- the geometry
++ * and the reset call are unchanged. SVGS beacons would replace the
++ * subscriber's message type and the geometry above; reset_to_known_pose()
++ * itself is already generic (it takes a pose, not a tag).
++ */
++#ifndef OV_SRVINS_TAGPOSECORRECTOR_H
++#define OV_SRVINS_TAGPOSECORRECTOR_H
++
++#include <apriltag_ros/AprilTagDetectionArray.h>
++#include <ros/ros.h>
++
++#include <deque>
++#include <memory>
++#include <set>
++#include <string>
++
++#include "utils/DataType.h"
++
++namespace ov_srvins {
++
++class VioManager;
++struct VioManagerOptions;
++
++class TagPoseCorrector {
++public:
++  TagPoseCorrector(std::shared_ptr<ros::NodeHandle> nh,
++                   std::shared_ptr<VioManager> app,
++                   const VioManagerOptions &params);
++
++private:
++  void callback_tags(const apriltag_ros::AprilTagDetectionArrayConstPtr &msg);
++
++  /// One accepted detection of a trusted id, kept just long enough to check
++  /// agreement with the next one.
++  struct Sighting {
++    Vec3 p_TagInCam;
++    Vec4 q_CtoTag;  // apriltag_ros's own quaternion, camera->tag, unmodified
++  };
++
++  std::shared_ptr<ros::NodeHandle> _nh;
++  std::shared_ptr<VioManager> _app;
++  ros::Subscriber _sub;
++
++  std::set<int> _trusted_ids;
++  int _cam_id;
++  int _stable_count;
++  double _pos_tol_m;
++  double _rot_tol_rad;
++  double _cooldown_s;
++
++  /// Consecutive-agreement buffer, keyed by tag id so two different trusted
++  /// tags in view at once do not contaminate each other's streak.
++  std::map<int, std::deque<Sighting>> _streak;
++
++  ros::Time _last_correction;
++};
++
++}  // namespace ov_srvins
++
++#endif  // OV_SRVINS_TAGPOSECORRECTOR_H
+diff -ruN a/ov_srvins/src/run_subscribe_msckf.cpp b/ov_srvins/src/run_subscribe_msckf.cpp
+--- a/ov_srvins/src/run_subscribe_msckf.cpp	2026-09-07 16:00:41.178411848 -0400
++++ b/ov_srvins/src/run_subscribe_msckf.cpp	2026-09-07 15:59:36.558742703 -0400
+@@ -35,6 +35,7 @@
+ 
+ #if ROS_AVAILABLE == 1
+ #include "ros/ROS1Visualizer.h"
++#include "ros/TagPoseCorrector.h"
+ #include <ros/ros.h>
+ #elif ROS_AVAILABLE == 2
+ #include "ros/ROS2Visualizer.h"
+@@ -46,6 +47,10 @@
+ std::shared_ptr<VioManager> sys;
+ #if ROS_AVAILABLE == 1
+ std::shared_ptr<ROS1Visualizer> viz;
++// Phase 1 AprilTag drift correction (2026-09-07), ROS1 only: nothing in the
++// deployment this project uses runs sqrtVINS under ROS2 (see
++// tools/launch_sqrtvins.sh), so this was not extended there untested.
++std::shared_ptr<TagPoseCorrector> tag_corrector;
+ #elif ROS_AVAILABLE == 2
+ std::shared_ptr<ROS2Visualizer> viz;
+ #endif
+@@ -95,6 +100,9 @@
+ #if ROS_AVAILABLE == 1
+   viz = std::make_shared<ROS1Visualizer>(nh, sys);
+   viz->setup_subscribers(parser);
++  if (params.tag_correction_enabled) {
++    tag_corrector = std::make_shared<TagPoseCorrector>(nh, sys, params);
++  }
+ #elif ROS_AVAILABLE == 2
+   viz = std::make_shared<ROS2Visualizer>(node, sys);
+   viz->setup_subscribers(parser);

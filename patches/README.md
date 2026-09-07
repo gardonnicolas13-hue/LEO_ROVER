@@ -9,6 +9,16 @@ fichier.
 correctif au patch 03, pas un nouveau sujet, et il ne s'applique qu'une fois
 03 déjà en place (voir §05).
 
+**Le patch 06 (ajouté le 07/09) est d'une autre nature que 01-05** : ce n'est
+pas un correctif de bug amont soumettable à rpng/sqrtVINS, c'est une
+**fonctionnalité neuve, propre à cette plateforme** (Phase 1 de correction de
+dérive par AprilTag — voir §06). Il n'est vérifié que par-dessus 01-05 déjà
+appliqués (c'est l'état réel de ce dépôt) ; son point d'insertion dans
+`VioManager.cpp` est du code amont vierge, mais ses commentaires font
+explicitement référence au mécanisme de reset-sur-divergence des patchs 03/05
+— l'appliquer seul sur du sqrtVINS pristine compilerait sans doute, mais les
+commentaires n'auraient plus de sens sans ce contexte.
+
 Appliquer dans l'ordre :
 
 ```bash
@@ -18,6 +28,9 @@ git apply         patches/01_llt_guards_20260824.patch
 # ... 02, 03, 04 ...
 git apply --check patches/05_reset_covariance_20260827.patch   # necessite 03 deja applique
 git apply         patches/05_reset_covariance_20260827.patch
+# ... puis 06, qui suppose 01-05 deja en place ...
+git apply --check patches/06_tag_correction_phase1_20260907.patch
+git apply         patches/06_tag_correction_phase1_20260907.patch
 ```
 
 ---
@@ -173,3 +186,68 @@ maximal < 1 mm (mesuré isolément, avant toute autre modification). En
 rotation active, combiné à la resynchronisation de config du patch de suivi
 de piste (`tools/robot/sqrtvins/`, 2026-08-27) : 52 sauts de position > 0,3 m
 sur 60 s (dont plusieurs de 5-10 m) → **0**.
+
+---
+
+## 06 — Phase 1 : correction de dérive par AprilTag (2026-09-07)
+
+**Demande.** Hector, feuille de route Phase 1/2/3 (1 tag → plusieurs tags →
+balises SVGS façon Vicon). Cette Phase 1 : un seul tag (`tag36h11`, ID 0,
+0,17 m de côté), re-ancrer l'estimateur dessus quand il est vu.
+
+**Constat préalable, vérifié avant d'écrire une ligne de code.** sqrtVINS n'a
+**aucun** mécanisme de pose absolue — ni GPS, ni vicon, ni fermeture de
+boucle. Seuls trois `Updater` existent (MSCKF, SLAM, ZeroVelocity), tous
+visuels/ZUPT. `TrackAruco` existe mais traite les coins du marqueur comme des
+features visuelles ordinaires (sa propre docstring : *« the actual size of
+the tags do not matter »*) — famille `DICT_6X6_1000`, pas `tag36h11` de
+toute façon. Il n'y avait donc rien à brancher : le mécanisme restait à
+écrire.
+
+**Architecture retenue, et deux autres écartées.** (a) Un vrai `Updater`
+(Jacobien + bruit + porte χ²) — écarté : ce filtre a déjà eu plusieurs bugs
+subtils cette même campagne (patch 01, patch 02, et 03/05 ci-dessus), y
+ajouter de nouvelles maths de filtre est le choix le plus risqué. (b) Une
+correction purement externe, hors du filtre (façon `pose_selector.py` du
+projet) — écarté : ne corrige pas l'état interne, ne « zero out » rien, juste
+republie une pose corrigée en aval. **Retenu : réutiliser exactement les
+primitifs déjà validés par 03/05 ci-dessus**
+(`StateHelper::set_initial_imu_square_root_covariance`, purge des bases de
+features, `is_initialized_vio = false`), réamorcés avec la pose du tag au
+lieu de zéro. Coût assumé et documenté dans le code : chaque correction force
+un redémarrage à froid complet, pas une correction en douceur — `is_initialized_vio`
+repasse à `false`, quelques secondes de reconvergence. L'alternative plus
+douce existante dans le code (`initialize_with_gt`, utilisée par la
+simulation) ne convient pas ici : elle ne s'exécute qu'avant qu'aucun
+clone/landmark n'existe, alors qu'un correctif en direct doit composer avec
+un état déjà peuplé — les laisser en place pendant un saut de pose les
+rendrait géométriquement incohérents avec la nouvelle pose.
+
+**Géométrie**, dérivée deux fois indépendamment et vérifiée contre trois
+usages réels du code (pas la doc générique openVINS) :
+```
+R_GtoI = R_ItoC^T · R_CtoTag^T
+p_IinG = R_CtoTag^T · (p_IinC − p_TagInCam)
+```
+avec repère monde := repère du tag (pas de verrouillage au premier fix
+contrairement à `carolus_tf_bridge.py` du même projet : le tag ne bouge pas,
+chaque détection stable redonne la même réponse par construction).
+
+**Gate anti-détection isolée.** 5 détections consécutives du même ID,
+mutuellement cohérentes à 3 cm / 5° près, avant d'agir ; recul de 10 s entre
+deux corrections (chaque correction étant un redémarrage à froid, la laisser
+se redéclencher à chaque frame serait absurde).
+
+**Portée.** `VioManagerOptions.h/.cpp` (nouveaux réglages,
+`tag_correction_enabled` **false** par défaut), `VioManager.h/.cpp`
+(`reset_to_known_pose`, nouvelle méthode publique), `ros/TagPoseCorrector.h/.cpp`
+(nouveau, abonnement + gate + géométrie), `run_subscribe_msckf.cpp` (câblage
+ROS1 uniquement — aucun déploiement ROS2 de sqrtVINS sur ce projet),
+`cmake/ROS1.cmake` + `package.xml` (dépendance `apriltag_ros`, absente
+avant).
+
+**Vérifié.** Compile proprement (`catkin build ov_srvins` : 0 avertissement,
+0 échec), symboles confirmés présents dans la bibliothèque partagée ET
+l'exécutable final. **Non vérifié : aucun test avec une vraie balise
+physique ni un sqrtVINS lancé** — `tag_correction_enabled` reste à `false`
+tant que ce test n'a pas eu lieu.
