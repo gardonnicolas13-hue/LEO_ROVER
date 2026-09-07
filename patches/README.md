@@ -251,3 +251,32 @@ avant).
 l'exécutable final. **Non vérifié : aucun test avec une vraie balise
 physique ni un sqrtVINS lancé** — `tag_correction_enabled` reste à `false`
 tant que ce test n'a pas eu lieu.
+
+---
+
+## 07 — Argument de lancement pour `tag_correction_enabled` (2026-09-07)
+
+Complète le patch 06. Sans lui, activer la Phase 1 pour un essai exige
+d'éditer `config/leo_pc/estimator_config.yaml` à la main (le seul défaut
+`false` y est câblé) — possible, mais source d'oubli de repasser à `false`
+ensuite. **Piège identifié et évité** : `rosparam set /sqrtvins/... true`
+AVANT `roslaunch` ne fonctionne PAS ici, parce que le nœud `sqrtvins` porte
+`clear_params="true"` — roslaunch purge tout son espace de noms privé au
+moment de CE lancement, avant même que le code du nœud ne lise quoi que ce
+soit, donc un paramètre posé à la main juste avant est effacé sans avertissement.
+Le remède est le même patron déjà utilisé quatre fois dans ce fichier
+(`verbosity`, `use_stereo`, `max_cameras`, `dotime`) : un `<arg>` avec
+défaut `false`, relayé en `<param>` à l'intérieur du `<node>` — ce qui,
+contrairement à `rosparam set`, survit à `clear_params` car c'est roslaunch
+lui-même qui pose ce paramètre en posant le nœud.
+
+```bash
+roslaunch ov_srvins sqrtvins_pc.launch tag_correction_enabled:=true
+# ou, via le script du projet :
+tools/launch_sqrtvins.sh tag_correction_enabled:=true
+```
+
+**Vérifié** : XML valide, et rechargé par la vraie bibliothèque `roslaunch`
+(pas seulement un parseur XML générique) avec le workspace sqrtVINS
+correctement sourcé — confirme que toutes les substitutions `$(arg …)`
+existantes se résolvent encore sans erreur après l'ajout.

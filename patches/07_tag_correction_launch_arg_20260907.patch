@@ -1,0 +1,31 @@
+# Verified with `git apply --check` against a reconstructed pre-edit
+# snapshot, same method as patch 06.
+diff -ruN a/ov_srvins/launch/sqrtvins_pc.launch b/ov_srvins/launch/sqrtvins_pc.launch
+--- a/ov_srvins/launch/sqrtvins_pc.launch	2026-09-07 16:06:34.260877485 -0400
++++ b/ov_srvins/launch/sqrtvins_pc.launch	2026-09-07 16:06:34.232877529 -0400
+@@ -42,6 +42,17 @@
+   <arg name="dotime"    default="false"/>
+   <arg name="path_time" default="/home/lab272/TOUT/logs/sqrtvins_timing.txt"/>
+ 
++  <!-- Phase 1 AprilTag drift correction (2026-09-07), OFF by default in the
++       YAML. Overridable here, NOT via rosparam set before roslaunch: this
++       node has clear_params equal true, which wipes its whole private
++       namespace as part of THIS launch invocation, so any param set
++       beforehand is gone before the node's own parser ever reads it. This
++       arg/param pair is what survives that wipe, same pattern as verbosity
++       and use_stereo above.
++       Usage: roslaunch ov_srvins sqrtvins_pc.launch tag_correction_enabled:=true
++       or: tools/launch_sqrtvins.sh tag_correction_enabled:=true -->
++  <arg name="tag_correction_enabled" default="false"/>
++
+   <node name="sqrtvins" pkg="ov_srvins" type="run_subscribe_msckf"
+         output="screen" clear_params="true"
+         respawn="true" respawn_delay="5">
+@@ -52,6 +63,7 @@
+     <param name="max_cameras" type="int"    value="$(arg max_cameras)"/>
+     <param name="record_timing_information" type="bool"   value="$(arg dotime)"/>
+     <param name="record_timing_filepath"    type="string" value="$(arg path_time)"/>
++    <param name="tag_correction_enabled" type="bool" value="$(arg tag_correction_enabled)"/>
+   </node>
+ 
+ </launch>
