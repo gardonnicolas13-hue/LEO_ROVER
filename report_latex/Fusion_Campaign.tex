@@ -8742,7 +8742,35 @@ on every telemetry tick.
 \section{Open items registry}
 \label{sec:openitems}
 \small
-\begin{center}
+% 2026-09-08 : le \begin{center} qui entourait ce longtable est SUPPRIME.
+% Un longtable ne doit pas etre place dans un environnement qui fabrique une
+% boite (center, minipage, flottant) : c'est une regle du paquet, et le
+% centrage etait de toute facon redondant puisque longtable se centre seul
+% via \LTleft/\LTright. Gain mesure : une page.
+%
+% CE QUE CE RETRAIT NE FAIT PAS, et c'est important pour qui relira ceci :
+% il ne supprime PAS les quatre avertissements « Overfull \vbox ... while
+% \output is active » (296,7 / 11,1 / 602,7 / 255,9 pt) emis sur les pages
+% de continuation de ce tableau. Verifie en le retirant seul et en
+% recompilant : les quatre valeurs sont revenues IDENTIQUES au centieme.
+% Le center n'en etait donc pas la cause.
+%
+% CES QUATRE AVERTISSEMENTS NE CORRESPONDENT A AUCUN DEFAUT VISIBLE, mesure
+% et non suppose : sur les quatre pages concernees ET sur une page temoin
+% sans avertissement, le texte s'arrete exactement a la meme hauteur
+% (y = 753,60 pt sur 792). Rien ne mord sur la marge, le pied « continued on
+% next page » est a sa place. C'est un artefact de l'interaction entre les
+% blocs de longtable et la routine de sortie de TeX.
+%
+% NE PAS tenter de les faire taire avec \clearpage, \enlargethispage ou une
+% coupure forcee : cela modifierait une mise en page correcte pour rendre un
+% journal plus propre, au risque de laisser de vraies demi-pages blanches.
+% Diagnostic complet, pour ne pas le refaire : \tracingpages montre un
+% objectif de 628,59 pt et des accumulations a 938 / 652 / 1244 / 897 pt avec
+% b=* (aucun point de coupure legal). \LTchunksize=1 reduit chaque
+% debordement de 75,5 pt exactement (le coup de l'en-tete repete) mais
+% produit 24 erreurs de compilation : piste fermee. Aucun \\*, \nopagebreak
+% ni \kill dans le tableau, et aucune boite rigide dans les cellules.
 \begin{longtable}{@{}cL{6.2cm}L{6.8cm}@{}}
 \caption{Explicit registry of placeholders and pending decisions.}
 \label{tab:openitems} \\
@@ -9388,7 +9416,6 @@ on every telemetry tick.
     correction whenever the upstream source reports a reset, rather than
     relying on the operator to remember the sequence \\
 \end{longtable}
-\end{center}
 
 \FloatBarrier
 In summary, the campaign transformed the estimation layer from a divergent
