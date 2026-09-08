@@ -9,6 +9,11 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   std_srvs
   message_generation
+  # roscpp/sensor_msgs (2026-09-08): first C++ node in this package
+  # (minimu9_node.cpp, Pololu MinIMU-9 v5 driver). Every other node here is
+  # Python, so this pulls in the C++ toolchain for the first time.
+  roscpp
+  sensor_msgs
 )
 
 # Service ajoute le 2026-08-21 : le sélecteur de pose passe de 2 a 3 sources
@@ -25,8 +30,22 @@ generate_messages(
 )
 
 catkin_package(
-  CATKIN_DEPENDS message_runtime std_msgs
+  CATKIN_DEPENDS message_runtime std_msgs roscpp sensor_msgs
+  INCLUDE_DIRS include
 )
+
+include_directories(
+  include
+  ${catkin_INCLUDE_DIRS}
+)
+
+# minimu9_node (2026-09-08): reads the Pololu MinIMU-9 v5 (LSM6DS33 +
+# LIS3MDL) over the Pi's own I2C bus via linux/i2c-dev.h -- no external I2C
+# library, so no extra target_link_libraries entry for one is needed beyond
+# catkin's own.
+add_executable(minimu9_node src/minimu9_node.cpp)
+add_dependencies(minimu9_node ${catkin_EXPORTED_TARGETS})
+target_link_libraries(minimu9_node ${catkin_LIBRARIES})
 
 catkin_install_python(PROGRAMS
   scripts/pose_selector.py
