@@ -451,6 +451,21 @@ class ImuSanitizer(object):
         # (no ZOH republish — a duplicate stamp is as fatal as a backward one).
         self._last_stamp = None
         self._n_nonmono = 0
+        # Compteurs de la garde de déverrouillage (2026-09-04, cf. _cb) :
+        # _suite compte les rejets CONSÉCUTIFS (remis à zéro dès qu'une trame
+        # passe), _deverrou compte les réamorçages, publié dans le diagnostic
+        # pour qu'un verrouillage récurrent soit visible et non deviné.
+        self._n_nonmono_suite = 0
+        self._n_deverrou = 0
+        # Une référence datée de plus de STAMP_FUTUR_MAX_S dans le futur ne
+        # peut pas venir d'un capteur sain : 60 s couvre largement une
+        # désynchronisation NTP tolérable, et exclut la trame à +50 ans qui a
+        # verrouillé le nœud le 2026-09-04.
+        self.stamp_futur_max_s = float(rospy.get_param("~stamp_futur_max_s", 60.0))
+        # Filet générique : ~3 s de flux à 85 Hz. Assez long pour ne pas se
+        # déclencher sur une rafale de trames désordonnées, assez court pour
+        # qu'un blocage ne survive jamais à un essai.
+        self.stamp_rejets_max = int(rospy.get_param("~stamp_rejets_max", 250))
 
         # freeze guard (see module docstring)
         self.freeze_samples = int(rospy.get_param("~freeze_samples", 200))
@@ -797,12 +812,50 @@ class ImuSanitizer(object):
         self._n += 1
         if self._last_stamp is not None and m.stamp <= self._last_stamp:
             self._n_nonmono += 1
-            if self._n_nonmono % 50 == 1:
-                rospy.logwarn("[imu_sanitizer] stamp non monotone rejeté "
-                              "(%.4f <= %.4f, %d au total)",
-                              m.stamp.to_sec(), self._last_stamp.to_sec(),
-                              self._n_nonmono)
-            return
+            self._n_nonmono_suite += 1
+
+            # ── GARDE DE DÉVERROUILLAGE (2026-09-04) ────────────────────────
+            # Sans elle, cette garde de monotonicité n'a AUCUNE porte de
+            # sortie : une seule mesure corrompue mémorisée comme référence
+            # rejette ensuite TOUTES les mesures légitimes, indéfiniment.
+            # Observé en vrai le 2026-09-04 : une trame datée du 2076-11-10
+            # (50,2 ans dans le futur) a verrouillé le nœud et provoqué
+            # 520 451 rejets d'affilée. /imu/data_clean est resté muet, MINS
+            # n'a plus rien propagé, et le robot a disparu de la carte — sans
+            # qu'aucun processus ne meure ni qu'aucune erreur ne s'affiche.
+            #
+            # Deux conditions de déverrouillage, volontairement distinctes :
+            #   (a) la référence est absurde par rapport à l'horloge ROS
+            #       (elle vient d'une trame corrompue) ;
+            #   (b) on rejette en continu depuis trop longtemps, quelle que
+            #       soit la raison (filet de sécurité générique).
+            # Dans les deux cas on repart de la mesure courante plutôt que de
+            # rester bloqué : perdre l'ordre strict sur une trame est très
+            # préférable à perdre le flux entier.
+            maintenant = rospy.Time.now()
+            ref_absurde = (self._last_stamp - maintenant).to_sec() > self.stamp_futur_max_s
+            trop_long = self._n_nonmono_suite >= self.stamp_rejets_max
+
+            if ref_absurde or trop_long:
+                rospy.logerr(
+                    "[imu_sanitizer] référence d'horodatage DÉVERROUILLÉE "
+                    "(%s) : ref=%.3f, courant=%.3f, horloge=%.3f, "
+                    "%d rejets consécutifs — on repart de la mesure courante",
+                    "référence dans le futur" if ref_absurde else "rejets en série",
+                    self._last_stamp.to_sec(), m.stamp.to_sec(),
+                    maintenant.to_sec(), self._n_nonmono_suite)
+                self._n_deverrou += 1
+                self._n_nonmono_suite = 0
+                self._last_stamp = m.stamp        # on réamorce, on ne bloque plus
+            else:
+                if self._n_nonmono % 50 == 1:
+                    rospy.logwarn("[imu_sanitizer] stamp non monotone rejeté "
+                                  "(%.4f <= %.4f, %d au total)",
+                                  m.stamp.to_sec(), self._last_stamp.to_sec(),
+                                  self._n_nonmono)
+                return
+        else:
+            self._n_nonmono_suite = 0
         self._last_stamp = m.stamp
         self._check_freeze((m.gyro_x, m.gyro_y, m.gyro_z,
                             m.accel_x, m.accel_y, m.accel_z))
