@@ -82,7 +82,7 @@ import rospy
 import tf2_ros
 import tf.transformations as tft
 from nav_msgs.msg import Odometry
-from std_msgs.msg import String
+from std_msgs.msg import Float64, String
 from std_srvs.srv import SetBool, SetBoolResponse
 # 2026-08-21 : service typé pour la 3e source. std_srvs/SetBool est conservé
 # tel quel pour ~set_source (5 appelants existants) — celui-ci est ADDITIF.
@@ -235,6 +235,34 @@ class PoseSelector(object):
         self._base_imu_static = None      # cached base_frame<-imu_frame, looked up lazily
         self._warned_no_static_tf = False
 
+        # ── PLAQUAGE DE Z À ZÉRO (2026-09-08) ────────────────────────────
+        # Le rover roule sur un sol plat : sa hauteur est physiquement
+        # constante, et tout z non nul servi en sortie est une erreur
+        # d'estimation, jamais une mesure. C'est aussi l'axe le plus fragile
+        # de cette plateforme — les roues contraignent X et Y, SEULE la
+        # caméra contraint Z, donc dès que l'apport visuel faiblit, Z part
+        # librement sans qu'aucune autre mesure ne le rappelle.
+        #
+        # ~force_z_zero_sources liste les sources concernées. MINS seul par
+        # défaut, et pas « toutes », volontairement : openVINS et sqrtVINS
+        # sont des VIO purs qu'on ÉVALUE, y compris en 3D. Leur plaquer Z à
+        # zéro embellirait la mesure au lieu de la faire, et rendrait toute
+        # comparaison d'estimateurs du rapport malhonnête.
+        #
+        # RÉSERVE, à lire avant d'étendre ce réglage : c'est précisément un
+        # Z visiblement faux qui a permis de détecter la panne du 08/09
+        # (MINS verrouillé à -327 m alors que X et Y étaient impeccables).
+        # Plaqué à zéro, ce signal d'alarme disparaît de la sortie. Le z
+        # BRUT est donc republié sur /leo_navigation/pose_z_brut pour que
+        # le diagnostic reste possible — c'est lui qu'il faut regarder, pas
+        # /robot_pose_fused, quand on soupçonne une dérive verticale.
+        self.force_z_zero = bool(rospy.get_param("~force_z_zero", True))
+        sources_z = rospy.get_param("~force_z_zero_sources", "MINS")
+        self.force_z_zero_sources = set(
+            s.strip().upper() for s in str(sources_z).split(",") if s.strip())
+
+        self.pub_z_brut = rospy.Publisher("/leo_navigation/pose_z_brut",
+                                          Float64, queue_size=5)
         self.pub_fused = rospy.Publisher("/robot_pose_fused", Odometry, queue_size=5)
         self.pub_source = rospy.Publisher("/leo_navigation/pose_source", String,
                                            queue_size=1, latch=True)
@@ -462,7 +490,16 @@ class PoseSelector(object):
                 # Mais on continue de SERVIR la dernière pose saine, pour ne
                 # pas assécher le topic (voir hold_during_freeze).
                 if self.hold_during_freeze and self._last_fused_mat is not None:
-                    held = _odom_from_mat(self._last_fused_mat, msg.header.stamp,
+                    # Le z est plaqué ici aussi. Sans cela, la sortie
+                    # retrouverait un z non nul pendant les gels — c'est-à-dire
+                    # exactement pendant les épisodes de panne, là où la
+                    # discontinuité serait la plus déroutante à lire.
+                    T_tenue = self._last_fused_mat
+                    if (self.force_z_zero
+                            and self.active in self.force_z_zero_sources):
+                        T_tenue = self._last_fused_mat.copy()
+                        T_tenue[2, 3] = 0.0
+                    held = _odom_from_mat(T_tenue, msg.header.stamp,
                                           self.odom_frame, self.base_frame,
                                           template=msg)
                     # covariance saturée = "pose tenue, pas une mesure fraîche"
@@ -500,12 +537,44 @@ class PoseSelector(object):
 
         self._last_fused_mat = T_fused
 
-        fused = _odom_from_mat(T_fused, msg.header.stamp, self.odom_frame,
+        # ── Z plaqué à zéro, en SORTIE uniquement ────────────────────────
+        # Placé ICI, et non plus haut, pour une raison précise : tout ce qui
+        # précède — garde de vraisemblance, historique _sane_hist,
+        # ré-ancrage après excursion, _last_fused_mat — continue de voir le
+        # z RÉEL. Plaquer avant la garde l'aveuglerait sur l'axe vertical,
+        # c'est-à-dire exactement sur celui qui décroche en premier ici.
+        # On ne modifie donc que ce qui sort, jamais ce qui décide.
+        #
+        # La copie est indispensable : T_fused est référencé par
+        # _last_fused_mat et _sane_prev, écrire dedans corromprait l'état
+        # interne du sélecteur en même temps que la sortie.
+        T_sortie = T_fused
+        if self.force_z_zero and self.active in self.force_z_zero_sources:
+            z_brut = float(T_fused[2, 3])
+            self.pub_z_brut.publish(Float64(data=z_brut))
+            # Un z brut qui s'éloigne franchement du sol reste une panne, et
+            # elle ne doit pas devenir silencieuse sous prétexte qu'on la
+            # masque en sortie. Seuil large (25 cm) : on ne veut pas hurler
+            # sur du bruit centimétrique, seulement sur une vraie dérive.
+            if abs(z_brut) > 0.25:
+                rospy.logwarn_throttle(
+                    10.0,
+                    "[pose_selector] %s : z BRUT = %.3f m, plaqué à 0 en "
+                    "sortie. La sortie est propre mais l'estimateur dérive "
+                    "en vertical — surveiller /leo_navigation/pose_z_brut",
+                    self.active, z_brut)
+            T_sortie = T_fused.copy()
+            T_sortie[2, 3] = 0.0
+
+        fused = _odom_from_mat(T_sortie, msg.header.stamp, self.odom_frame,
                                 self.base_frame, template=msg)
         self.pub_fused.publish(fused)
 
         if self.publish_tf:
-            self._broadcast_tf(T_fused, msg.header.stamp)
+            # Même matrice que la pose : servir un z nul sur /robot_pose_fused
+            # tout en diffusant un z non nul dans la TF ferait diverger la
+            # carte du repère, et le désaccord serait invisible sur les deux.
+            self._broadcast_tf(T_sortie, msg.header.stamp)
 
     # ── TF ────────────────────────────────────────────────────────────────
     def _broadcast_tf(self, T_odom_imu, stamp):
@@ -538,6 +607,20 @@ class PoseSelector(object):
         if self._base_imu_static is not None:
             T_out = T_odom_imu @ np.linalg.inv(self._base_imu_static)
             child = self.base_frame
+
+        # ── Z plaqué sur la transformation FINALE ────────────────────────
+        # Et non sur son entrée, contrairement à ce que j'avais fait d'abord.
+        # T_odom_imu est exprimée dans le repère de l'IMU ; la composer avec
+        # la statique base<-imu réintroduit la hauteur de montage du capteur.
+        # Mesuré sur ce robot : avec un z d'entrée déjà nul, la TF
+        # odom -> base_footprint sortait à -0,159 m, pendant que
+        # /robot_pose_fused annonçait 0 pour le MÊME repère. La carte et la
+        # pose se seraient contredites sans que ni l'une ni l'autre ne le
+        # signale. Plaquer ici garantit que le repère RÉELLEMENT diffusé est
+        # celui qui vaut zéro.
+        if self.force_z_zero and self.active in self.force_z_zero_sources:
+            T_out = T_out.copy()
+            T_out[2, 3] = 0.0
 
         t = TransformStamped()
         t.header.stamp = stamp
