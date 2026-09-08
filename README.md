@@ -75,8 +75,19 @@ détaillée au début de l'annexe D du rapport.
 │
 ├── data/trajectories/          Trajectoires exportées (CSV, PNG)
 │
-└── report_latex/               Sources LaTeX + **main.pdf** (rapport compilé)
+├── report_latex/               Sources LaTeX + **main.pdf** (rapport compilé)
+│
+└── archives/                   Hors dépôt. Rangement du 08/09 : sauvegardes
+                                horodatées, documents reçus, livraisons zip,
+                                figures. Voir archives/README.md — rien n'y a
+                                été supprimé, et rien de référencé n'y a été
+                                déplacé.
 ```
+
+**Les 20 fichiers restés à la racine sont exactement les 20 fichiers suivis
+par git.** Cette correspondance est volontaire depuis le rangement du
+2026-09-08 : ce qui est à la racine est le projet, le reste est dans
+`archives/`.
 
 **Non versionné et pourquoi :** les paquets amont (openVINS, MINS, Kalibr,
 11 Go) se clonent depuis leurs dépôts d'origine ; les enregistrements
