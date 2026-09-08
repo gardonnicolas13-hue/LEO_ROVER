@@ -14,6 +14,10 @@ find_package(catkin REQUIRED COMPONENTS
   # Python, so this pulls in the C++ toolchain for the first time.
   roscpp
   sensor_msgs
+  # leo_msgs (2026-09-08) : minimu9_node publie leo_msgs/Imu et non
+  # sensor_msgs/Imu, pour se brancher a la SOURCE de la chaine que lit
+  # imu_sanitizer. sensor_msgs reste requis pour MagneticField.
+  leo_msgs
 )
 
 # Service ajoute le 2026-08-21 : le sélecteur de pose passe de 2 a 3 sources
@@ -30,7 +34,7 @@ generate_messages(
 )
 
 catkin_package(
-  CATKIN_DEPENDS message_runtime std_msgs roscpp sensor_msgs
+  CATKIN_DEPENDS message_runtime std_msgs roscpp sensor_msgs leo_msgs
   INCLUDE_DIRS include
 )
 

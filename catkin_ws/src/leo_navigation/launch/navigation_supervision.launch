@@ -25,6 +25,31 @@
        /imu/data_clean. -->
   <arg name="accel_scale_vins"     default="1.1297"/>
   <arg name="vins_topic"           default="/imu/data_vins"/>
+
+  <!-- ══ SOURCE INERTIELLE ═══════════════════════════════════════════════
+       imu_source choisit d'ou vient l'IMU qui alimente MINS :
+
+         core2    (defaut)  l'IMU embarquee du CORE2, via /firmware/imu,
+                            avec la correction d'echelle 1.1297 qui
+                            compense son accelerometre hors spec.
+         minimu9            le Pololu MinIMU-9 v5 sur le bus I2C du Pi,
+                            via minimu9_node -> /minimu9/imu, SANS
+                            correction d'echelle (accel_scale = 1.0).
+
+       Un seul argument commande les DEUX parametres, volontairement : une
+       demi-migration (bon topic, mauvaise echelle, ou l'inverse) produit
+       une gravite fausse sans lever la moindre alarme. Les lier rend cette
+       erreur impossible depuis la ligne de commande.
+
+       Le defaut reste core2 : le MinIMU-9 n'est pas encore cable. NE PAS
+       basculer avant d'avoir un GO de tools/verif_minimu9.py, qui verifie
+       |a| contre 9,790 m/s^2 et les biais gyro sur le capteur reel. -->
+  <arg name="imu_source" default="core2"
+       doc="core2 (defaut, IMU CORE2) ou minimu9 (Pololu MinIMU-9 v5 en I2C)"/>
+  <arg name="imu_in_topic"
+       default="$(eval '/minimu9/imu' if arg('imu_source') == 'minimu9' else '/firmware/imu')"/>
+  <arg name="imu_accel_scale"
+       default="$(eval '1.0' if arg('imu_source') == 'minimu9' else '1.1297')"/>
   <!-- Source sqrtVINS vue par pose_selector, donc par le BOUTON DU COCKPIT.
        /sqrtvins/odomimu est le nom CANONIQUE : il designe l'estimateur, pas
        la machine qui l'execute. L'instance embarquee publie desormais sous ce
@@ -115,7 +140,31 @@
   <node name="imu_sanitizer" pkg="leo_navigation" type="imu_sanitizer.py"
         output="screen" respawn="true" respawn_delay="5"
         launch-prefix="nice -n -10">
-    <param name="in_topic"  value="/firmware/imu"/>
+    <!-- ══ BASCULE VERS LE MinIMU-9 v5, PREPAREE MAIS PAS ARMEE ══════════
+         Les deux valeurs ci-dessous viennent des args imu_in_topic et
+         imu_accel_scale definis en tete de fichier. Leurs defauts
+         reproduisent EXACTEMENT le comportement actuel : tant que personne
+         ne passe l'argument, rien ne change.
+
+         Le jour ou le capteur est cable et valide par
+         tools/verif_minimu9.py, une seule ligne suffit :
+
+           roslaunch leo_navigation navigation_master.launch imu_source:=minimu9
+
+         POURQUOI CE N'EST PAS ECRIT EN DUR DES MAINTENANT : le capteur
+         n'existe pas encore physiquement. Pointer in_topic sur
+         /minimu9/imu aujourd'hui abonnerait le sanitizer a un topic que
+         rien ne publie, /imu/data_clean deviendrait muet, et MINS
+         perdrait toute entree inertielle — le robot disparaitrait de la
+         carte sans qu'aucun processus ne meure. C'est exactement la panne
+         du 2026-09-04 (verrou d'horodatage), qui a coute une soiree.
+
+         POURQUOI LES DEUX BASCULENT ENSEMBLE : changer in_topic sans
+         changer accel_scale donnerait un capteur juste multiplie par
+         1.1297, soit une gravite a ~11,06 m/s^2. L'inverse laisserait le
+         CORE2 non corrige a 8,67. Une demi-migration est pire que pas de
+         migration ; l'argument imu_source les tient donc liees. -->
+    <param name="in_topic"  value="$(arg imu_in_topic)"/>
     <param name="out_topic" value="/imu/data_clean"/>
     <!-- Correction d'échelle accéléromètre (2026-07-28). L'accéléro CORE2
          mesure 8.7525 m/s^2 au repos (robot vérifié immobile, 502 échant.,
@@ -139,7 +188,17 @@
          La mesure du 20/08 est conservee ici en clair : si openVINS redevient
          un jour le sujet, c'est 1.1314 qu'il faut lui donner — idealement par
          un parametre separe, pas en changeant celui que MINS partage. -->
-    <param name="accel_scale" value="1.1297"/>
+    <!-- 2026-09-08 : la valeur passe par l'arg imu_accel_scale, dont le
+         defaut EST 1.1297 — comportement inchange. Avec
+         imu_source:=minimu9 elle devient 1.0, parce que la correction
+         ci-dessus compense un defaut du CORE2 et non une loi physique :
+         appliquee a un capteur sain elle ne corrige rien, elle fausse.
+         Mesure a l'appui (tools/verif_minimu9.py sur /imu/data_raw,
+         robot immobile, 1054 echantillons) : |a| = 8,6692 m/s^2, soit un
+         facteur implicite de 1,1293 — a 0,03 % du 1.1297 configure ici,
+         ce qui confirme independamment que cette valeur est bien une
+         mesure et non un reglage arbitraire. -->
+    <param name="accel_scale" value="$(arg imu_accel_scale)"/>
     <!-- Branche VINS separee : /imu/data_clean reste identique au octet pres
          pour MINS. accel_recal_period, s'il est active, recalibre DESORMAIS
          cette echelle-ci et non la commune — c'est ce qui rend la correction

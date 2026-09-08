@@ -34,7 +34,26 @@
 // hardware-grade timing. At MINS's propagation rate that jitter is not
 // expected to matter; it would if this fed a much faster control loop.
 
-#include <sensor_msgs/Imu.h>
+// leo_msgs/Imu, NOT sensor_msgs/Imu, and this is an integration decision
+// rather than a style preference. The chain that actually feeds MINS is
+//   CORE2 -> /serial_node -> /firmware/imu (leo_msgs/Imu)
+//         -> imu_sanitizer (subscribes with the leo_msgs type)
+//         -> /imu/data_clean  <- MINS reads THIS
+// Publishing sensor_msgs on /imu/data_raw would have done two wrong things
+// at once: collided with firmware_message_converter, which already
+// publishes there, and never reached MINS at all, since config_imu.yaml
+// says in as many words "/imu/data_clean, NOT /imu/data_raw. Never point
+// MINS at the raw firmware IMU."
+//
+// Emitting leo_msgs on a dedicated topic instead makes this a drop-in
+// replacement at the SOURCE of the chain: imu_sanitizer only needs its
+// ~in_topic repointed, and every downstream guard it provides -- spike
+// rejection, the timestamp-unlock guard, ZUPT detection, the accel rescale
+// -- keeps working untouched.
+//
+// The magnetometer stays sensor_msgs/MagneticField: leo_msgs has no
+// magnetic type, and nothing in this pipeline consumes one today anyway.
+#include <leo_msgs/Imu.h>
 #include <sensor_msgs/MagneticField.h>
 
 #include <cmath>
@@ -59,13 +78,36 @@ constexpr uint8_t kWhoAmIValue = 0x69;  // fixed value, Table 41
 constexpr uint8_t kRegCtrl1Xl = 0x10;  // accel: ODR_XL[3:0] FS_XL[1:0] BW_XL[1:0]
 constexpr uint8_t kRegCtrl2G = 0x11;   // gyro:  ODR_G[3:0]  FS_G[1:0]  FS_125 0
 constexpr uint8_t kRegCtrl3C = 0x12;   // BOOT BDU H_LACTIVE PP_OD SIM IF_INC BLE SW_RESET
+// STATUS_REG (Table 76, section 9.24): bit layout is
+//   [ - - - - EV_BOOT TDA GDA XLDA ]
+// so bit 0 = accelerometer data available, bit 1 = gyroscope, bit 2 =
+// temperature. Read before every publish so the node never re-publishes a
+// sample the chip has not refreshed (see the loop below for why that
+// matters more than a missed sample would).
+constexpr uint8_t kRegStatus = 0x1E;
+constexpr uint8_t kStatusXlda = 0x01;  // accel new data
+constexpr uint8_t kStatusGda = 0x02;   // gyro new data
+constexpr uint8_t kStatusTda = 0x04;   // temperature new data
+
+// OUT_TEMP_L (0x20) / OUT_TEMP_H (0x21), then OUT_G (0x22-0x27), then
+// OUT_XL (0x28-0x2D). All fourteen bytes are CONTIGUOUS, so a single burst
+// from 0x20 returns temperature, gyro and accel in ONE I2C transaction --
+// verified against the register address map (Table 16) and section 9.25,
+// not assumed from a typical chip layout.
+constexpr uint8_t kRegOutTempStart = 0x20;
 constexpr uint8_t kRegOutGStart = 0x22;   // OUTX_L_G .. OUTZ_H_G, 6 bytes
 constexpr uint8_t kRegOutXlStart = 0x28;  // OUTX_L_XL .. OUTZ_H_XL, 6 bytes
-// OUT_G and OUT_XL are contiguous (0x22-0x2D), so one 12-byte burst from
-// kRegOutGStart returns gyro then accel in a single I2C transaction --
-// verified directly against Table 16 (register address map), not assumed
-// from typical chip layouts.
-constexpr uint8_t kBurstLen = 12;
+constexpr uint8_t kBurstLen = 14;         // 0x20..0x2D inclusive
+
+// Temperature: 16-bit two's complement (Tables 78-80), sensitivity
+// TSen = 16 LSB/degC, and the datasheet's own footnote states the output is
+// "0 LSB (typ.) at 25 degC" -- hence T = raw/16 + 25. Both constants come
+// from the datasheet, neither is a remembered convention.
+constexpr double kTempLsbPerDegC = 16.0;
+constexpr double kTempZeroDegC = 25.0;
+// The temperature channel refreshes at 52 Hz, HALF the 104 Hz ODR, so TDA
+// is set on roughly every other cycle. The last good value is therefore
+// held between refreshes rather than publishing a stale-looking zero.
 
 // CTRL1_XL: FS_XL[1:0] is NOT in ascending order -- 00=+-2g, 01=+-16g,
 // 10=+-4g, 11=+-8g (Table 43). Getting this backwards silently scales
@@ -74,7 +116,7 @@ constexpr uint8_t kBurstLen = 12;
 // nowhere near 2g of dynamic acceleration, and +-4g keeps more of the
 // 16-bit range applied to the signal than +-8/+-16g would.
 constexpr uint8_t kFsXl4g = 0b10;
-// ODR_XL: 0110 = 104 Hz high-performance (Table 44) -- close to the
+// ODR_XL: 0100 = 104 Hz high-performance (Table 44) -- close to the
 // ~85-89 Hz this project already runs the CORE2 IMU at, so MINS's existing
 // tuning (clone rates, window_size) does not need rethinking for rate
 // alone. Re-measure once real hardware confirms the achieved rate.
@@ -191,8 +233,20 @@ int main(int argc, char **argv) {
   pnh.param<std::string>("i2c_bus", bus_path, "/dev/i2c-1");
   std::string frame_id;
   pnh.param<std::string>("frame_id", frame_id, "imu_link");
+  // POLL rate, not publish rate -- the distinction matters now that the
+  // loop is gated on STATUS_REG. The published rate is set by the sensor's
+  // ODR (104 Hz); this is only how often we ASK whether a new sample
+  // exists. It must therefore be comfortably FASTER than the ODR: polling
+  // at 100 Hz against a 104 Hz source would fall behind by ~4 samples a
+  // second and the queue would drift. 250 Hz gives roughly 2.4 polls per
+  // sample, so each one is picked up within ~4 ms of becoming ready, at a
+  // cost of a single one-byte I2C read per empty poll.
+  //
+  // For reference, the chain this replaces delivers 85.7 Hz measured on
+  // /imu/data_clean, so 104 Hz is a modest improvement rather than a
+  // change MINS has to be retuned for.
   double rate_hz;
-  pnh.param<double>("rate_hz", rate_hz, 100.0);
+  pnh.param<double>("rate_hz", rate_hz, 250.0);
 
   using namespace leo_navigation;
 
@@ -261,69 +315,106 @@ int main(int argc, char **argv) {
     }
   }
 
-  ros::Publisher pub_imu = nh.advertise<sensor_msgs::Imu>("imu/data_raw", 10);
+  // Dedicated topic. NOT imu/data_raw: firmware_message_converter already
+  // publishes there, and two publishers on one topic interleave silently.
+  std::string imu_topic;
+  pnh.param<std::string>("imu_topic", imu_topic, "/minimu9/imu");
+  ros::Publisher pub_imu = nh.advertise<leo_msgs::Imu>(imu_topic, 10);
   ros::Publisher pub_mag;
   if (mag) {
-    pub_mag =
-        nh.advertise<sensor_msgs::MagneticField>("imu/mag", 10);
+    pub_mag = nh.advertise<sensor_msgs::MagneticField>("/minimu9/mag", 10);
   }
 
-  // Covariances: PLACEHOLDER, not a measurement. This project's own
-  // practice (see config_imu.yaml, the CORE2 IMU's Allan-variance
-  // densities) is to characterize noise from the real, installed unit --
-  // never inherit a datasheet typical figure as if it were a calibration.
-  // These values are deliberately loose (visibly "not yet characterized")
-  // rather than confidently precise-looking and wrong.
-  sensor_msgs::Imu imu_msg;
-  imu_msg.header.frame_id = frame_id;
-  for (int i = 0; i < 9; i++) {
-    imu_msg.linear_acceleration_covariance[i] = 0.0;
-    imu_msg.angular_velocity_covariance[i] = 0.0;
-  }
-  imu_msg.linear_acceleration_covariance[0] = 0.01;
-  imu_msg.linear_acceleration_covariance[4] = 0.01;
-  imu_msg.linear_acceleration_covariance[8] = 0.01;
-  imu_msg.angular_velocity_covariance[0] = 0.001;
-  imu_msg.angular_velocity_covariance[4] = 0.001;
-  imu_msg.angular_velocity_covariance[8] = 0.001;
-  imu_msg.orientation_covariance[0] = -1;  // this driver reports no orientation
+  // leo_msgs/Imu carries no covariance and no frame_id -- it is the raw
+  // firmware-shaped message. That is deliberate here: the covariances this
+  // project trusts are the Allan-variance densities in MINS's own
+  // config_imu.yaml, characterized from the installed unit, and inventing
+  // placeholder ones on the wire would only invite someone to believe them.
+  // ~frame_id is kept as a parameter because it still labels the
+  // magnetometer message, which IS a sensor_msgs type.
+  leo_msgs::Imu imu_msg;
 
   ROS_INFO(
       "[minimu9] configured: accel +-4g @104Hz, gyro +-500dps @104Hz%s. "
-      "Publishing to imu/data_raw at %.1f Hz requested.",
-      mag ? ", mag +-4G @10Hz" : " (no magnetometer)", rate_hz);
+      "Publishing leo_msgs/Imu on %s, gated on the data-ready bits, "
+      "loop %.1f Hz.",
+      mag ? ", mag +-4G @10Hz" : " (no magnetometer)", imu_topic.c_str(),
+      rate_hz);
 
   ros::Rate loop(rate_hz);
   uint8_t buf[lsm6ds33::kBurstLen];
   uint8_t mag_buf[lis3mdl::kBurstLen];
 
+  // Held across iterations: the temperature channel refreshes at 52 Hz,
+  // half the inertial ODR, so on roughly every other pass TDA is clear and
+  // there is simply no new value to read. Publishing 0 on those cycles
+  // would look like a sensor reading 0 degC rather than "unchanged".
+  float derniere_temp = 0.0f;
+  bool temp_valide = false;
+
   while (ros::ok()) {
-    if (accel_gyro->read_burst(lsm6ds33::kRegOutGStart, buf,
+    // ---- data-ready gate -------------------------------------------
+    // A free-running poll against a 104 Hz ODR does two bad things: it
+    // re-reads a sample the chip has not refreshed, and it occasionally
+    // skips one. For an estimator that INTEGRATES, the duplicate is the
+    // worse of the two -- it counts the same motion twice, biasing the
+    // propagated velocity, whereas a dropped sample only widens the
+    // interval. Gating on STATUS_REG removes the duplicates outright.
+    uint8_t status = 0;
+    if (!accel_gyro->read_reg(lsm6ds33::kRegStatus, &status)) {
+      ROS_WARN_THROTTLE(5.0, "[minimu9] STATUS_REG read failed");
+      loop.sleep();
+      continue;
+    }
+    const bool inertiel_pret =
+        (status & lsm6ds33::kStatusXlda) && (status & lsm6ds33::kStatusGda);
+    if (!inertiel_pret) {
+      // Nothing new yet. Poll again rather than publish a stale copy.
+      loop.sleep();
+      continue;
+    }
+
+    // One 14-byte burst from OUT_TEMP_L covers temperature, gyro and
+    // accel: 0x20..0x2D are contiguous, so this stays a single I2C
+    // transaction even though it now carries three quantities.
+    if (accel_gyro->read_burst(lsm6ds33::kRegOutTempStart, buf,
                                lsm6ds33::kBurstLen)) {
       // Timestamp taken HERE, immediately after the I2C transaction
       // returns and before any conversion math -- see the file header
       // note on timestamp policy.
       ros::Time stamp = ros::Time::now();
 
-      int16_t gx = le16(buf[0], buf[1]);
-      int16_t gy = le16(buf[2], buf[3]);
-      int16_t gz = le16(buf[4], buf[5]);
-      int16_t ax = le16(buf[6], buf[7]);
-      int16_t ay = le16(buf[8], buf[9]);
-      int16_t az = le16(buf[10], buf[11]);
+      int16_t traw = le16(buf[0], buf[1]);   // 0x20-0x21
+      int16_t gx = le16(buf[2], buf[3]);     // 0x22-0x23
+      int16_t gy = le16(buf[4], buf[5]);
+      int16_t gz = le16(buf[6], buf[7]);
+      int16_t ax = le16(buf[8], buf[9]);     // 0x28-0x29
+      int16_t ay = le16(buf[10], buf[11]);
+      int16_t az = le16(buf[12], buf[13]);
 
-      imu_msg.header.stamp = stamp;
-      imu_msg.angular_velocity.x =
+      if (status & lsm6ds33::kStatusTda) {
+        derniere_temp = static_cast<float>(
+            traw / lsm6ds33::kTempLsbPerDegC + lsm6ds33::kTempZeroDegC);
+        temp_valide = true;
+      }
+
+      // leo_msgs/Imu carries its own `stamp` field rather than a
+      // std_msgs/Header -- the same shape firmware_message_converter
+      // forwards from the CORE2, which is precisely what makes this a
+      // drop-in at the head of the chain.
+      imu_msg.stamp = stamp;
+      imu_msg.temperature = temp_valide ? derniere_temp : 0.0f;
+      imu_msg.gyro_x =
           gx * lsm6ds33::kGyroSensitivityMdpsPerLsb * 1e-3 * kDegToRad;
-      imu_msg.angular_velocity.y =
+      imu_msg.gyro_y =
           gy * lsm6ds33::kGyroSensitivityMdpsPerLsb * 1e-3 * kDegToRad;
-      imu_msg.angular_velocity.z =
+      imu_msg.gyro_z =
           gz * lsm6ds33::kGyroSensitivityMdpsPerLsb * 1e-3 * kDegToRad;
-      imu_msg.linear_acceleration.x =
+      imu_msg.accel_x =
           ax * lsm6ds33::kAccelSensitivityMgPerLsb * 1e-3 * kGravityMps2;
-      imu_msg.linear_acceleration.y =
+      imu_msg.accel_y =
           ay * lsm6ds33::kAccelSensitivityMgPerLsb * 1e-3 * kGravityMps2;
-      imu_msg.linear_acceleration.z =
+      imu_msg.accel_z =
           az * lsm6ds33::kAccelSensitivityMgPerLsb * 1e-3 * kGravityMps2;
       pub_imu.publish(imu_msg);
     } else {
