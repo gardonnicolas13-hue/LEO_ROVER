@@ -464,3 +464,56 @@ The return-to-base accuracy (14~cm error at mission end) can be decomposed into 
 
 \textbf{Gap explanation}: floor surface irregularity (a cable on the floor during the test) caused a $\sim1^\circ$ heading deviation over 6~m, i.e.\ a 10.5~cm lateral offset. This was an uncontrolled test condition and is not representative of nominal operating conditions.
 \end{eqblock}
+
+\subsection{Comparative estimator behaviour on a single recording}
+\label{sec:estimator-comparison}
+
+The mission metrics above were logged with MINS serving the fused pose. The
+obvious question --- whether a different estimator would have done better ---
+cannot be answered by comparing two separate drives, because the motion, the
+lighting and the feature content all differ between them. It can only be
+answered by replaying \emph{one} recording through several estimators, so that
+each sees exactly the same images and the same IMU samples at the same
+instants. \code{tools/compare\_estimators.m} exists for that purpose and is
+deliberately kept separate from \code{tools/compare\_tests.m}, which compares
+two drives and therefore cannot support a claim of superiority.
+
+Figure~\ref{fig:estimators-comparison} shows that comparison on the
+600-second recording \code{zuptclean\_20260820\_162020}
+(51{,}867 MINS samples, 51{,}806 openVINS samples over the same interval).
+Only two estimators appear: this recording carries no
+\code{\_srv.csv}, so $\sqrt{\text{VINS}}$ is absent rather than omitted.
+
+\begin{figure}[htbp]
+  \centering
+  \IfFileExists{figures/estimators_comparison.png}{%
+    \includegraphics[width=\linewidth]{figures/estimators_comparison.png}%
+  }{%
+    \fbox{\parbox{0.9\linewidth}{\centering\vspace{1em}
+    \code{figures/estimators\_comparison.png} not generated --- run
+    \code{compare\_estimators('data/trajectories/zuptclean\_20260820\_162020')}
+    \vspace{1em}}}%
+  }
+  \caption[MINS and openVINS on one recording]{MINS against openVINS on the
+  same 600-second recording, so both estimators saw identical images and
+  identical IMU samples. \textbf{Left:} $XY$ trajectories, circle marking the
+  start and square the end. The frame is fitted to the \emph{bounded} series,
+  so a diverging estimator leaves the frame rather than compressing everything
+  else into a dot --- which is why only the MINS trace is visible here.
+  \textbf{Right:} distance from the starting point against time, on a
+  logarithmic $y$ axis, where an unbounded estimator reads as a rising slope.
+  MINS stays within 1.78~m of its origin for the whole run and ends 1.40~m
+  away; openVINS reaches 624.19~m and ends 559.22~m away. The gap is a factor
+  of ${\approx}400$, which is why the two cannot share a linear axis.}
+  \label{fig:estimators-comparison}
+\end{figure}
+
+Two cautions on how far this figure may be pushed. First, it establishes that
+openVINS diverged \emph{on this recording}, not that it is inferior in
+general: \S\ref{sec:openitems} records the starvation and ZUPT-threshold
+faults that account for such runs, and several were still open on 2026-08-20.
+Second, MINS staying bounded is not the same as MINS being correct. A frozen
+initialisation holds a perfectly steady --- and perfectly wrong --- position,
+and exactly that failure was observed on 2026-09-08 with $z$ locked
+327~m below ground while $x$ and $y$ looked healthy. Boundedness is a
+necessary condition here, never a sufficient one.

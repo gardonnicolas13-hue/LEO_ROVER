@@ -4296,9 +4296,21 @@ the other.
 % 0.82\linewidth chacun — \code{plot\_trajectories.m} les re-exporte seuls en
 % 200 dpi (\code{<base>\_p1.png} ... \code{\_p8.png}) precisement pour cela.
 % La planche combinee reste produite pour la consultation a l'ecran.
+% HAUTEUR PLAFONNEE (2026-09-08). La largeur seule ne suffit pas : ces PNG
+% font 593,7 x 404,7 pt (rapport 0,682), donc a 0,82\linewidth (=455 pt de
+% texte) chaque panneau montait a ~254 pt. Deux panneaux plus leurs sous-
+% legendes — longues ici — et la legende d'ensemble depassaient les
+% 652,7 pt de \textheight : LaTeX signalait « Float too large for page by »
+% jusqu'a 98,76 pt sur la planche fig:trajresid.
+% `keepaspectratio` fait respecter la PLUS CONTRAIGNANTE des deux bornes,
+% donc c'est la hauteur qui decide ici (0,29\textheight ~ 189 pt, largeur
+% resultante ~0,61\linewidth) sans jamais deformer l'image. Plafonner ici
+% plutot que dans chaque figure corrige les huit panneaux d'un coup et
+% empeche la reapparition du probleme si un panneau est ajoute.
 \newcommand{\trajpanel}[2]{%
   \IfFileExists{figures/traj_p#1.png}{%
-    \includegraphics[width=0.82\linewidth]{figures/traj_p#1.png}%
+    \includegraphics[width=0.82\linewidth,height=0.29\textheight,%
+                     keepaspectratio]{figures/traj_p#1.png}%
   }{%
     \fbox{\begin{minipage}[c][0.17\textheight][c]{0.8\linewidth}\centering
       \ttfamily\small [ panel #1 placeholder ]\\[3pt]

@@ -569,7 +569,12 @@ RTB & MANUEL & dist $<$ \code{RTB\_DIST\_TOL} (0.08~m) OR overshoot & \code{safe
 
 \begin{figure}[htbp]
 \centering
-\resizebox{0.92\linewidth}{!}{%
+% 2026-09-08 : etait \resizebox{0.92\linewidth}{!} — largeur contrainte,
+% hauteur LIBRE. Ce diagramme d'etats est large et ses arcs de securite le
+% rendent haut ; mis a l'echelle sur la seule largeur, il depassait la page
+% de 66,23 pt. `max totalheight` (legende comprise cote flottant) borne
+% desormais aussi la verticale ; adjustbox ne reduit que si necessaire.
+\begin{adjustbox}{max width=0.92\linewidth, max totalheight=0.78\textheight}
 \begin{tikzpicture}[
   font=\scriptsize,
   >={Latex[length=1.8mm]},
@@ -610,7 +615,8 @@ RTB & MANUEL & dist $<$ \code{RTB\_DIST\_TOL} (0.08~m) OR overshoot & \code{safe
   \draw[safety] (wait) to[out=-110, in=-40, looseness=1.5] (manuel);
   \draw[safety] (uturn) to[bend right=12] (manuel);
 
-  \end{tikzpicture}}
+  \end{tikzpicture}
+\end{adjustbox}
 \caption{Autonomous FSM state transition diagram. Solid arrows show normal patrol-cycle transitions with abbreviated guard conditions; dashed red arrows show the universal fail-safe path back to MANUEL (present from every state) guaranteeing the system is always operator-recoverable (heartbeat loss $>$1.5~s or manual override).}
 \label{fig:fsm-diagram}
 \end{figure}

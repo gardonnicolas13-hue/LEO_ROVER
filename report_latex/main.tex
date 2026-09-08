@@ -39,6 +39,14 @@
  \usepackage[super]{nth}
 
 \usepackage{graphicx}
+% adjustbox (2026-09-08) : \resizebox ne contraint qu'UNE dimension, l'autre
+% valant `!` (ratio libre). Un diagramme large mis a 0.92\linewidth pouvait
+% donc depasser \textheight sans que rien ne l'en empeche — c'est ce qui
+% produisait « Float too large for page by 66.23pt » sur fig:fsm-diagram.
+% \adjustbox{max width=..., max totalheight=...} respecte les DEUX bornes et
+% ne redimensionne que si necessaire, donc les figures deja bien calibrees
+% ne bougent pas.
+\usepackage{adjustbox}
 \usepackage{wrapfig}
 \usepackage{placeins}
 \usepackage{pdfpages}
