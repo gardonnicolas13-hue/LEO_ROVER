@@ -285,6 +285,39 @@
          VINS n'avait pas encore de donnée, y compris quand MINS publiait
          sainement une seconde avant. -->
     <param name="default_source" value="MINS"/>
+    <!-- ── Z plaqué à zéro en sortie (2026-09-08) ────────────────────────
+         Exposé ICI et pas seulement dans le défaut du script, par la même
+         règle que ~accel_scale plus haut : c'est une décision d'ingénierie
+         sur ce que le système AFFICHE, elle doit se voir en configuration
+         et non dormir dans un fichier Python.
+
+         Le rover roule sur un sol plat : sa hauteur est constante, et tout
+         z non nul servi en sortie est une erreur d'estimation. Les roues
+         contraignent X et Y, SEULE la caméra contraint Z — dès que
+         l'apport visuel faiblit, Z part sans rappel.
+
+         MINS SEUL, volontairement. openVINS et sqrtVINS sont des VIO purs
+         qu'on ÉVALUE, y compris en 3D : leur plaquer Z embellirait la
+         mesure au lieu de la faire, et fausserait la comparaison
+         d'estimateurs du rapport.
+
+         CE QUE CE RÉGLAGE N'EST PAS : une amélioration de MINS. Il agit en
+         AVAL — MINS ne s'abonne pas à /robot_pose_fused (vérifié : ses
+         seules entrées sont /imu/data_clean, /joint_states_mins et les
+         deux caméras), donc aucune boucle de retour. La précision X/Y et
+         l'état interne du filtre sont strictement inchangés ; seul
+         l'affichage l'est.
+
+         D'où le garde-fou : le z BRUT reste publié sur
+         /leo_navigation/pose_z_brut, et un avertissement se déclenche
+         au-delà de 25 cm. C'est un z visiblement faux qui avait permis de
+         détecter la panne du 08/09 (MINS figé à -327 m, X et Y
+         impeccables) — sans ce topic, on gagnerait un bel affichage et on
+         perdrait le meilleur détecteur de dérive verticale dont on
+         dispose. En cas de doute sur MINS, regarder pose_z_brut, JAMAIS le
+         z de /robot_pose_fused, qui vaut zéro par construction. -->
+    <param name="force_z_zero"         value="true"/>
+    <param name="force_z_zero_sources" value="MINS"/>
     <param name="vins_topic"     value="/ov_msckf/odomimu"/>
     <param name="mins_topic"     value="/mins/imu/odom"/>
     <param name="sqrtvins_topic" value="$(arg sqrtvins_topic)"/>
