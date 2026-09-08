@@ -72,10 +72,32 @@ for ax, ay, _ in leds:
   if math.hypot(x-ax, y-ay) <= CLU_PX_v] # CLU_PX_v now 280
   if len(grp) > len(best_grp):
   best_grp = grp
-# Any real LED blob: 3-4 other LEDs within 200px -> group size 4
-# Ceiling blob: 0 other blobs within 280px -> group size 1
+# Any real LED blob: 3 other LEDs within 28px -> group size 4
+# Ceiling blob at the ORIGINAL 80px radius: 0 neighbours -> group size 1
 # Winner = real LED blob. Result: cluster correctly identified.
 \end{lstlisting}
+
+\begin{trapbox}{The discrimination depends on the radius staying below the
+outlier's separation}
+This fix works by an implicit condition that deserves stating, because it is
+the condition under which the method is sound rather than lucky. The four
+beacon LEDs lie within $8.5$--$27.9$\,px of one another; the ceiling
+reflection sits $158.2$\,px from the nearest of them. The density argument
+discriminates only while $\code{CLU\_PX}$ falls \emph{between} those two
+figures: at the original $80$\,px it does, and exhaustive anchor evaluation
+alone resolves the case ($1$ against $4$). At the deployed
+$\code{LED\_CLUSTER\_PX}=280$\,px it does not, since $158.2 < 280$ puts the
+reflection inside every candidate group and all five anchors tie at size $5$.
+
+The $280$\,px value is set by a different and legitimate requirement, namely
+that a $165$\,mm beacon must stay clustered at close range, and the measured
+$98.7\,\%$ recovery is not in question. What the numbers above establish is
+that, for this particular frame, the recovery cannot be attributed to the
+anchor change alone. The frames recorded here place the reflection outside
+the group by geometry at the poses actually driven; a pose that brings a
+large reflection within $280$\,px of the beacon would defeat the anchor
+test, and the area filter is what would have to catch it.
+\end{trapbox}
 
 \textbf{Validation}: over 200 test frames across three lighting conditions (fluorescent only, mixed fluorescent/natural, overhead fluorescent off), \code{led\_valid} rate improved from 0\% to 98.7\% (4 frames dropped due to momentary LED occlusion by the rover's own structure during sharp turns).
 
@@ -343,9 +365,25 @@ The LED false positive problem can be characterized statistically. The ceiling r
 \begin{eqblock}
 Sample statistics of the ceiling reflection area (30 measurements, px$^2$): mean $=1291.1$, std.\ dev.\ $=2.1$, min $=1287$, max $=1295$. Individual LED blob areas ranged $\{187, 143, 118, 101, \dots\}$~px$^2$: the ceiling area (1291) exceeds a typical LED area (143) by a $9.0{:}1$ ratio.
 
-With the old $\code{LED\_MAX\_AREA}=4000$~px$^2$, the ceiling blob (1291) passed the filter. With the new $\code{LED\_MAX\_AREA}=1200$~px$^2$, $1291>1200$ so the ceiling blob is rejected: a margin of $-91$~px$^2$ (the ceiling is 7.6\% above the new threshold).
+The value deployed in \code{leo\_backend.py} is
+$\code{LED\_MAX\_AREA}=2500$~px$^2$. Since $1291<2500$, \textbf{the ceiling
+reflection passes the area filter in the shipped configuration}: it is not
+rejected there, and the clustering stage is what has to handle it. Combined
+with the radius condition established in the trap box of
+\S\ref{ch:results}, this means neither of the two stages rejects this blob
+on geometry alone at $\code{CLU\_PX}=280$~px; the measured recovery comes
+from the reflection lying outside the group at the poses actually driven.
 
-Margin robustness check: if the ceiling reflection area grows (dust accumulation, lamp replacement), $1291+3\sigma = 1291+6.3=1297$~px$^2$ (99.7\% confidence bound) still exceeds 1200, so the ceiling remains rejected; even if the ceiling area doubled to 2582~px$^2$, it would still be rejected. \textbf{Recommendation}: reduce \code{LED\_MAX\_AREA} to 1100~px$^2$ for additional margin.
+The window that \emph{would} make the rejection structural is wide and
+currently unused. The largest beacon LED measured $187$~px$^2$ and the
+smallest ceiling sample $1287$~px$^2$, so any threshold in
+$[\,200,\ 1287\,]$~px$^2$ separates the two populations with margin on both
+sides. \textbf{Open recommendation}: lower \code{LED\_MAX\_AREA} from $2500$
+to approximately $1100$~px$^2$. At that value the ceiling blob is rejected
+by $1291-1100=191$~px$^2$, the margin survives a $3\sigma$ growth of the
+reflection ($1291+6.3=1297$~px$^2$, still above), and the brightest real LED
+retains a factor of nearly six of headroom. This change has not been
+applied.
 \end{eqblock}
 
 \subsection{Checkerboard Detection: Detection Rate vs.\ Scale Factor}

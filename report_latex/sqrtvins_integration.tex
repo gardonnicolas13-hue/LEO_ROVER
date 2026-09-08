@@ -761,6 +761,73 @@ camera accumulates a virtual baseline far exceeding any physical stereo rig
 and where depth is progressively refined by translation. Here the geometry is
 essentially frozen at $9\,\mathrm{cm}$.
 
+Figure~\ref{fig:parallaxe} draws the three quantities of
+Table~\ref{tab:premisses} to scale against each other, which is the point:
+the argument of this subsection is geometric, and the geometry is more
+convincing seen than described.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small, >=Latex, scale=1.0]
+  \tikzset{
+    cam/.style={draw=accentblue!70, fill=accentblue!12, rounded corners=1pt,
+                minimum width=8mm, minimum height=5mm, font=\scriptsize},
+    ray/.style={draw=accentblue!55, thin},
+    note/.style={font=\scriptsize, align=left},
+    dimline/.style={<->, >=Latex, draw=black!70, thin},
+    errbar/.style={draw=alertred!85, line width=1.1pt}
+  }
+
+  % ===== HORIZONTAL AXIS: strictly to scale, 1 cm = 0.30 units ==============
+  \node[cam] (L) at (0,0)   {cam0};
+  \node[cam] (R) at (2.7,0) {cam1};
+  \draw[dimline] (0,-0.6) -- node[below, font=\scriptsize]
+        {$b = 9.0$\,cm (stereo baseline)} (2.7,-0.6);
+
+  % inter-frame displacement, SAME horizontal scale: 1.76 cm -> 0.528 units
+  \draw[errbar, |-|] (0,0.62) -- (0.528,0.62);
+  \node[note, anchor=west, color=alertred!90] at (0.66,0.62)
+        {$\Delta = 1.76$\,cm --- inter-frame motion at $v_{\max}$,\\
+         drawn at the \emph{same} horizontal scale as $b$};
+
+  % ===== DEPTH AXIS: compressed, and labelled as such =======================
+  % sigma_Z error bars, honest RELATIVE to each other (1.2 units per metre)
+  \foreach \y/\z/\s/\h in {1.9/1/0.03/0.036, 3.5/3/0.30/0.36, 5.1/5/0.83/1.00} {
+    \draw[dotted, draw=black!40] (-0.5,\y) -- (3.2,\y);
+    \node[note, anchor=east, color=black!70] at (-0.55,\y) {$Z=\z$\,m};
+    \fill[accentblue!75] (1.35,\y) circle (1.5pt);
+    \draw[errbar] ($(1.35,\y)+(0,-\h/2)$) -- ($(1.35,\y)+(0,\h/2)$);
+    \draw[errbar] ($(1.35,\y)+(-0.07,-\h/2)$) -- ($(1.35,\y)+(0.07,-\h/2)$);
+    \draw[errbar] ($(1.35,\y)+(-0.07,\h/2)$) -- ($(1.35,\y)+(0.07,\h/2)$);
+    \node[note, anchor=west, color=alertred!90] at (3.25,\y)
+         {$\sigma_Z = \s$\,m};
+  }
+
+  % triangulation rays to the farthest feature
+  \draw[ray] (L) -- (1.35,5.1);
+  \draw[ray] (R) -- (1.35,5.1);
+
+  \node[note, anchor=west, color=alertred!90, align=left] at (3.25,6.15)
+       {$\sigma_Z = \dfrac{Z^{2}}{b f}\,\sigma_d$\\[3pt]
+        the bars are to scale\\ \emph{with each other}};
+
+  \node[note, anchor=north, align=center, text width=9.4cm] at (1.35,-1.25)
+       {\textbf{Ratio $b/\Delta = 5.1$.} The physical baseline does the
+        triangulation; the motion contributes about one fifth of it, and
+        only at full speed. A moving-camera VIO normally accumulates a
+        virtual baseline that dwarfs its rig --- on this platform it does
+        not, so the geometry stays frozen at $9$\,cm.};
+\end{tikzpicture}
+\caption{Triangulation geometry on the LEO rover. The two horizontal
+quantities ($b = 9.0$\,cm and $\Delta = 1.76$\,cm) are drawn at the same
+scale as each other, which is the point of the figure; the depth axis is
+compressed and is \emph{not} on that scale, since $5$\,m cannot share a page
+with $9$\,cm. The three $\sigma_Z$ bars are to scale with one another
+(Eq.~\eqref{eq:sigmaz}): invisible at $1$\,m, and $0.83$\,m at the $5$\,m
+distances that dominate an indoor scene.}
+\label{fig:parallaxe}
+\end{figure}
+
 \subsubsection{Why depth collapses at room scale}
 
 For a rectified stereo pair, depth follows from disparity $d$ as $Z = bf/d$.

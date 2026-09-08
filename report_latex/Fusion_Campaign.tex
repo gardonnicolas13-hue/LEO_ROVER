@@ -9335,6 +9335,44 @@ on every telemetry tick.
     changes nothing while the measurement has no path into the filter.
     Verify the fix by the arrival of measurements, not by the appearance of
     \code{/mins/vicon0/pose}, which publishes either way \\
+47 & \textbf{MINS diverges spontaneously with every input healthy, and a
+    respawn is the only known remedy} (2026-09-08: two distinct failures
+    within one hour on the same process). The first was a \emph{locked
+    initialisation}: $x,y$ correct at $(0.74, 0.30)$\,m but $z = -327.08$\,m,
+    and \emph{stationary} --- $3.6$\,mm of movement over 30\,s, amplitude
+    $6.7$\,mm, $-0.01$\,m/min. The filter was tracking well, simply anchored
+    327\,m too low, having initialised during the network instability that
+    had made the robot unreachable the previous evening. The second, thirty
+    minutes after the repair, was an \emph{active runaway} at 562\,m/min with
+    the robot immobile ($z$ from $+1325$ to $+1138$\,m in 20\,s). Inputs were
+    measured healthy \emph{during} the runaway: IMU at 85\,Hz with
+    $|a| = 9.7894$\,m/s$^2$, both infrared streams at $7.5$\,Hz, wheels at
+    $18.7$\,Hz --- so the fault is internal to the filter, not a sensor
+    dropout &
+    Do not treat the respawn as a fix: it restores $6.3$\,mm accuracy
+    (drift $0.9/0.8/0.4$\,mm over 30\,s) but the cause remains unidentified,
+    and the failure recurred within the hour. Instrument the filter's own
+    covariance and chi-squared acceptance rates over time rather than only
+    its output pose, since both failures were invisible in the pose until
+    they were catastrophic. Note that the two signatures differ --- one
+    frozen, one runaway --- so a single mechanism is not yet established \\
+48 & \textbf{\code{pose\_selector} keeps a stale SE(3) correction that
+    survives an estimator reset, masking a healthy filter}
+    (2026-09-08, measured). The node holds one correction matrix per source
+    so the fused output does not jump when the operator switches estimator.
+    Computed while MINS sat at $z=-327$\,m, it \emph{survived} the MINS
+    respawn: the selector then tracked the repaired filter faithfully ---
+    deltas identical to a tenth of a millimetre --- while adding a constant
+    $142.07$\,m offset. The cockpit therefore showed a diverged robot while
+    the estimator underneath was accurate to millimetres &
+    Re-selecting the source does \emph{not} clear it: the correction is
+    recomputed to preserve continuity with the (wrong) fused pose, which
+    reproduces the offset. Restarting the node is required, since
+    \code{\_correction} initialises to identity. Enforce the ordering
+    sanitiser $\rightarrow$ MINS $\rightarrow$ \code{pose\_selector} after
+    any estimator reset. A durable fix would invalidate the cached
+    correction whenever the upstream source reports a reset, rather than
+    relying on the operator to remember the sequence \\
 \end{longtable}
 \end{center}
 
