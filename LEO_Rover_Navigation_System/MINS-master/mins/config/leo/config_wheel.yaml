@@ -10,8 +10,20 @@ wheel:
   # Wheel2DAng, Wheel2DLin, Wheel2DCen, Wheel3DAng, ...
   type: "Wheel2DAng"
   do_calib_dt: false
-  # refine T_imu_wheel online (hand-measured seed below)
-  do_calib_ext: true
+  # GELE le 2026-09-07 (etait true). Meme raison que do_calib_int juste en
+  # dessous, mesuree cette fois sur les extrinseques : a l'arret prolonge le
+  # mouvement n'excite rien, T_imu_wheel devient INOBSERVABLE, et l'estimation
+  # en ligne part en marche aleatoire. Mesure sur instance saine, robot
+  # immobile : ~1,4 mm/min, monotone, sans convergence. Deux instances
+  # divergees relevees a 13,5 cm l'une de l'autre sur le meme axe.
+  # Un bras de levier faux rend la mesure roue incoherente avec la prediction
+  # inertielle -> le chi2 la rejette -> perte de l'ancrage X/Y -> derive a
+  # plusieurs dizaines de metres robot pourtant a l'arret (4 episodes les
+  # 06-07/09). On echange une erreur de graine au cm (mesuree au metre-ruban,
+  # documentee comme toleree) contre la suppression d'une derive non bornee.
+  # A REOUVRIR si un jour le robot roule en permanence : en mouvement les
+  # extrinseques redeviennent observables et l'affinage en ligne a du sens.
+  do_calib_ext: false
   # do_calib_int FALSE: online refinement DIVERGED live (2026-07-06, wheel
   # intrinsics drifted to NEGATIVE radii [-0.004,-0.004,-0.043] after motion
   # bursts). The nominal values below come from the firmware itself
@@ -55,7 +67,9 @@ wheel:
   # le repere roues firmware pointe a l'oppose de la camera/IMU. Sans cette
   # rotation, chaque mesure roue contredisait la prediction inertielle et le
   # chi2 les rejetait silencieusement (perte de l'ancrage X/Y).
-  # do_calib_ext:true affine autour de ce seed desormais correct.
+  # Ce seed est desormais DEFINITIF : do_calib_ext est passe a false le
+  # 2026-09-07 (voir la justification en haut de fichier), il n'est plus
+  # affine en ligne.
   T_imu_wheel:
     - [-1.0, 0.0, 0.0, 0.0]
     - [0.0, -1.0, 0.0, 0.0]

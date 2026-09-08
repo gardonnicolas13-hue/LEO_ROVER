@@ -6,8 +6,24 @@ cam:
   max_n: 2
   use_stereo: true
   stereo_pair: [0, 1]
-  # let MINS refine T_imu_cam online (seed below is from Kalibr)
-  do_calib_ext: true
+  # GELE le 2026-09-07 (etait true). Meme mecanisme que pour les roues (voir
+  # config_wheel.yaml) : a l'arret, T_imu_cam est INOBSERVABLE et l'estimation
+  # en ligne derive. MESURE sur instance saine, robot immobile, sur 75 s :
+  # cam0 x 0.2113 -> 0.2096, y 0.0373 -> 0.0359, z 0.0935 -> 0.0946. Monotone,
+  # ~1,4 mm/min, aucune convergence -> ~8 cm par heure de stationnement.
+  # Piege d'interpretation a ne pas refaire : deux instances DIVERGEES avaient
+  # convergé aux memes valeurs (cam0 y = -0.098 / -0.0981), ce qui ressemblait
+  # a une vraie calibration. C'est faux : l'instance SAINE etait a y = +0.037,
+  # soit 13,5 cm plus loin. Les valeurs identiques etaient le bout de la marche
+  # apres divergence, pas une convergence.
+  # Consequence chiffree du non-gel : f ~ 337 px, features a ~2 m, une erreur
+  # laterale de 10 cm donne 337*0.10/2.0 ~ 17 px de reprojection, tres au-dela
+  # de la porte chi2 (chi2_mult: 1) -> rejet des features visuelles.
+  # CONTREPARTIE ASSUMEE : la graine mètre-ruban devient definitive. Cela rend
+  # PRIORITAIRE le kalibr_calibrate_imu_camera encore en suspens (cf. le bloc
+  # T_imu_cam plus bas) : la qualite de la graine fixe desormais la precision
+  # en regime permanent, elle n'est plus rattrapee en ligne.
+  do_calib_ext: false
   # intrinsics fixed: measured by kalibr_calibrate_cameras
   do_calib_int: false
   # refine cam<->imu time offset online
