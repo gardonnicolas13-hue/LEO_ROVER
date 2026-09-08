@@ -98,7 +98,7 @@ par git.** Cette correspondance est volontaire depuis le rangement du
 
 ## 📘 Le rapport
 
-**Le document de référence de ce projet est [`report_latex/main.pdf`](report_latex/main.pdf), 538 pages.**
+**Le document de référence de ce projet est [`report_latex/main.pdf`](report_latex/main.pdf), 539 pages.**
 
 Le code seul ne se suffit pas. Le rapport contient :
 
@@ -112,9 +112,11 @@ Le code seul ne se suffit pas. Le rapport contient :
   `Endpoint`.
 - **L'annexe D, guide de reproduction exhaustif** : reconstruction depuis une
   machine vierge, commande par commande, avec la sortie attendue à chaque
-  étape. Elle s'ouvre sur un index des sept pannes qui ont coûté au moins une
-  journée chacune, et dont le symptôme désigne systématiquement le mauvais
-  sous-système.
+  étape. Elle s'ouvre sur un glossaire technique et les spécifications
+  matérielles, puis un index des tableaux et des extraits de code.
+  Les pannes coûteuses et leurs symptômes trompeurs sont traitées tout au
+  long du rapport et récapitulées dans le **registre des points ouverts**
+  (48 entrées, `Fusion_Campaign.tex`), pas dans un index dédié.
 
 Les limites connues y sont documentées aussi franchement que les résultats,
 notamment la calibration des intrinsèques couleur qui reste **bloquante**

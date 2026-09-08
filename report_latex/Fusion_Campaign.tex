@@ -506,9 +506,11 @@ left, $z_I$ up:
 \label{eq:extr}
 \end{equation}
 (the second camera sits one baseline to the right along $x_C$, i.e.\ $-y_I$).
-The translation is a tape-measure seed refined online
-(\code{do\_calib\_ext: true}); centimetre-level translation error is
-recoverable, 90 degrees of rotation is not. The time offset between camera
+The translation is a tape-measure seed. \textbf{Updated 2026-09-07:} it is
+no longer refined online --- \code{do\_calib\_ext} is now \code{false}, so
+centimetre-level translation error is \emph{no longer recoverable} either,
+and stands exactly as installed. Ninety degrees of rotation was never
+recoverable and still is not. The time offset between camera
 and IMU is likewise an estimated state (\code{do\_calib\_dt: true}); at
 $v = 0.4$\,m/s an unmodelled 10\,ms skew biases every visual measurement by
 4\,mm. \textbf{Open item:} replace the seed by

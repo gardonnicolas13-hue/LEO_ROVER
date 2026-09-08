@@ -80,8 +80,11 @@ cam:
 # PLACEHOLDER identity-rotation seed — it will be overwritten by
 # leo_navigation/scripts/fill_mins_camchain.py once
 # kalibr_calibrate_imu_camera finishes (that script inverts T_cam_imu and
-# also copies the estimated timeoffset). do_calib_ext:true above lets MINS
-# refine it from the seed regardless, but a good seed matters for convergence.
+# also copies the estimated timeoffset). ATTENTION : ce commentaire disait
+# « do_calib_ext:true laisse MINS affiner depuis la graine » — c'est FAUX
+# depuis le 2026-09-07, ou do_calib_ext est passe a false (voir le bloc en
+# haut de fichier). Plus rien n'est affine en ligne : la graine EST la valeur
+# finale, donc sa qualite fixe directement la precision en regime permanent.
 # ============================================================================
 cam0:
   timeoffset: 0.0
@@ -90,10 +93,13 @@ cam0:
   # optical axis points UP along IMU-z, a ~90 deg error online calib cannot
   # recover from). R_CtoI below maps D455 optical (x right, y down, z fwd)
   # into IMU/base (x fwd, y left, z up): cam-z->+x, cam-x->-y, cam-y->-z.
-  # Translation = tape-measure base->camera (0.15, 0, 0.10) placeholder;
-  # cm-level translation error is refinable online (do_calib_ext), 90 deg of
-  # rotation is not. Replace with Kalibr imucam via fill_mins_camchain.py
-  # when that calibration finally succeeds.
+  # Translation = tape-measure base->camera (0.15, 0, 0.10) placeholder.
+  # Cette ligne disait « cm-level translation error is refinable online
+  # (do_calib_ext) » : PLUS VRAI depuis le 2026-09-07. L'erreur de translation
+  # n'est plus rattrapee en ligne, elle reste telle quelle. C'est ce qui rend
+  # le Kalibr imucam (via fill_mins_camchain.py) PRIORITAIRE et non plus
+  # optionnel : il n'y a plus de second filet.
+  # Les 90 deg de rotation n'ont jamais ete rattrapables, cela n'a pas change.
   T_imu_cam:
     - [0.0,  0.0, 1.0, 0.15]
     - [-1.0, 0.0, 0.0, 0.0]

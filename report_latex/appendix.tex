@@ -2119,11 +2119,22 @@ The procedure below is fully scripted and ready to run, but the excitation
 motion it needs (physically lifting and tilting the rover in front of the
 target) has \textbf{not} been performed as of this writing
 (Table~\ref{tab:openitems}, item~2). The deployed extrinsic is a
-tape-measure seed, refined online (\code{do\_calib\_ext: true} in both
-\code{config\_camera.yaml} and the equivalent openVINS setting), which is why
-MINS still runs and initialises correctly without this step: it is a
-precision improvement, not a blocker. Completing it is the single
-highest-value calibration task remaining on this platform.
+tape-measure seed. \textbf{Updated 2026-09-07:} it is no longer refined
+online. \code{do\_calib\_ext} is now \code{false} in \emph{both}
+\code{config\_camera.yaml} and \code{config\_wheel.yaml}, and openVINS's
+equivalent (\code{calib\_cam\_extrinsics}) is likewise \code{false}, because
+online estimation of an \emph{unobservable} quantity was measured to random
+walk at ${\approx}1.4$\,mm/min with the rover stationary --- eventually
+pushing wheel and visual updates outside the $\chi^2$ gate and costing the
+$X/Y$ anchor entirely (\S\ref{sec:openitems}, item~1 of the 2026-09-07
+entries).
+
+This inverts the priority stated in earlier revisions of this paragraph.
+While the seed was refined online, completing the Kalibr calibration was a
+precision improvement; now that nothing is refined, \textbf{the seed is the
+final value}, its quality sets steady-state accuracy directly, and there is
+no second net. Completing it is the single highest-value calibration task
+remaining on this platform.
 \end{trapbox}
   Kalibr lives in its own workspace, since its build requirements conflict
   with both estimators':
@@ -2447,8 +2458,13 @@ the ROS2 build, a real footgun documented in
 \code{init\_imu\_thresh: 0.4} (jerk-triggered initialisation, the rover
 must be nudged to initialise VINS), \code{use\_stereo: true},
 \code{max\_cameras: 2}, and the frozen intrinsics
-(\code{do\_calib\_int: false}) with online extrinsic/time-offset refinement
-(\code{do\_calib\_ext: true}, \code{do\_calib\_dt: true}).
+(\code{do\_calib\_int: false}). \textbf{Updated 2026-09-07:} extrinsic
+refinement is now off as well --- openVINS carries
+\code{calib\_cam\_extrinsics: false} and \code{calib\_cam\_timeoffset: false},
+so nothing about the camera--IMU geometry is estimated online any more. Only
+MINS still refines the camera time offset (\code{do\_calib\_dt: true}); its
+wheel branch has both frozen (\code{do\_calib\_ext: false},
+\code{do\_calib\_dt: false}).
 
 \paragraph{MINS.} A per-sensor tree of \textbf{ten} files, selected by the
 \code{config} launch arg (\code{mins.launch}:
@@ -3271,8 +3287,11 @@ scratch:
   camera--IMU time offset $t_d$. The correct forward-looking mount matters:
   an identity placeholder here was the root cause of the vertical divergence
   fixed in \S\ref{sec:extrinsic} (Eq.~\ref{eq:extr}). $t_d$ and the
-  translation are then refined online (\code{do\_calib\_ext},
-  \code{do\_calib\_dt}), but the $90^\circ$ rotation must be seeded correctly: it is outside the filter's recoverable region.
+  translation \emph{were} refined online (\code{do\_calib\_ext},
+  \code{do\_calib\_dt}) until 2026-09-07; extrinsic refinement is now
+  disabled, so only $t_d$ is still estimated, and the translation seed stands
+  as installed. The $90^\circ$ rotation must in any case be seeded correctly:
+  it is outside the filter's recoverable region, and always was.
 \item \textbf{Install.} Copy the Kalibr outputs into each estimator's config:
   openVINS reads them as \code{config/leo/kalibr\_imucam\_chain.yaml} and
   \code{kalibr\_imu\_chain.yaml} directly; MINS's \code{config\_camera.yaml}
@@ -3574,7 +3593,7 @@ Parameter & \code{Robomaster\_S1} & our \code{leo} \\
 \midrule
 cameras & mono, \code{use\_stereo: false} & stereo, two cameras \\
 \code{downsample} & true & false \\
-\code{do\_calib\_ext} / \code{do\_calib\_dt} & false / false & true / true \\
+\code{do\_calib\_ext} / \code{do\_calib\_dt} & false / false & false / true$^{\dagger}$ \\
 resolution & $640\times360$ & $640\times480$ \\
 \code{n\_pts} & 1500 & 300 \\
 grid & $15\times15$ (225 cells) & $10\times8$ (80) \\
@@ -3584,10 +3603,22 @@ grid & $15\times15$ (225 cells) & $10\times8$ (80) \\
 \end{tabular}
 \end{center}
 
+\noindent $^{\dagger}$ \textbf{Changed 2026-09-07.} This row read
+\code{true / true} in earlier revisions. \code{do\_calib\_ext} was set to
+\code{false} after the extrinsic was measured random-walking at
+${\approx}1.4$\,mm/min with the rover stationary --- the quantity is
+unobservable without motion, and the drift eventually pushed updates outside
+the $\chi^2$ gate. Note the honest consequence for the argument below: on
+\emph{this} row the two profiles now agree rather than oppose, and the
+contrast that follows rests on the remaining rows.
+
 The RoboMaster profile saves heavily on the image path --- mono, downsampled,
 no online calibration --- and spends that budget on tracking: 1500 features,
 225 grid cells, a fixed 30\,Hz clone rate. Ours does the reverse: an expensive
-image path, but only 300 features and an adaptive clone rate.
+image path, but only 300 features and an adaptive clone rate. Since
+2026-09-07 the two profiles also share the frozen-extrinsic choice, though
+they reached it for different reasons: RoboMaster as a compute saving, ours
+as a stability fix.
 
 \begin{trapbox}{Transplanting two parameters out of a balanced profile}
 Lifting \code{clone\_freq: 30} and \code{dynamic\_cloning: false} into the
