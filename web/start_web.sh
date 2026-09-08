@@ -5,7 +5,10 @@
 #   rosbridge_server   ws://<PC>:9090   -> télémétrie/commandes en LAN direct
 #   rosbridge TLS      wss://<PC>:9443  -> même chose, via le tunnel Cloudflare
 #   web_video_server   http://<PC>:8080 -> flux MJPEG
-#   http.server        http://<PC>:8000 -> pages index/ops/logbook/navigation_modes
+#   serve.py           http://<PC>:8000 -> les 14 pages statiques (PAS http.server :
+#                                          serve.py porte le correctif Cache-Control
+#                                          et supprime les listings de repertoires)
+#   sauvegarde reperes 127.0.0.1:8010   -> ecriture depuis tf_validator.html, LOCAL
 #   calibration_monitor                 -> /leo_vision/calibration_status
 #   cloudflared                         -> expose le tout sur cockpit.leo-rover-gardon.dev
 #

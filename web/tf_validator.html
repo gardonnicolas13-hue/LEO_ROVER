@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/svg+xml" href="leo_icon.svg" />
 <title>LEO · TF VALIDATOR — Mission Control</title>
-<script src="i18n.js?v=r33"></script>
+<script src="i18n.js?v=r35"></script>
 <link rel="stylesheet" href="mission.css?v=m2" />
 <style>
   :root {
@@ -251,6 +251,7 @@
     <a href="index.html"><span data-i18n="nav_home">HOME</span></a>
     <a href="ops.html"><span data-i18n="nav_ops">OPERATIONS</span></a>
     <a href="logbook.html"><span data-i18n="nav_log">LOGBOOK</span></a>
+    <a href="mins_tuning.html"><span data-i18n="nav_mins">MINS TUNING</span></a>
     <a href="robot_description.html"><span data-i18n="nav_robot">ROBOT</span></a>
     <a href="navigation_modes.html"><span data-i18n="nav_navmodes">NAV MODES</span></a>
     <a href="trajectory.html"><span data-i18n="nav_trajectory">TRAJECTORY</span></a>
@@ -378,6 +379,24 @@
   </section>
 </div>
 
+<!-- ── Vue superposée (2026-09-04) ────────────────────────────────────────
+     Les trois panneaux ci-dessus montrent chaque estimateur SÉPARÉMENT :
+     constater qu'ils décrivent — ou non — la même géométrie oblige à
+     comparer de tête. Ici les trois sont dans un SEUL repère IMU, et le
+     désaccord se voit. Marqueurs concentriques de rayons décroissants :
+     deux estimateurs qui coïncident se lisent comme des anneaux emboîtés,
+     là où des sphères de même taille feraient disparaître celui du dessous.
+     Purement additif : si WebGL manque, la section se masque et les trois
+     panneaux d'origine sont intacts. -->
+<section class="pane" id="secSuper" style="margin-top:14px">
+  <h2><i style="background:var(--txt)"></i>Vue superposée
+      <span class="conv">les trois extrinsèques dans le repère IMU commun — bougez la souris</span></h2>
+  <canvas id="cvSuper" style="width:100%;height:340px;display:block"></canvas>
+  <div class="align" id="alSuper"></div>
+</section>
+
+<script src="vendor/three.min.js"></script>
+<script src="3d_engine.js?v=r3"></script>
 <script>
 (function () {
   "use strict";
@@ -683,7 +702,43 @@
       document.getElementById("stamp").style.color = "#ff4d4d";
     });
   }
-  recharge();
+  recharge().then(function () {
+    /* Vue superposée (2026-09-04). Alimentée par les MÊMES données que les
+       trois panneaux — le moteur 3D ne relit pas tf_frames.json, il reçoit
+       ce que la page a déjà chargé, donc les deux ne peuvent pas diverger.
+       Entièrement optionnelle : sans WebGL ou sans le moteur, la section se
+       masque et le reste de la page est inchangé. */
+    var sec = document.getElementById("secSuper");
+    if (!window.LEO3D || !LEO3D.initTfCompare || !donnees) {
+      if (sec) sec.style.display = "none";
+      return;
+    }
+    var vue3d = LEO3D.initTfCompare("cvSuper");
+    if (!vue3d) { if (sec) sec.style.display = "none"; return; }
+    vue3d.setFrames(donnees.estimateurs,
+                    { MINS: 0xff6b35, openVINS: 0x22d3ee, sqrtVINS: 0xfbbf24 });
+
+    /* Verdict chiffré sous la scène : l'écart entre estimateurs pour un même
+       repère est ce que la page cherche à établir, autant le dire en clair
+       plutôt que de le laisser deviner à l'œil. */
+    var f = vue3d.frames(), lignes = [];
+    ["cam0", "cam1"].forEach(function (nom) {
+      var pts = f.filter(function (x) { return x.nom === nom; });
+      if (pts.length < 2) return;
+      var dmax = 0, paire = "";
+      for (var i = 0; i < pts.length; i++) {
+        for (var j = i + 1; j < pts.length; j++) {
+          var d = Math.hypot(pts[i].t[0] - pts[j].t[0],
+                             pts[i].t[1] - pts[j].t[1],
+                             pts[i].t[2] - pts[j].t[2]);
+          if (d > dmax) { dmax = d; paire = pts[i].est + " / " + pts[j].est; }
+        }
+      }
+      lignes.push(nom + " : écart max " + (dmax * 1000).toFixed(1) + " mm (" + paire + ")");
+    });
+    var al = document.getElementById("alSuper");
+    if (al) al.textContent = lignes.join("   ·   ");
+  });
 
   /* ═══ Éditeur — BAC À SABLE ═════════════════════════════════════════════
      Modifie UNIQUEMENT l'objet `donnees` en mémoire. Aucune écriture vers

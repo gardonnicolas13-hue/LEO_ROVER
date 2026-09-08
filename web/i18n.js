@@ -86,12 +86,16 @@
       traj_full_expl: 'Full explanations, with the exact commands and the reasoning behind each choice:',
       traj_link_appd: '→ Report, Appendix D: full protocol (printed p.448)',
       traj_link_1212: '→ Report, §12.12.7: a real worked example, done 29/07 (printed p.259)',
+      /* Manquait depuis 27c07bb : le panneau affichait litteralement la chaine
+         « traj_cmp3 », I18N.t() renvoyant la cle quand elle est absente. */
+      traj_cmp3: '3-mode comparison',
       nav_trajectory:       'Trajectory',
       nav_pid:              'PID',
       nav_audit:            'Audit',
       nav_deriv:            'Findings',
       nav_system:           'System',
       nav_tfval:            'TF Validator',
+      nav_mins:             'MINS Tuning',
       /* ── Page System & vocabulaire (2026-08-12) ─────────────────────── */
       sys_kicker:      '// system reference · read this first',
       sys_title:       'How the whole thing works',
@@ -274,6 +278,12 @@
       ops_cmd_reset:     'Reset 0,0,0',
       ops_cmd_stop:      'EMERGENCY STOP',
       ops_drive_hint:    'Manual control (hold)',
+      /* Noms accessibles des 5 boutons de pilotage (icone seule). */
+      ops_drive_up:      'Drive forward',
+      ops_drive_down:    'Drive backward',
+      ops_drive_left:    'Turn left',
+      ops_drive_right:   'Turn right',
+      ops_drive_stop:    'Stop',
       ops_keys_hint:     'or keyboard arrows ↑ ↓ ← →',
       ops_boost_off:     'Boost OFF',
       ops_boost_on:      'BOOST ON',
@@ -903,12 +913,14 @@
       traj_full_expl: 'Explications complètes, avec les commandes exactes et le pourquoi de chaque choix :',
       traj_link_appd: '→ Rapport, Annexe D : protocole complet (p.448 imprimée)',
       traj_link_1212: '→ Rapport, §12.12.7 : un vrai exemple chiffré, déjà fait le 29/07 (p.259 imprimée)',
+      traj_cmp3: 'Comparaison 3 modes',
       nav_trajectory:       'Trajectory',
       nav_pid:              'PID',
       nav_audit:            'Audit',
       nav_deriv:            'Résultats',
       nav_system:           'Système',
       nav_tfval:            'TF Validator',
+      nav_mins:             'Réglage MINS',
       /* ── Page Système & vocabulaire (2026-08-12) ────────────────────── */
       sys_kicker:      '// référence système · à lire en premier',
       sys_title:       'Comment tout cela fonctionne',
@@ -1091,6 +1103,11 @@
       ops_cmd_reset:     'Reset 0,0,0',
       ops_cmd_stop:      'ARRÊT D\'URGENCE',
       ops_drive_hint:    'Pilotage manuel (maintenir)',
+      ops_drive_up:      'Avancer',
+      ops_drive_down:    'Reculer',
+      ops_drive_left:    'Tourner a gauche',
+      ops_drive_right:   'Tourner a droite',
+      ops_drive_stop:    'Arret',
       ops_keys_hint:     'ou flèches du clavier ↑ ↓ ← →',
       ops_boost_off:     'Boost OFF',
       ops_boost_on:      'BOOST ACTIF',
@@ -1694,6 +1711,16 @@
       /* innerHTML elements (keys whose value may contain HTML tags) */
       document.querySelectorAll('[data-i18n-html]').forEach(function (el) {
         el.innerHTML = I18N.t(el.dataset.i18nHtml);
+      });
+
+      /* Noms accessibles (2026-09-02, audit du site).
+         Les cinq boutons de pilotage d'ops.html ne portent qu'une icone :
+         un lecteur d'ecran annoncait « bouton », sans direction — sur les
+         commandes de CONDUITE du robot. Un aria-label en dur aurait fige la
+         langue sur un site qui bascule FR/EN, d'ou cette passe dediee.
+         Purement additive : sans attribut data-i18n-aria, rien ne change. */
+      document.querySelectorAll('[data-i18n-aria]').forEach(function (el) {
+        el.setAttribute('aria-label', I18N.t(el.dataset.i18nAria));
       });
 
       /* Language toggle buttons: active / inactive */

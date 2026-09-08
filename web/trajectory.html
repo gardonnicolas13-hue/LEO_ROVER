@@ -8,7 +8,7 @@
 <!-- Couche commune des commandes (rayon, lumière rasante, retour au clic).
      Chargée AVANT le <style> de la page : les règles propres au cockpit
      ci-dessous restent prioritaires à spécificité égale. -->
-<script src="i18n.js?v=r33"></script>
+<script src="i18n.js?v=r35"></script>
 <link rel="stylesheet" href="mission.css?v=m2" />
 <style>
   /* ── JPL Mission Control — charbon, gris spatial, orange NASA, cyan ─────── */
@@ -220,6 +220,7 @@
     <a href="index.html"><span data-i18n="nav_home">HOME</span></a>
     <a href="ops.html"><span data-i18n="nav_ops">OPERATIONS</span></a>
     <a href="logbook.html"><span data-i18n="nav_log">LOGBOOK</span></a>
+    <a href="mins_tuning.html"><span data-i18n="nav_mins">MINS TUNING</span></a>
     <a href="robot_description.html"><span data-i18n="nav_robot">ROBOT</span></a>
     <a href="navigation_modes.html"><span data-i18n="nav_navmodes">NAV MODES</span></a>
     <a href="trajectory.html" class="on"><span data-i18n="nav_trajectory">TRAJECTORY</span></a>
@@ -250,16 +251,6 @@
            donc le mode AUTO) — a ne pas confondre avec les cases ci-dessous,
            qui ne font que TRACER. -->
       <button class="srv" id="btnSrv">sqrtVINS</button>
-    </div>
-    <!-- Cases de TRACE (2026-08-21). Elles n'agissent QUE sur l'affichage :
-         cocher sqrtVINS superpose sa trajectoire brute, cela ne bascule PAS
-         le robot dessus. La distinction compte : confondre les deux ferait
-         croire qu'afficher une trace change la source de navigation. -->
-    <div class="traces">
-      <span class="lbl">TRACES COMPARÉES</span>
-      <label><input type="checkbox" id="trMINS" checked><i style="background:#ff6b35"></i>MINS</label>
-      <label><input type="checkbox" id="trVINS" checked><i style="background:#22d3ee"></i>openVINS</label>
-      <label><input type="checkbox" id="trSQRTVINS" checked><i style="background:#fbbf24"></i>sqrtVINS</label>
     </div>
     <!-- Comparaison directe des TROIS sorties brutes (2026-08-21). C'est
          l'element que la page n'avait pas : elle affichait la pose FUSIONNEE
@@ -387,6 +378,10 @@
   <!-- ── Carte centrale ──────────────────────────────────────────────────── -->
   <div id="wrap">
     <canvas id="cv"></canvas>
+    <!-- Calque du rover 3D (2026-09-04). Superposé à #cv sans z-index : la
+         règle CSS générique `canvas{position:absolute;inset:0}` s'applique aux
+         deux et l'ordre du DOM suffit. -->
+    <canvas id="cv3d"></canvas>
     <span class="corner tl"></span><span class="corner tr"></span>
     <span class="corner bl"></span><span class="corner br"></span>
     <div class="legend">
@@ -464,14 +459,20 @@
     <p class="dim"><span data-i18n="traj_full_expl">Explications complètes, avec les commandes exactes et le
       pourquoi de chaque choix :</span></p>
     <a class="rlink" target="_blank" rel="noopener"
-       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787684798#page=450"><span data-i18n="traj_link_appd">→ Rapport, Annexe D : protocole complet (p.448 imprimée)</span></a><br>
+       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788895799#page=450"><span data-i18n="traj_link_appd">→ Rapport, Annexe D : protocole complet (p.448 imprimée)</span></a><br>
     <a class="rlink" target="_blank" rel="noopener"
-       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1787684798#page=261"><span data-i18n="traj_link_1212">→ Rapport, §12.12.7 : un vrai exemple chiffré, déjà fait le 29/07 (p.259 imprimée)</span></a>
+       href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788895799#page=261"><span data-i18n="traj_link_1212">→ Rapport, §12.12.7 : un vrai exemple chiffré, déjà fait le 29/07 (p.259 imprimée)</span></a>
   </div>
 </div>
 
 <!-- même source roslib que le cockpit (vendored, pas de CDN) — cohérent avec ops.html -->
 <script src="vendor/roslib.min.js?v=v1"></script>
+<!-- Rover 3D de la carte. Maillage leo_rover_map.stl : 18 076 triangles /
+     0,9 Mo, décimé par tools/decimate_stl.py depuis le maillage CAO
+     (1 162 904 triangles / 58 Mo). Les 58 Mo d'origine entreraient en
+     concurrence directe avec le flux rosbridge de cette page. -->
+<script src="vendor/three.min.js"></script>
+<script src="vendor/STLLoader.js"></script>
 <script>
 (function () {
   "use strict";
@@ -530,12 +531,6 @@
     VINS:     "/ov_msckf/odomimu",
     SQRTVINS: "/sqrtvins/odomimu"
   };
-  const cmpTrails = { MINS: [], VINS: [], SQRTVINS: [] };
-  const CMP_MAX = 4000;
-  /* Une case par estimateur, au lieu d'un unique interrupteur global :
-     l'interet de la comparaison est justement de pouvoir en isoler un. */
-  const cmpShow = { MINS: true, VINS: true, SQRTVINS: true };
-
   /* ═══ rosbridge — RECONNEXION EN PLACE (2026-07-13) ═══
      L'ancien handler rechargeait la page 4 s après chaque coupure WS : c'était
      LE « refresh tout seul » (et la trace était perdue). On reconstruit
@@ -617,15 +612,6 @@
           const ex = $("c3" + k + "x"), ey = $("c3" + k + "y");
           if (ex) ex.textContent = p.x.toFixed(3);
           if (ey) ey.textContent = p.y.toFixed(3);
-          const t = cmpTrails[k];
-          const last = t[t.length - 1];
-          /* Meme seuil de 1,5 cm que le trace fusionne : sans lui un
-             estimateur a l'arret empile des milliers de points identiques et
-             sature le tableau en quelques minutes. */
-          if (!last || Math.hypot(p.x - last.x, p.y - last.y) > 0.015) {
-            t.push({ x: p.x, y: p.y });
-            if (t.length > CMP_MAX) t.shift();
-          }
         });
     });
 
@@ -888,14 +874,6 @@
   $("btnMins").onclick = () => switchTo("MINS");
   $("btnSrv").onclick  = () => switchTo("SQRTVINS");
 
-  /* Cases de trace : effet IMMEDIAT, le rendu tourne en continu et relit
-     cmpShow a chaque image — pas besoin de forcer un redessin. */
-  ["MINS", "VINS", "SQRTVINS"].forEach((k) => {
-    const cb = $("tr" + k);
-    if (!cb) return;
-    cb.onchange = () => { cmpShow[k] = cb.checked; };
-  });
-
   /* Bascule d'essai. Le backend REFUSE de changer d'étiquette tant qu'un
      enregistrement tourne (sinon on écraserait/mélangerait des données), et
      renvoie l'ancienne valeur par télémétrie — ce qui faisait "revenir tout
@@ -1133,10 +1111,117 @@
                   () => {});
   }, 3000);
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     ROVER 3D SUR LA CARTE
+     ───────────────────────────────────────────────────────────────────────
+     TAILLE FIXE, PAS D'ÉCHELLE MÉTRIQUE. Une première version dessinait le
+     rover à sa taille réelle (0,446 m × s px/m) : à un zoom courant il
+     couvrait le tracé et la carte devenait illisible. Il occupe donc
+     désormais le même gabarit que la flèche qu'il remplace, quel que soit
+     le zoom — c'est une ICÔNE d'orientation, pas une empreinte au sol.
+
+     Il ne refait pas la projection : draw() calcule déjà les pixels (tare
+     SE(2), lissage, autoscale) et on lui prend sa sortie. Réimplémenter la
+     même transformation en 3D garantirait qu'elle finisse par diverger.
+
+     Attitude : roulis pris sur la vitesse angulaire, tangage sur
+     l'accélération linéaire, tous deux amortis et bornés. Le rover s'incline
+     dans ses virages et pique au freinage, ce qui rend le mouvement lisible
+     là où une icône plate ne dit rien.
+
+     Repli : sans WebGL, sans Three.js, ou si le STL ne charge pas,
+     roverGl.ready reste faux et draw() garde son triangle. Jamais de carte
+     sans robot.
+  ═══════════════════════════════════════════════════════════════════════ */
+  const roverGl = (() => {
+    const api = { ready: false, update() {}, resize() {}, clear() {} };
+    const cvx = $("cv3d");
+    if (!cvx || typeof THREE === "undefined" || !THREE.STLLoader) return api;
+
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas: cvx, alpha: true, antialias: true });
+    } catch (e) { return api; }
+    renderer.setClearColor(0x000000, 0);
+
+    const LONGUEUR_PX = 34;      // gabarit, en pixels CSS — cf. maquette validée
+    const INCLINAISON = 0.60;    // ~34° au-dessus de l'horizon : donne du volume
+
+    const scene  = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(0, 1, 1, 0, -8000, 8000);
+    camera.position.z = 2000;
+
+    scene.add(new THREE.AmbientLight(0x6b8199, 1.30));
+    const key = new THREE.DirectionalLight(0xd6e6ff, 1.15); key.position.set(-0.35, 0.45, 0.82);
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0xff8f66, 0.40); rim.position.set(0.7, -0.4, 0.3);
+    scene.add(rim);
+
+    /* Trois groupes imbriqués : Rx(-inclinaison) · Rz(cap) · [Ry(tangage) ·
+       Rx(roulis)]. Imbriquer plutôt qu'un seul Euler évite toute ambiguïté
+       sur l'ordre d'application. */
+    const gVue = new THREE.Group();  gVue.rotation.x = -INCLINAISON;  scene.add(gVue);
+    const gCap = new THREE.Group();  gVue.add(gCap);
+    const gAtt = new THREE.Group();  gCap.add(gAtt);
+
+    let materiau = null, longueurMm = 1;
+
+    new THREE.STLLoader().load("models/leo_rover_map.stl", (geo) => {
+      geo.computeVertexNormals();
+      geo.computeBoundingBox();
+      const b = geo.boundingBox;
+      longueurMm = b.max.x - b.min.x;
+      /* centré sur son empreinte : le rover doit pivoter autour de lui-même,
+         pas autour d'un coin de sa boîte englobante. */
+      geo.translate(-(b.min.x + b.max.x) / 2, -(b.min.y + b.max.y) / 2,
+                    -(b.min.z + b.max.z) / 2);
+      materiau = new THREE.MeshPhongMaterial({ color: 0xb9c6d4, specular: 0x35435a,
+                                               shininess: 22 });
+      gAtt.add(new THREE.Mesh(geo, materiau));
+      api.ready = true;
+    }, undefined, () => {});
+
+    api.resize = () => {
+      const r = cv.parentElement.getBoundingClientRect();
+      renderer.setPixelRatio(1);
+      renderer.setSize(cv.width, cv.height, false);
+      cvx.style.width = r.width + "px"; cvx.style.height = r.height + "px";
+      camera.left = 0; camera.right = cv.width;
+      camera.top = cv.height; camera.bottom = 0;
+      camera.updateProjectionMatrix();
+    };
+
+    /* amortissement de l'attitude : la pose arrive à ~10 Hz, appliquer la
+       vitesse brute ferait saccader l'inclinaison. */
+    let roulis = 0, tangage = 0, vlinPrec = 0;
+    const borne = (v, m) => Math.max(-m, Math.min(m, v));
+
+    api.update = (px, py, cap, vlin, vang, teinte) => {
+      if (!api.ready) return;
+      const rCible = borne(-vang * 0.85, 0.45);          // penche DANS le virage
+      const aLin   = (vlin - vlinPrec) * 10;             // ~10 Hz de pose
+      vlinPrec = vlin;
+      const tCible = borne(-aLin * 0.55, 0.30);          // pique en accélérant
+      roulis  += (rCible - roulis)  * 0.10;
+      tangage += (tCible - tangage) * 0.10;
+
+      gCap.rotation.z = cap;
+      gAtt.rotation.y = tangage;
+      gAtt.rotation.x = roulis;
+      gVue.position.set(px, cv.height - py, 0);          // caméra Y vers le haut
+      gVue.scale.setScalar(LONGUEUR_PX * devicePixelRatio / longueurMm);
+      if (materiau && teinte) materiau.color.set(teinte);
+      renderer.render(scene, camera);
+    };
+    api.clear = () => renderer.clear();
+    return api;
+  })();
+
   /* ═══ Rendu canvas — fond charbon, grille fine, trail estompé ═══ */
   function resize() {
     const r = cv.parentElement.getBoundingClientRect();
     cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio;
+    roverGl.resize();
   }
   window.addEventListener("resize", resize); resize();
 
@@ -1268,51 +1353,6 @@
     }
     ctx.globalAlpha = 1;
 
-    /* ── Superposition comparative des trois estimateurs (2026-08-21) ──────
-       Tracees APRES le trace fusionne pour rester lisibles par-dessus, mais
-       en trait fin et semi-transparent : c'est un fond de comparaison, pas le
-       sujet principal de la page. Chaque estimateur garde SA couleur, la meme
-       que dans le cockpit et le TF Validator -- ambre pour sqrtVINS. */
-    {
-      ctx.lineWidth = 1.2 * dpr;
-      ctx.setLineDash([4 * dpr, 3 * dpr]);
-      Object.keys(cmpTrails).forEach((k) => {
-        if (!cmpShow[k]) return;
-        const t = cmpTrails[k];
-        if (t.length < 2) return;
-        ctx.globalAlpha = 0.55;
-        ctx.strokeStyle = COLORS[k] || "#888";
-        /* DECIMATION (2026-08-22). Ce bloc redessine a chaque image
-           (requestAnimationFrame, ~60 Hz). Sans decimation il tracait
-           3 x CMP_MAX = 12 000 segments par image, soit 720 000 par seconde,
-           en plus des 3 000 du trace fusionne -- mesure : Firefox a 109 % d'un
-           coeur, PC a 83 C, au point de faire refuser le banc par
-           tools/relance_estimateurs.sh. C'etait une regression introduite avec
-           la comparaison a trois.
-           Tracer plus de points que le canvas n'a de pixels de large ne montre
-           RIEN de plus : plusieurs points tombent sur le meme pixel. On garde
-           donc au plus un point tous les `pas`, borne a ~800 par trace. La
-           trajectoire dessinee est visuellement identique. */
-        const pas = Math.max(1, Math.ceil(t.length / 800));
-        ctx.beginPath();
-        ctx.moveTo(X(t[0].x, t[0].y), Y(t[0].x, t[0].y));
-        for (let i = pas; i < t.length; i += pas) ctx.lineTo(X(t[i].x, t[i].y), Y(t[i].x, t[i].y));
-        /* Toujours relier au DERNIER point, meme s'il n'est pas sur la grille
-           de decimation : sinon la tete du trace retarde d'un pas et le point
-           de tete ci-dessous flotte a cote de sa propre courbe. */
-        const dern = t[t.length - 1];
-        ctx.lineTo(X(dern.x, dern.y), Y(dern.x, dern.y));
-        ctx.stroke();
-        /* Point de tete : ou en est CET estimateur en ce moment. */
-        const h = t[t.length - 1];
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = COLORS[k] || "#888";
-        ctx.beginPath(); ctx.arc(X(h.x, h.y), Y(h.x, h.y), 3 * dpr, 0, 7); ctx.fill();
-      });
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
-    }
-
     /* nodes AprilTag */
     tags.forEach(t => {
       const tx = X(t.x, t.y), ty = Y(t.x, t.y);
@@ -1373,16 +1413,29 @@
     if (bl) drawFrame(bl.x, bl.y, bl.yaw, "base_link", false);
 
     /* rover : triangle orienté à la pose INTERPOLÉE (fluide), halo mode */
+    if (!pose) roverGl.clear();     /* sans pose : ne pas laisser une image figée */
     if (pose) {
       const px = X(disp.x, disp.y), py = Y(disp.x, disp.y), c = COLORS[mode] || "#ccc";
       /* cap taré aussi : sinon le triangle pointerait à côté de sa propre
          trajectoire une fois le repère tourné. */
-      ctx.save(); ctx.translate(px, py); ctx.rotate(-(disp.yaw - oyaw) + Math.PI / 2);
-      ctx.shadowColor = c; ctx.shadowBlur = 14 * dpr;
-      ctx.fillStyle = c;
-      ctx.beginPath(); ctx.moveTo(0, -9 * dpr); ctx.lineTo(6 * dpr, 7 * dpr);
-      ctx.lineTo(-6 * dpr, 7 * dpr); ctx.closePath(); ctx.fill();
-      ctx.restore();
+      if (roverGl.ready) {
+        /* Halo de mode sous le modèle : la flèche portait la couleur de la
+           source de pose, cette information ne doit pas se perdre. Le rover
+           lui-même en est teinté par-dessus. */
+        ctx.save(); ctx.globalAlpha = 0.5;
+        ctx.shadowColor = c; ctx.shadowBlur = 20 * dpr;
+        ctx.fillStyle = c;
+        ctx.beginPath(); ctx.arc(px, py, 3.5 * dpr, 0, 7); ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.save(); ctx.translate(px, py); ctx.rotate(-(disp.yaw - oyaw) + Math.PI / 2);
+        ctx.shadowColor = c; ctx.shadowBlur = 14 * dpr;
+        ctx.fillStyle = c;
+        ctx.beginPath(); ctx.moveTo(0, -9 * dpr); ctx.lineTo(6 * dpr, 7 * dpr);
+        ctx.lineTo(-6 * dpr, 7 * dpr); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+      roverGl.update(px, py, disp.yaw - oyaw, vlin, vang, c);
       /* Mêmes coordonnées que le tracé : tarées si une tare est active,
          sinon brutes -- HUD et carte ne doivent jamais se contredire. */
       const dxw = pose.x - ox, dyw = pose.y - oy;

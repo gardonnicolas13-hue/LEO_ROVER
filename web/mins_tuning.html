@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en" class="dark scroll-smooth">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" type="image/svg+xml" href="leo_icon.svg" />
+<title>MINS Tuning Guide — LEO ROVER · Florida Tech</title>
+<script src="i18n.js?v=r35"></script>
+<script src="vendor/tailwind.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: {
+      fontFamily: {
+        sans: ['Inter','system-ui','sans-serif'],
+        mono: ['"JetBrains Mono"','ui-monospace','monospace'],
+        display: ['Rajdhani','Inter','sans-serif'],
+      },
+      colors: {
+        space:  { 950:'#0B0E14', 900:'#10141c', 800:'#161b24' },
+        accent: { DEFAULT:'#22d3ee', soft:'#67e8f9', deep:'#0e7490' },
+        plasma: { DEFAULT:'#ff6b35', soft:'#ff8f66', deep:'#c2410c' },
+        alert:  { DEFAULT:'#FC3D21' },
+        ok:     { DEFAULT:'#3fdc97' },
+        warn:   { DEFAULT:'#eab308' },
+      },
+      boxShadow: {
+        glow:'0 0 0 1px rgba(34,211,238,.28), 0 0 40px -10px rgba(34,211,238,.65)',
+        neon:'0 0 6px rgba(34,211,238,.6), 0 0 26px rgba(34,211,238,.45), 0 0 60px rgba(34,211,238,.22)',
+        'neon-plasma':'0 0 6px rgba(255,107,53,.55), 0 0 26px rgba(255,107,53,.35)',
+      },
+      keyframes: {
+        floaty:{ '0%,100%':{ transform:'translateY(0)' }, '50%':{ transform:'translateY(-14px)' } },
+        'fade-up':{ '0%':{ opacity:0, transform:'translateY(20px)' }, '100%':{ opacity:1, transform:'translateY(0)' } },
+        blink:{ '0%,100%':{ opacity:1 }, '50%':{ opacity:.25 } },
+      },
+      animation: {
+        floaty:'floaty 7s ease-in-out infinite',
+        'fade-up':'fade-up .8s ease-out both',
+        blink:'blink 1.2s step-end infinite',
+      },
+    }},
+  };
+</script>
+<link rel="stylesheet" href="fonts/fonts.css?v=f1" />
+<link rel="stylesheet" href="mission.css?v=m2" />
+<script src="vendor/three.min.js"></script>
+<script src="vendor/gsap.min.js"></script>
+<script src="vendor/ScrollTrigger.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0B0E14; }
+  .grid-bg { background-image:
+      linear-gradient(rgba(255,107,53,.045) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,107,53,.045) 1px,transparent 1px);
+      background-size:46px 46px;
+      -webkit-mask-image:radial-gradient(ellipse at 50% 0,#000 30%,transparent 80%);
+      mask-image:radial-gradient(ellipse at 50% 0,#000 30%,transparent 80%); }
+  /* Voile du hero : le globe filaire est le plus dense exactement là où se
+     pose le titre. Sans ce fondu, le texte se lit sur un treillis mouvant.
+     Dégradé depuis la gauche, pour que la colonne de texte gagne un sol
+     tout en laissant la scène 3D respirer à droite. */
+  .hero-scrim { position:absolute; inset:0; pointer-events:none; z-index:0;
+    background:
+      linear-gradient(100deg, #0B0E14 0%, rgba(11,14,20,.94) 30%,
+                      rgba(11,14,20,.62) 52%, rgba(11,14,20,0) 74%),
+      radial-gradient(ellipse 60% 70% at 22% 45%, rgba(11,14,20,.85), transparent 70%); }
+  .hero-inner { position:relative; z-index:1; }
+  .glass { background:rgba(255,255,255,.035); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); }
+  .tile { border:1px solid rgba(255,255,255,.08); border-radius:1.25rem; }
+  /* Surface de LECTURE, plus opaque que le .glass d'accueil.
+     index.html porte des blocs courts : un fond filaire visible au travers y
+     est un atout. Cette page porte ~3000 mots de texte technique, et le même
+     fond traversait les paragraphes. Mêmes jetons, même rayon, même bordure —
+     seule l'opacité change, parce que la fonction de la surface change. */
+  .doc-tile { background:rgba(12,16,23,.90); backdrop-filter:blur(22px);
+              -webkit-backdrop-filter:blur(22px); }
+  /* Dégradé de titre incliné vers le plasma : cette page est la page MINS,
+     et dans la DA du site MINS est l'orange. */
+  .text-gradient { background:linear-gradient(120deg,#fff,#ff8f66 50%,#22d3ee);
+      -webkit-background-clip:text; background-clip:text; color:transparent; }
+  ::-webkit-scrollbar{ width:9px; }
+  ::-webkit-scrollbar-thumb{ background:#1c2733; border-radius:5px; }
+
+  .section-label {
+    font-family:'JetBrains Mono',monospace;
+    font-size:9px; letter-spacing:.2em; text-transform:uppercase;
+    color:rgba(255,107,53,.75); margin-bottom:6px;
+  }
+  .doc-body h3 { font-family:'Rajdhani',sans-serif; font-weight:700; font-size:1.15rem;
+    color:#e4e4e7; margin-top:1.6rem; margin-bottom:.5rem; }
+  .doc-body h4 { font-family:'Rajdhani',sans-serif; font-weight:700; font-size:.95rem;
+    color:#c3c8d0; margin-top:1.1rem; margin-bottom:.35rem; letter-spacing:.01em; }
+  .doc-body p { color:#a1a1aa; line-height:1.75; margin-bottom:1rem; font-size:.94rem; }
+  .doc-body ul, .doc-body ol { color:#a1a1aa; line-height:1.75; margin-bottom:1rem;
+    padding-left:1.3rem; font-size:.94rem; }
+  .doc-body li { margin-bottom:.35rem; }
+  .doc-body code { background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08);
+    border-radius:.3rem; padding:.05rem .35rem; font-family:'JetBrains Mono',monospace;
+    font-size:.82em; color:#67e8f9; }
+  .doc-body strong { color:#e4e4e7; }
+  .doc-body em { color:#b8bdc6; }
+
+  .verdict-box { border-left:3px solid; border-radius:.5rem; padding:.9rem 1.1rem;
+    margin:1.1rem 0; font-size:.88rem; line-height:1.65; }
+  .verdict-yes { border-color:#3fdc97; background:rgba(63,220,151,.06); color:#d4d4d8; }
+  .verdict-no  { border-color:#FC3D21; background:rgba(252,61,33,.06); color:#d4d4d8; }
+  .verdict-partial { border-color:#eab308; background:rgba(234,179,8,.07); color:#d4d4d8; }
+  .verdict-info { border-color:#22d3ee; background:rgba(34,211,238,.06); color:#d4d4d8; }
+  .verdict-box .vb-title { font-family:'Rajdhani',sans-serif; font-weight:700;
+    font-size:.95rem; letter-spacing:.02em; margin-bottom:.35rem; display:block; }
+  .verdict-no .vb-title { color:#ff8b73; }
+  .verdict-yes .vb-title { color:#6ee7a8; }
+  .verdict-partial .vb-title { color:#fbd24e; }
+  .verdict-info .vb-title { color:#67e8f9; }
+  .verdict-box p:last-child, .verdict-box ul:last-child { margin-bottom:0; }
+  .verdict-box p { margin-bottom:.6rem; }
+  .verdict-box code { background:rgba(0,0,0,.3); border-radius:.25rem; padding:.05rem .3rem;
+    font-family:'JetBrains Mono',monospace; font-size:.85em; color:#fbd6c8; }
+
+  .compare-table { width:100%; border-collapse:collapse; font-size:.85rem; margin:.4rem 0 1rem; }
+  .compare-table th, .compare-table td { padding:.55rem .75rem; text-align:left;
+    border-bottom:1px solid rgba(255,255,255,.08); vertical-align:top; }
+  .compare-table th { color:#a1a1aa; font-weight:600; font-size:.72rem;
+    text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; }
+  .compare-table td { color:#a1a1aa; line-height:1.6; }
+  .compare-table td.num, .compare-table td.p { font-variant-numeric:tabular-nums;
+    font-family:'JetBrains Mono',monospace; font-size:.8rem; color:#e4e4e7; white-space:nowrap; }
+  .compare-table tr:last-child td { border-bottom:none; }
+  .table-scroll { overflow-x:auto; }
+
+  /* Étiquette de provenance — l'information la plus utile du document :
+     elle dit quels nombres on a le droit de toucher. */
+  .prov { font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:.09em;
+    text-transform:uppercase; padding:2px 6px; border-radius:3px; white-space:nowrap;
+    border:1px solid; display:inline-block; }
+  .prov-m { color:#6ee7a8; border-color:rgba(63,220,151,.35); background:rgba(63,220,151,.09); }
+  .prov-d { color:#67e8f9; border-color:rgba(34,211,238,.32); background:rgba(34,211,238,.08); }
+  .prov-p { color:#fbd24e; border-color:rgba(234,179,8,.35); background:rgba(234,179,8,.09); }
+
+  .toc-link { display:flex; gap:.6rem; align-items:baseline; padding:.4rem .6rem;
+    border-radius:6px; font-size:.82rem; color:#8a93a0; transition:all .17s var(--ms-ease,ease); }
+  .toc-link:hover { color:#fff; background:rgba(255,255,255,.05); }
+  .toc-link .tn { font-family:'JetBrains Mono',monospace; font-size:.7rem; color:#ff6b35; flex:none; }
+
+  pre.code { background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.08);
+    border-radius:.55rem; padding:.85rem 1rem; overflow-x:auto; margin:.4rem 0 1rem;
+    font-family:'JetBrains Mono',monospace; font-size:.78rem; line-height:1.6; color:#a1a1aa; }
+  pre.code b { color:#67e8f9; font-weight:500; }
+
+  /* Scène 3D des repères — le canvas suit la souris sur toute la fenêtre */
+  #framesWrap { position:relative; }
+  #frames3d { width:100%; height:100%; display:block; }
+  .axis-key { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.04em; }
+  .axis-swatch { width:16px; height:2px; border-radius:2px; display:inline-block;
+    vertical-align:middle; margin-right:6px; }
+</style>
+</head>
+
+<body class="bg-space-950 font-sans text-zinc-300 antialiased">
+
+<canvas id="bg3d_mins" class="pointer-events-none fixed inset-0 -z-20 h-full w-full opacity-[.28]"></canvas>
+
+<!-- ══════════════════ HEADER ══════════════════ -->
+<header class="sticky top-0 z-40 border-b border-white/5 bg-space-950/80 backdrop-blur-xl">
+  <div class="mx-auto flex max-w-7xl items-center justify-between gap-3 px-5 py-3">
+    <a href="index.html" class="group flex items-center gap-3">
+      <span class="flex items-center gap-2">
+        <img src="vendor/NASA_logo.svg" alt="NASA" loading="lazy"
+             class="h-8 w-8 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 shadow-glow transition group-hover:scale-105 md:h-9 md:w-9" />
+        <img src="vendor/fit_seal.svg" alt="Florida Institute of Technology" loading="lazy"
+             class="h-8 w-8 rounded-full bg-white object-contain p-1 ring-1 ring-white/20 transition group-hover:scale-105 md:h-9 md:w-9" />
+      </span>
+      <span class="hidden h-7 w-px bg-white/15 sm:block"></span>
+      <span class="font-display text-sm font-bold tracking-widest sm:text-base">LEO<span class="text-accent">·</span>ROVER</span>
+    </a>
+    <nav class="hidden items-center gap-0.5 xl:flex">
+      <a href="index.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
+      <a href="ops.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_ops">Operations</a>
+      <a href="logbook.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
+      <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788895799" target="_blank" rel="noopener"
+         class="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
+      <a href="mins_tuning.html" class="rounded-lg bg-plasma/10 px-2.5 py-2 text-[13px] text-plasma ring-1 ring-plasma/25" data-i18n="nav_mins">MINS Tuning</a>
+      <a href="system.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_system">System</a>
+      <a href="robot_description.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
+      <a href="navigation_modes.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
+      <a href="trajectory.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+      <a href="audit.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_audit">Audit</a>
+      <a href="hector_response.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_deriv">Findings</a>
+      <a href="tf_validator.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_tfval">TF Validator</a>
+    </nav>
+    <div class="flex items-center gap-2">
+      <div class="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/[.03] p-0.5" title="Language">
+        <button type="button" class="lang-btn" data-lang="fr" onclick="if(window.I18N)I18N.set('fr')">FR</button>
+        <button type="button" class="lang-btn" data-lang="en" onclick="if(window.I18N)I18N.set('en')">EN</button>
+      </div>
+      <a href="ops.html" class="flex items-center gap-2 rounded-xl bg-accent/15 px-3 py-2 text-sm font-semibold text-accent ring-1 ring-accent/30 transition hover:bg-accent/25 hover:shadow-neon sm:px-4">
+        <i data-lucide="gamepad-2" class="h-4 w-4"></i> <span class="hidden sm:inline" data-i18n="nav_cockpit">Cockpit</span>
+      </a>
+      <button type="button" id="mobileMenuBtn" aria-label="Menu"
+              class="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-white/[.03] text-zinc-300 transition hover:bg-white/10 xl:hidden"
+              onclick="document.getElementById('mobileMenu').classList.toggle('hidden')">
+        <i data-lucide="menu" class="h-4 w-4"></i>
+      </button>
+    </div>
+  </div>
+  <div id="mobileMenu" class="hidden border-t border-white/5 bg-space-950/95 xl:hidden">
+    <nav class="mx-auto flex max-w-7xl flex-col gap-1 px-5 py-3">
+      <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
+      <a href="ops.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_ops">Operations</a>
+      <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
+      <a href="mins_tuning.html" class="rounded-lg bg-plasma/10 px-3 py-2.5 text-sm text-plasma" data-i18n="nav_mins">MINS Tuning</a>
+      <a href="system.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_system">System</a>
+      <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
+      <a href="navigation_modes.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_navmodes">Nav Modes</a>
+      <a href="trajectory.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_trajectory">Trajectory</a>
+      <a href="audit.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_audit">Audit</a>
+      <a href="hector_response.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_deriv">Findings</a>
+      <a href="tf_validator.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_tfval">TF Validator</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ══════════════════ HERO + SCÈNE 3D ══════════════════ -->
+<section class="grid-bg relative overflow-hidden">
+  <div class="hero-scrim"></div>
+  <div class="hero-inner mx-auto grid max-w-7xl items-center gap-8 px-5 pb-10 pt-12 lg:grid-cols-[1.05fr_.95fr] lg:pt-16">
+
+    <div class="animate-fade-up">
+      <p class="section-label">// state estimation · tuning reference</p>
+      <h1 class="font-display text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl">
+        <span class="text-gradient">Tuning MINS</span><br />
+        <span class="text-white">on the LEO Rover</span>
+      </h1>
+      <p class="mt-5 max-w-xl text-[15px] leading-relaxed text-zinc-400">
+        A parameter-by-parameter guide to the multisensor-aided inertial navigation stack:
+        what each value means, <strong class="text-zinc-200">where it came from</strong>,
+        what it looks like when it is wrong, and the order in which to change things.
+      </p>
+
+      <div class="mt-6 flex flex-wrap items-center gap-2.5 text-[11px]">
+        <span class="rounded bg-plasma/10 px-2.5 py-1 font-mono text-plasma ring-1 ring-plasma/25">mins/config/leo/</span>
+        <span class="rounded bg-white/5 px-2.5 py-1 font-mono text-zinc-400 ring-1 ring-white/10">7 config files</span>
+        <span class="rounded bg-white/5 px-2.5 py-1 font-mono text-zinc-400 ring-1 ring-white/10">first draft · 2026-09-02</span>
+      </div>
+
+      <div class="mt-6 flex flex-wrap gap-3">
+        <a href="#download" class="flex items-center gap-2 rounded-xl bg-plasma/15 px-4 py-2.5 text-sm font-semibold text-plasma ring-1 ring-plasma/30 transition hover:bg-plasma/25 hover:shadow-neon-plasma">
+          <i data-lucide="download" class="h-4 w-4"></i> Download config package
+        </a>
+        <a href="#s3" class="flex items-center gap-2 rounded-xl bg-white/5 px-4 py-2.5 text-sm font-semibold text-zinc-300 ring-1 ring-white/10 transition hover:bg-white/10 hover:text-white">
+          <i data-lucide="sliders-horizontal" class="h-4 w-4"></i> Jump to parameters
+        </a>
+      </div>
+    </div>
+
+    <!-- Scène 3D : les repères capteurs, orbitables à la souris -->
+    <div class="animate-fade-up" style="animation-delay:.12s">
+      <div id="framesWrap" class="tile doc-tile overflow-hidden">
+        <div class="flex items-center justify-between border-b border-white/5 px-4 py-2.5">
+          <p class="font-mono text-[10px] uppercase tracking-[.18em] text-zinc-500">Sensor frames · T_imu_cam / T_imu_wheel</p>
+          <span class="ms-live font-mono text-[10px] text-zinc-500">move the mouse</span>
+        </div>
+        <div class="h-[300px] sm:h-[350px] lg:h-[400px]">
+          <canvas id="frames3d"></canvas>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-white/5 px-4 py-3">
+          <span class="axis-key text-zinc-400"><i class="axis-swatch" style="background:#ff6b35"></i>x</span>
+          <span class="axis-key text-zinc-400"><i class="axis-swatch" style="background:#3fdc97"></i>y</span>
+          <span class="axis-key text-zinc-400"><i class="axis-swatch" style="background:#22d3ee"></i>z</span>
+          <span class="axis-key text-zinc-600">· centre = IMU · forward = stereo camera · below = wheel frame, R<sub>z</sub>(&pi;)</span>
+        </div>
+      </div>
+      <p class="mt-2.5 px-1 text-[11px] leading-relaxed text-zinc-600">
+        The wheel triad points <em class="text-zinc-500">opposite</em> the camera. That 180° is
+        <code class="font-mono text-plasma/80">R<sub>z</sub>(π)</code> in
+        <code class="font-mono text-plasma/80">T_imu_wheel</code> — without it every wheel
+        measurement contradicted inertial prediction and was silently rejected.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ SOMMAIRE ══════════════════ -->
+<section class="mx-auto max-w-7xl px-5 pb-8">
+  <div class="tile doc-tile p-4 sm:p-5">
+    <div class="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+      <a href="#s1" class="toc-link"><span class="tn">01</span><span>Purpose and scope</span></a>
+      <a href="#s2" class="toc-link"><span class="tn">02</span><span>Prerequisites &amp; the two silent traps</span></a>
+      <a href="#s3" class="toc-link"><span class="tn">03</span><span>The parameters, with provenance</span></a>
+      <a href="#s4" class="toc-link"><span class="tn">04</span><span>Calibration procedure</span></a>
+      <a href="#s5" class="toc-link"><span class="tn">05</span><span>Troubleshooting</span></a>
+      <a href="#s6" class="toc-link"><span class="tn">06</span><span>File map &amp; open items</span></a>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ 01 ══════════════════ -->
+<section id="s1" class="mx-auto max-w-4xl scroll-mt-20 px-5 pb-6">
+  <div class="tile doc-tile p-6 sm:p-8">
+    <p class="section-label">// 01 — purpose and scope</p>
+    <h2 class="font-display text-2xl font-bold text-white">What this document is for</h2>
+    <div class="doc-body mt-2">
+      <p><strong>MINS</strong> — <em>Multisensor-aided Inertial Navigation System</em>
+      (Lee et al., RPNG) — is the state estimator that fuses this rover's IMU, stereo IR
+      cameras and wheel encoders into a single pose estimate. This page records how its
+      parameters were set on <em>this</em> platform, and why.</p>
+
+      <p>It is written for someone who has to change a value and needs to know what will
+      happen. Every number below is either a measurement taken on this rover, a value read
+      from the firmware or a calibration tool, or a placeholder still waiting to be
+      replaced — and each is labelled as such, because the three categories carry very
+      different permission to edit.</p>
+
+      <h3>Where MINS sits in the stack</h3>
+      <p>MINS runs on the <strong>ground workstation</strong>, not on the robot. It
+      subscribes to sensor topics republished from the Pi and publishes
+      <code>/mins/imu/odom</code>. <code>pose_selector</code> then republishes the selected
+      estimator onto <code>/robot_pose_fused</code>, which is what the cockpit and the
+      navigation nodes consume. Three estimators can occupy that slot — MINS, openVINS,
+      sqrtVINS — and the cockpit's <em>Pose Source</em> control switches between them.</p>
+
+      <p>That split matters for tuning: MINS costs roughly <strong>85 % of one i7-8700
+      core</strong>, and the Raspberry Pi 4B is a measured <strong>4.05×</strong> slower
+      per core. Running it onboard is not currently viable, so every parameter here is
+      tuned against workstation-class compute with a WiFi hop in the sensor path.</p>
+
+      <h3>What makes this platform specific</h3>
+      <ul>
+        <li><strong>It is a skid-steer rover that pivots a great deal.</strong> Four rigid
+        wheels, no steering. During an in-place pivot the wheels scrub rather than roll,
+        and visual landmark depth becomes unobservable. Both facts drive parameter choices
+        that would be wrong on a car-like or aerial platform.</li>
+        <li><strong>The IMU is low-grade and occasionally pathological.</strong> The CORE2's
+        inertial unit emits rare single-sample glitches — magnitudes up to
+        5&times;10<sup>16</sup> m/s² — which will destroy any inertial filter that sees them.</li>
+        <li><strong>The camera is the only sensor constraining <em>z</em>.</strong> Wheels
+        hold <em>x</em> and <em>y</em>; nothing else holds height. A camera extrinsic error
+        has driven <em>z</em> to −25.9 m while <em>x</em>/<em>y</em> stayed perfect, with no
+        alarm of any kind.</li>
+        <li><strong>Sensors reach the estimator over WiFi.</strong> That constrains which
+        topics may be subscribed and at what rate — see trap 2 below.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ 02 ══════════════════ -->
+<section id="s2" class="mx-auto max-w-4xl scroll-mt-20 px-5 pb-6">
+  <div class="tile doc-tile p-6 sm:p-8">
+    <p class="section-label">// 02 — prerequisites</p>
+    <h2 class="font-display text-2xl font-bold text-white">Check the platform before you touch the filter</h2>
+    <div class="doc-body mt-2">
+      <p>Tuning a filter on a sick platform produces parameters that encode the sickness.
+      Check all of the following <em>before</em> changing a single value.</p>
+
+      <div class="verdict-box verdict-no">
+        <span class="vb-title">Battery first, always</span>
+        <p>Read <code>/firmware/battery</code> before anything else. This project's own
+        threshold is <strong>10.3 V</strong> (<code>leo_backend.py:500</code>), and the
+        recorded history shows that <strong>10.3 V already caused loss of traction</strong>
+        (roller stall, 2026-07-10). On 2026-09-02 the pack measured a stable
+        <strong>9.34–9.41 V</strong> — nearly a volt below a level that had already failed —
+        during an investigation into why the rover would not move.</p>
+        <p>A drained pack produces symptoms that look exactly like estimator or software
+        faults: no motion, <code>pwm_duty_cycle: [0,0,0,0]</code>, telemetry still flowing
+        normally because it draws almost no current. Several sessions of software audit
+        (GPIO, rosserial, checksums) found nothing, because the cause was not software.
+        <strong>One command costs less than a day of debugging.</strong></p>
+      </div>
+
+      <h3>Pre-flight checks</h3>
+      <div class="table-scroll">
+        <table class="compare-table">
+          <thead><tr><th>Check</th><th>Command</th><th>Expected</th></tr></thead>
+          <tbody>
+            <tr><td>Battery</td><td class="p">rostopic echo -n1 /firmware/battery</td><td>&gt; 10.3 V, ideally &gt; 11.5 V</td></tr>
+            <tr><td>Wheel encoders</td><td class="p">rostopic hz /firmware/wheel_states</td><td>~20 Hz, no gap &gt; 0.10 s</td></tr>
+            <tr><td>IMU</td><td class="p">rostopic hz /imu/data_clean</td><td>~87 Hz</td></tr>
+            <tr><td>Cameras</td><td class="p">rostopic hz /camera/infra1/image_rect_raw</td><td>~15 Hz, both infra1 and infra2</td></tr>
+            <tr><td>Serial priority</td><td class="p">chrt -p $(pgrep -f serial_node)</td><td>SCHED_FIFO, priority 25</td></tr>
+            <tr><td>Pi thermals</td><td class="p">vcgencmd measure_temp; vcgencmd get_throttled</td><td>&lt; 75 °C; bits 0–3 clear</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The <code>SCHED_FIFO 25</code> check is not cosmetic. Without it the serial node
+      loses UART FIFO bytes to CPU starvation and wheel odometry collapses from ~19 Hz to
+      ~1 Hz — which the filter experiences as a wheel sensor that has effectively stopped,
+      and which is very easy to mistake for a tuning problem.</p>
+
+      <h3>The two silent traps in the data path</h3>
+
+      <div class="verdict-box verdict-no">
+        <span class="vb-title">Trap 1 — wheel messages that arrive but are never used</span>
+        <p>MINS reads wheel velocities <strong>by index</strong> (<code>velocity[0]</code>,
+        <code>velocity[1]</code>), assuming front-left and front-right. This rover's
+        <code>/joint_states</code> orders them <code>[FL, RL, FR, RR]</code> — so index 1 is
+        the <em>rear</em> left. <code>wheel_remap.py</code> looks the two front wheels up by
+        name and republishes them in the order MINS assumes, on
+        <code>/joint_states_mins</code>.</p>
+        <p>Worse, <code>ROSSubscriber::callback_wheel</code>
+        (<code>ROSSubscriber.cpp:165</code>) discards every message whose
+        <code>name[0]</code> is not in the <code>sub_topics</code> list, which defaults
+        (<code>OptionsWheel.h:48</code>) to generic names this rover does not use. Without
+        the correct <code>sub_topics</code>, messages arrive — <code>rostopic hz</code>
+        shows them — and MINS's internal wheel stack stays at zero forever. It looks
+        exactly like "not enough excitation", and is routinely mistaken for an
+        initialization problem.</p>
+      </div>
+
+      <div class="verdict-box verdict-no">
+        <span class="vb-title">Trap 2 — subscribing the robot's raw camera topics</span>
+        <p>Never point MINS at the robot's raw <code>/camera/...</code> topics from the
+        workstation. Two 848×480 raw streams at 30 Hz demand roughly <strong>24 MB/s
+        against a link that carries about 6 MB/s</strong> — this has been observed
+        <em>crashing the access point</em>, not merely dropping frames. Use the local
+        republish of the compressed stream (<code>/pc/camera/...</code>) configured in
+        <code>navigation_supervision.launch</code>.</p>
+      </div>
+
+      <h3>Launching</h3>
+      <p>Both workspaces must be sourced. Note that <code>mins/launch/</code> is empty in
+      this tree — the launch file lives in <code>leo_navigation</code>:</p>
+<pre class="code">source ~/TOUT/catkin_ws/devel/setup.bash   <b># leo_navigation</b>
+source ~/TOUT/mins_ws/devel/setup.bash     <b># mins</b>
+roslaunch leo_navigation mins.launch</pre>
+
+      <p>Three properties of that launch file are load-bearing and should not be
+      "cleaned up":</p>
+      <ul>
+        <li><strong>The config path goes through <code>args=</code>, not
+        <code>&lt;param&gt;</code>.</strong> On ROS 1, <code>run_subscribe.cpp</code> only
+        reads <code>argv[1]</code>; the parameter-server read sits inside a
+        <code>#if ROS_AVAILABLE == 2</code> block. Using <code>&lt;param&gt;</code> makes
+        MINS try to open the literal string <code>__name:=mins_subscribe</code>.</li>
+        <li><strong><code>respawn="true"</code>, never <code>required="true"</code>.</strong>
+        A single MINS abort under <code>required</code> tore down the entire stack including
+        the cockpit — the operator lost the ability to <em>drive</em> because an estimator
+        hiccuped. Accepted cost: on respawn MINS re-initializes at a new origin, so
+        <code>/robot_pose_fused</code> shows a discontinuity. A discontinuous trajectory is
+        recoverable; a dead cockpit mid-manoeuvre is not.</li>
+        <li><strong><code>/tf</code> is remapped to <code>/tf_mins</code>.</strong> MINS
+        broadcasts <code>global→imu</code> at ~85 Hz, which would steal the <code>imu</code>
+        frame from the URDF (a TF child has exactly one parent) and collide with openVINS.
+        Its TF is visualization-only.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ 03 ══════════════════ -->
+<section id="s3" class="mx-auto max-w-4xl scroll-mt-20 px-5 pb-6">
+  <div class="tile doc-tile p-6 sm:p-8">
+    <p class="section-label">// 03 — tuning parameters</p>
+    <h2 class="font-display text-2xl font-bold text-white">The parameters, and where each number came from</h2>
+    <div class="doc-body mt-2">
+      <p>Every value carries a provenance label. This is the single most useful thing on
+      this page: it tells you which numbers you are allowed to tune, and which ones encode
+      a physical fact about the rover that tuning cannot fix.</p>
+
+      <div class="my-4 flex flex-col gap-2.5 rounded-lg border border-white/10 bg-white/[.02] p-4 sm:flex-row sm:flex-wrap sm:gap-x-6">
+        <div class="flex items-center gap-2.5"><span class="prov prov-m">Measured</span><span class="text-[12px] text-zinc-500">experiment on this rover — change only by re-measuring</span></div>
+        <div class="flex items-center gap-2.5"><span class="prov prov-d">Derived</span><span class="text-[12px] text-zinc-500">from firmware, geometry or a calibration tool</span></div>
+        <div class="flex items-center gap-2.5"><span class="prov prov-p">Provisional</span><span class="text-[12px] text-zinc-500">placeholder awaiting a proper value</span></div>
+      </div>
+
+      <h3>3.1 &nbsp;IMU process noise — <code>config_imu.yaml</code></h3>
+      <p>These four values were characterised on this rover's own IMU with
+      <code>imu_utils</code>. They are the filter's statement of how much it should trust
+      inertial prediction between updates. Datasheet values would leave the filter
+      overconfident, amplifying small residuals into large corrections — a failure that
+      does not look like a typo, it looks like a broken estimator.</p>
+
+      <div class="table-scroll">
+        <table class="compare-table">
+          <thead><tr><th>Parameter</th><th>Value</th><th>Meaning</th><th>Provenance</th></tr></thead>
+          <tbody>
+            <tr><td class="p">accel_noise</td><td class="num">2.331e-02</td><td>Accelerometer white noise density</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">accel_bias</td><td class="num">8.929e-04</td><td>Accelerometer bias random walk</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">gyro_noise</td><td class="num">1.264e-03</td><td>Gyroscope white noise density</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">gyro_bias</td><td class="num">3.301e-05</td><td>Gyroscope bias random walk</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">topic</td><td class="num">/imu/data_clean</td><td>Sanitised stream</td><td><span class="prov prov-d">Derived</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="verdict-box verdict-no">
+        <span class="vb-title">Never point MINS at <code>/imu/data_raw</code></span>
+        <p>The onboard IMU emits rare single-sample glitches up to
+        5&times;10<sup>16</sup> m/s². One is enough to destroy the filter.
+        <code>imu_sanitizer.py</code> republishes a spike-free stream on
+        <code>/imu/data_clean</code>; that is the only stream MINS should ever see.</p>
+        <p>Separately, the accelerometer's <em>scale</em> has been observed drifting over a
+        scale of weeks. Before suspecting extrinsics or gyro calibration for a new drift,
+        measure <code>|a|</code> at rest and compare against local gravity.</p>
+      </div>
+
+      <h3>3.2 &nbsp;Estimator core — <code>config_estimator.yaml</code></h3>
+      <div class="table-scroll">
+        <table class="compare-table">
+          <thead><tr><th>Parameter</th><th>Value</th><th>Rationale</th><th>Provenance</th></tr></thead>
+          <tbody>
+            <tr><td class="p">gravity_mag</td><td class="num">9.790</td><td>Local gravity at Melbourne, FL. The generic 9.81 injected 0.02 m/s² of false accelerometer bias.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">clone_freq</td><td class="num">20</td><td>Upper bound on sliding-window clone rate; the effective rate is chosen at runtime.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">window_size</td><td class="num">1.0</td><td>Sliding window duration, seconds.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">dynamic_cloning</td><td class="num">true</td><td>Adaptive clone rate — an <em>accuracy</em> mechanism. See below.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">intr_order</td><td class="num">3</td><td>Polynomial interpolation order. MINS only ever considers 3 internally.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">intr_error_ori_thr</td><td class="num">0.007</td><td>Max tolerated interpolation error, orientation.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">intr_error_pos_thr</td><td class="num">0.003</td><td>Max tolerated interpolation error, position.</td><td><span class="prov prov-d">Derived</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="verdict-box verdict-info">
+        <span class="vb-title">What <code>dynamic_cloning</code> actually does</span>
+        <p><code>SystemManager::dynamic_cloning()</code> walks the available clone rates
+        from lowest to highest and returns the <strong>first</strong> one whose predicted
+        interpolation error falls under both <code>intr_error_ori_thr</code> and
+        <code>intr_error_pos_thr</code>, using the calibrated slope tables
+        (<code>intr_ori</code> / <code>intr_pos</code>, Hz_4 through Hz_30) at the bottom of
+        the config.</p>
+        <p>So it is <strong>an accuracy mechanism whose side effect is efficiency</strong>,
+        not an arbitrary throttle. Disabling it and pinning <code>clone_freq: 30</code> — as
+        the upstream <code>Robomaster_S1</code> profile does — removes the guarantee that
+        interpolation error stays bounded. That profile can afford it because it is also
+        mono, downsampled, and has online calibration off. Parameters must be transplanted
+        between profiles <em>as a set</em>, or not at all.</p>
+      </div>
+
+      <h3>3.3 &nbsp;Wheel odometry — <code>config_wheel.yaml</code></h3>
+      <p>This is where the rover's skid-steer nature is encoded, and where the most
+      counter-intuitive tuning lives.</p>
+      <div class="table-scroll">
+        <table class="compare-table">
+          <thead><tr><th>Parameter</th><th>Value</th><th>Rationale</th><th>Provenance</th></tr></thead>
+          <tbody>
+            <tr><td class="p">type</td><td class="num">Wheel2DAng</td><td>Differential-drive model from two angular velocities; front pair used as the differential approximation.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">noise_w</td><td class="num">0.8</td><td><strong>Raised</strong> from 0.2. In turns the rigid wheels scrub longitudinally instead of yawing the chassis: measured <strong>3.8 rad/s of wheel differential for 0.001 rad/s of real yaw</strong>. Wheel-derived yaw is fiction during turns.</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">noise_v</td><td class="num">0.2</td><td><strong>Lowered</strong> from 0.5. During camera dropouts the filter drifts on inertia alone until chi² rejects the very wheel measurements that could anchor it. The linear encoders are excellent; trusting them harder kills drift before it runs away.</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">chi2_mult</td><td class="num">5</td><td>Slip rejection gate. 15 let genuine slips through; 1 would reject normal skid-steer turns. 5 is the field compromise.</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">intrinsics</td><td class="num">[0.0622, 0.0622, 0.358]</td><td>Wheel radii and track. Radius measured over 20 windows, IQR ±0.0005; firmware nominal is 0.0625.</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">do_calib_int</td><td class="num">false</td><td><strong>Must stay false.</strong> Online intrinsic refinement diverged live to <em>negative</em> radii after motion bursts.</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">do_calib_ext</td><td class="num">true</td><td>Extrinsic refined online around the seed below.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">T_imu_wheel</td><td class="num">Rz(π), z = −0.03</td><td>The transmission is mounted 180° round, so the firmware wheel frame points opposite the camera/IMU. Without this rotation every wheel measurement contradicted inertial prediction and chi² <em>silently</em> rejected them all.</td><td><span class="prov prov-p">Provisional</span></td></tr>
+            <tr><td class="p">topic</td><td class="num">/joint_states_mins</td><td>Output of <code>wheel_remap.py</code>. Never raw <code>/joint_states</code>.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">sub_topics</td><td class="num">wheel_FL_joint, wheel_FR_joint</td><td>Mandatory. See trap 1.</td><td><span class="prov prov-d">Derived</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The <code>noise_w</code> / <code>noise_v</code> pair deserves emphasis because the
+      asymmetry looks like a mistake and is not. The rover's wheels are <strong>excellent at
+      measuring distance and useless at measuring rotation</strong>. The tuning says exactly
+      that: loosen yaw confidence hard, tighten linear confidence. A symmetric setting will
+      either let slip corrupt heading, or reject good wheel data.</p>
+
+      <h3>3.4 &nbsp;Cameras — <code>config_camera.yaml</code></h3>
+      <div class="table-scroll">
+        <table class="compare-table">
+          <thead><tr><th>Parameter</th><th>Value</th><th>Rationale</th><th>Provenance</th></tr></thead>
+          <tbody>
+            <tr><td class="p">n_pts</td><td class="num">300</td><td>Was 1500. That tracked ~600 features continuously to consume 50 per update, costing <strong>120 ms/image against a 66.7 ms budget</strong> — outside real time. 300 tracked for 50 used is a 6× selection margin at half the cost.</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">grid_x × grid_y</td><td class="num">10 × 8</td><td>80 cells of 64×60 px, ~4 features each — guarantees spatial spread.</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">min_px_dist</td><td class="num">20</td><td>Minimum feature separation.</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">max_slam</td><td class="num">0</td><td><strong>SLAM disabled deliberately.</strong> See below.</td><td><span class="prov prov-m">Measured</span></td></tr>
+            <tr><td class="p">max_msckf</td><td class="num">50</td><td>MSCKF features per update.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">sigma_px</td><td class="num">1</td><td>Conservative against Kalibr's ~0.2 px reprojection std.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">chi2_mult</td><td class="num">1</td><td>Visual rejection gate.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">intrinsics / distortion</td><td class="num">Kalibr output</td><td>Reprojection error 0.233 px (cam0), 0.202 px (cam1); stereo baseline 90.2 mm.</td><td><span class="prov prov-d">Derived</span></td></tr>
+            <tr><td class="p">T_imu_cam</td><td class="num">hand seed</td><td>Rotation is correct (optical → body); translation is a tape-measure placeholder pending <code>kalibr_calibrate_imu_camera</code>.</td><td><span class="prov prov-p">Provisional</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="verdict-box verdict-no">
+        <span class="vb-title">Why <code>max_slam</code> is 0 on this rover</span>
+        <p>During an in-place pivot the baseline is zero, so landmark depth is
+        <strong>unobservable</strong>. With SLAM features enabled, false anchors pulled the
+        MINS heading to <strong>+0.58 rad/s while the gyro measured −0.25</strong>, and
+        caused correct wheel measurements to be chi²-rejected. Pure MSCKF is healthy on a
+        platform that pivots this much. Re-enable only behind a minimum-baseline excitation
+        guard.</p>
+      </div>
+
+      <div class="verdict-box verdict-no">
+        <span class="vb-title">Rotation error in <code>T_imu_cam</code> is not recoverable online</span>
+        <p>An identity-rotation placeholder claims the optical axis points up along IMU-z —
+        a ~90° error. Observed consequence: a monotone <strong>+1.68 mm/s divergence in
+        <em>z</em></strong> that online calibration could not recover from. Centimetre-level
+        <em>translation</em> error is refinable with <code>do_calib_ext: true</code>; 90° of
+        <em>rotation</em> is not.</p>
+        <p>Because the camera is the only sensor constraining height, <strong>always check
+        <em>z</em> after any change to camera geometry.</strong> A bad extrinsic has driven
+        <em>z</em> to −25.9 m while <em>x</em> and <em>y</em> stayed perfect, with no alarm
+        of any kind.</p>
+      </div>
+
+      <h3>3.5 &nbsp;Initialisation — <code>config_init.yaml</code></h3>
+      <div class="table-scroll">
+        <table class="compare-table">
+          <thead><tr><th>Parameter</th><th>Value</th><th>Rationale</th></tr></thead>
+          <tbody>
+            <tr><td class="p">window_time</td><td class="num">2.0</td><td>Static window used to estimate gravity direction and gyro bias.</td></tr>
+            <tr><td class="p">imu_thresh</td><td class="num">0.1</td><td>Motion threshold for declaring the platform static.</td></tr>
+            <tr><td class="p">imu_gravity_aligned</td><td class="num">true</td><td>Align the initial frame to gravity.</td></tr>
+            <tr><td class="p">cov_size</td><td class="num">1e-2</td><td>Initial state covariance scale.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="verdict-box verdict-no">
+        <span class="vb-title">The most expensive mistake on this whole page</span>
+        <p>If the rover is handled, bumped or still settling during the initialisation
+        window, the gravity alignment locks in tilted, gravity leaks into the horizontal
+        axes, and the doubly-integrated residual produces an <em>accelerating</em> drift.</p>
+        <p>Measured on this rover: <strong>772 m/min</strong> of drift while standing still,
+        after an initialisation disturbed by hardware work in progress. A clean restart with
+        the platform untouched gave <strong>0.02 m/min</strong> — a factor of roughly
+        3&times;10<sup>4</sup>, from one variable. It costs one restart to rule out. Test it
+        <em>before</em> re-deriving any transform.</p>
+      </div>
+
+      <h3>3.6 &nbsp;Verbosity — <code>config_system.yaml</code></h3>
+      <p>Keep <code>verbosity: 1</code> (DEBUG) while tuning. All of
+      <code>IW_Initializer</code>'s diagnostics — waiting-for-data, gravity convergence,
+      static/dynamic init attempts — are emitted at PRINT1 and are <em>silently filtered</em>
+      at verbosity 2. At level 2, an initializer that is working perfectly and one that is
+      doing nothing look identical.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ 04 ══════════════════ -->
+<section id="s4" class="mx-auto max-w-4xl scroll-mt-20 px-5 pb-6">
+  <div class="tile doc-tile p-6 sm:p-8">
+    <p class="section-label">// 04 — calibration procedure</p>
+    <h2 class="font-display text-2xl font-bold text-white">How to bring it up, and how to prove it works</h2>
+    <div class="doc-body mt-2">
+
+      <h3>4.1 &nbsp;The enable ladder</h3>
+      <p>Do not turn everything on at once. An unvalidated extrinsic on one sensor makes the
+      whole fused estimate diverge <em>and</em> makes the divergence undiagnosable, because
+      you cannot tell which sensor caused it. Each stage has its own enable flag.</p>
+      <div class="table-scroll">
+        <table class="compare-table">
+          <thead><tr><th>Stage</th><th>Sensors</th><th>Purpose</th><th>Risk</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td>camera + IMU</td><td>The VINS-equivalent core. Prove this first.</td><td>Extrinsic rotation</td></tr>
+            <tr><td class="num">2</td><td>+ wheel</td><td>Large gain on a ground robot.</td><td>Low, once names and frame are right</td></tr>
+            <tr><td class="num">3</td><td>+ Carolus beacon</td><td>Global anchor; kills accumulated drift.</td><td>Beacon coverage</td></tr>
+            <tr><td class="num">4</td><td>+ LiDAR</td><td>New integration.</td><td>Treat as its own mini-project</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>4.2 &nbsp;Validation gates</h3>
+      <p>These are the acceptance criteria already defined in the project's test plan. Use
+      the <strong>blue rectangle</strong> as ground truth for the closed-loop tests.</p>
+      <div class="verdict-box verdict-yes">
+        <span class="vb-title">Pass criteria</span>
+        <ul>
+          <li><strong>Static drift (60 s, stationary):</strong> position within 2–3 cm of
+          origin, attitude within 1–2°, for the whole window. A slow monotone drift in one
+          axis points to gravity misalignment, not to noise tuning.</li>
+          <li><strong>Straight line (1 m):</strong> error under 5 %.</li>
+          <li><strong>Rotation (10 turns):</strong> error under 5 % of 10×2π rad. This test
+          is the most sensitive to a bad <code>T_imu_cam</code> rotation. A large error here
+          alongside a small error on the straight line almost always means the extrinsic's
+          <em>rotation</em> is off even though its translation is fine.</li>
+          <li><strong>Closed rectangle:</strong> start-to-end gap under 10 cm.</li>
+          <li><strong>Timing:</strong> per-frame processing under the camera frame period,
+          with margin.</li>
+        </ul>
+      </div>
+
+      <div class="verdict-box verdict-partial">
+        <span class="vb-title">Wait for convergence before measuring anything</span>
+        <p>MINS passes through a post-initialisation transient in which drift reads at
+        1.7–2.5 m/min before settling to 0.001–0.006 m/min. Measuring during that window has
+        twice produced a false verdict on this project. Allow roughly
+        <strong>25 seconds</strong> after initialisation, then measure.</p>
+      </div>
+
+      <h3>4.3 &nbsp;Which parameter to touch, by symptom</h3>
+      <p>Diagnose in this order. It is ordered by <em>cost to test</em>, not by intellectual
+      interest — the cheap causes are also the most frequently implicated.</p>
+      <div class="table-scroll">
+        <table class="compare-table">
+          <thead><tr><th>Symptom</th><th>First suspect</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td>Accelerating drift, robot stationary</td><td>Disturbed initialisation</td><td>Restart untouched. One restart, before anything else.</td></tr>
+            <tr><td>Slow monotone drift in one axis</td><td>Gravity alignment or unconverged bias</td><td>Check <code>gravity_mag</code>; re-check <code>window_time</code> / <code>imu_thresh</code>; measure <code>|a|</code> at rest.</td></tr>
+            <tr><td>Drift in <em>z</em> only, <em>x</em>/<em>y</em> fine</td><td>Camera extrinsic</td><td>Only the camera constrains <em>z</em>. Re-derive <code>T_imu_cam</code>; verify rotation before translation.</td></tr>
+            <tr><td>Heading wrong during turns only</td><td>Wheel yaw being trusted</td><td>Raise <code>noise_w</code>. Confirm against the raw gyro, which is the arbiter here.</td></tr>
+            <tr><td>Drift during visual dropouts</td><td>Wheels being rejected</td><td>Lower <code>noise_v</code>; check the wheel chi² rejection rate.</td></tr>
+            <tr><td>Heading diverges while pivoting in place</td><td>SLAM landmarks with zero baseline</td><td>Confirm <code>max_slam: 0</code>.</td></tr>
+            <tr><td>Jerks, jumps, fast divergence</td><td>An outlier reaching the update</td><td>Verify the IMU source is <code>/imu/data_clean</code>; then tighten <code>chi2_mult</code>.</td></tr>
+            <tr><td>"Not enough excitation" / no wheel data</td><td>Silent name mismatch, not tuning</td><td>Check <code>sub_topics</code> and <code>wheel_remap.py</code>. See trap 1.</td></tr>
+            <tr><td>Estimator falls behind real time</td><td>Feature budget</td><td>Lower <code>n_pts</code>; verify against measured per-frame time, not intuition.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>4.4 &nbsp;Validating a change</h3>
+      <p>Record with <code>rosbag</code> rather than through the web cockpit for any run that
+      matters: the cockpit's buffer is cleared on restarts and the websocket can
+      desynchronise on <code>/robot_pose_fused</code>, neither of which is visible while it
+      happens. Overlay the estimator against wheel odometry and the beacon on the same plot;
+      the closed-loop gap on the blue rectangle is the headline metric.</p>
+
+      <div class="verdict-box verdict-info">
+        <span class="vb-title">Change one parameter at a time, and repeat each run</span>
+        <p>A single run is not evidence. On the sister estimator, an identical configuration
+        produced a <strong>5× difference in mean feature count between respawns</strong> —
+        which had previously been read as seven hypotheses being "refuted", one run each.
+        Require two consecutive passes before accepting a change.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ 05 ══════════════════ -->
+<section id="s5" class="mx-auto max-w-4xl scroll-mt-20 px-5 pb-6">
+  <div class="tile doc-tile p-6 sm:p-8">
+    <p class="section-label">// 05 — troubleshooting</p>
+    <h2 class="font-display text-2xl font-bold text-white">When it is not a tuning problem</h2>
+    <div class="doc-body mt-2">
+      <p>The general rule that has held throughout this project: <strong>an estimator that
+      goes unstable immediately is almost never mistuned.</strong> Slow drift is a tuning
+      question. Instant divergence is a configuration, calibration, or hardware question.</p>
+
+      <h3>5.1 &nbsp;Power collapse masquerading as an estimator fault</h3>
+      <div class="verdict-box verdict-no">
+        <span class="vb-title">Brownout is not a filter problem</span>
+        <p>When the battery falls below the 10.3 V threshold, the CORE2's behaviour degrades
+        in ways that look like software faults. The measured picture on 2026-09-02, at
+        9.37 V:</p>
+        <ul>
+          <li><code>pwm_duty_cycle: [0,0,0,0]</code> — no actuation, no motion.</li>
+          <li>Telemetry continued flowing normally — wheel states at 20.1 Hz, IMU at 87 Hz —
+          because telemetry draws almost no current. <strong>Healthy telemetry is not
+          evidence of a healthy power rail.</strong></li>
+          <li><code>/cmd_vel</code> reported <code>Subscribers: None</code>: the CORE2's
+          rosserial subscription was not registered at all, alongside 261 checksum errors in
+          two minutes.</li>
+        </ul>
+        <p><strong>An honest caveat:</strong> the chain <em>brownout → failed rosserial
+        negotiation → no subscriber → no motion</em> is plausible and consistent with
+        everything observed, but it has <strong>not been demonstrated</strong>. The test that
+        settles it: recharge, then re-check <code>/cmd_vel</code>. If
+        <code>Subscribers: None</code> persists at full voltage, it is a separate fault and
+        must be diagnosed on its own terms. Do not carry the assumption forward as fact.</p>
+      </div>
+
+      <p>The practical consequence for anyone tuning MINS: if wheel odometry degrades or
+      disappears mid-session, read the battery <em>before</em> touching <code>noise_v</code>,
+      <code>chi2_mult</code>, or anything else. A filter cannot be tuned to compensate for a
+      sensor that has stopped reporting.</p>
+
+      <h3>5.2 &nbsp;Faults that are not what they look like</h3>
+      <div class="table-scroll">
+        <table class="compare-table">
+          <thead><tr><th>What you observe</th><th>What it usually is</th></tr></thead>
+          <tbody>
+            <tr><td>"Not enough excitation", no wheel updates</td><td><code>sub_topics</code> name mismatch. Messages arrive and are silently discarded.</td></tr>
+            <tr><td>Initializer appears to do nothing</td><td><code>verbosity: 2</code> filtering PRINT1 diagnostics.</td></tr>
+            <tr><td>"unable to open the configuration file"</td><td>Config passed via <code>&lt;param&gt;</code> instead of <code>args=</code>.</td></tr>
+            <tr><td>Trajectory jumps periodically</td><td>MINS respawned and re-initialised at a new origin. Check for repeated init messages.</td></tr>
+            <tr><td>Wheel odometry drops to ~1 Hz</td><td>UART FIFO overruns from CPU starvation. Verify <code>SCHED_FIFO 25</code> on <code>serial_node</code>.</td></tr>
+            <tr><td>Access point crashes during a run</td><td>Raw camera topics subscribed across WiFi. See trap 2.</td></tr>
+            <tr><td>TF tree fights or frames flicker</td><td>Missing <code>/tf → /tf_mins</code> remap; two estimators claiming the <code>imu</code> frame.</td></tr>
+            <tr><td>Cockpit shows "LINK OK" but no data</td><td>An orphaned rosbridge that survived a master restart. The port accepts connections while delivering nothing.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>5.3 &nbsp;A note on editing these files</h3>
+      <p>The configs are parsed by OpenCV's <code>FileStorage</code>, not a standard YAML
+      parser — hence the <code>%YAML:1.0</code> first line. They will fail in PyYAML, and
+      long inline comments have broken parsing before. Validate after every edit:</p>
+<pre class="code">python3 -c "import cv2,sys; fs=cv2.FileStorage(sys.argv[1],0); print(fs.isOpened())" &lt;file&gt;</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ 06 ══════════════════ -->
+<section id="s6" class="mx-auto max-w-4xl scroll-mt-20 px-5 pb-6">
+  <div class="tile doc-tile p-6 sm:p-8">
+    <p class="section-label">// 06 — file map</p>
+    <h2 class="font-display text-2xl font-bold text-white">Where everything lives</h2>
+    <div class="doc-body mt-2">
+      <div class="table-scroll">
+        <table class="compare-table">
+          <thead><tr><th>File</th><th>Owns</th></tr></thead>
+          <tbody>
+            <tr><td class="p">mins/config/leo/config.yaml</td><td>Master file; points at the others and documents the enable ladder.</td></tr>
+            <tr><td class="p">&nbsp;&nbsp;config_imu.yaml</td><td>Noise densities, IMU topic.</td></tr>
+            <tr><td class="p">&nbsp;&nbsp;config_estimator.yaml</td><td>Gravity, cloning, interpolation error tables.</td></tr>
+            <tr><td class="p">&nbsp;&nbsp;config_camera.yaml</td><td>Feature budget, intrinsics, extrinsics, visual gates.</td></tr>
+            <tr><td class="p">&nbsp;&nbsp;config_wheel.yaml</td><td>Wheel model, noises, radii, frame, topic names.</td></tr>
+            <tr><td class="p">&nbsp;&nbsp;config_init.yaml</td><td>Static initialisation window.</td></tr>
+            <tr><td class="p">&nbsp;&nbsp;config_system.yaml</td><td>Verbosity, output paths.</td></tr>
+            <tr><td class="p">leo_navigation/launch/mins.launch</td><td>The actual launch file. <code>mins/launch/</code> is empty.</td></tr>
+            <tr><td class="p">scripts/wheel_remap.py</td><td>Reorders wheels by name. Mandatory.</td></tr>
+            <tr><td class="p">scripts/imu_sanitizer.py</td><td>Removes IMU spikes. Mandatory.</td></tr>
+            <tr><td class="p">scripts/pose_selector.py</td><td>Publishes the selected estimator to <code>/robot_pose_fused</code>.</td></tr>
+            <tr><td class="p">scripts/fill_mins_camchain.py</td><td>Inverts Kalibr's <code>T_cam_imu</code> into the <code>T_imu_cam</code> MINS expects.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="verdict-box verdict-partial">
+        <span class="vb-title">Open items — what this document does not yet close</span>
+        <ul>
+          <li><code>T_imu_cam</code> translation is still a tape-measure placeholder pending
+          a successful <code>kalibr_calibrate_imu_camera</code> run.</li>
+          <li><code>T_imu_wheel</code> translation is a placeholder; measure from CAD or the URDF.</li>
+          <li>The wheel track <code>b = 0.358</code> is the geometric value; re-measure if
+          the wheels have changed the effective track.</li>
+          <li>The three-way comparison — MINS vs openVINS vs sqrtVINS on the blue rectangle —
+          is pending. The numbers in §4.2 are <strong>acceptance thresholds, not
+          results</strong>.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ TÉLÉCHARGEMENT ══════════════════ -->
+<section id="download" class="mx-auto max-w-4xl scroll-mt-20 px-5 pb-16">
+  <div class="tile doc-tile overflow-hidden">
+    <div class="border-b border-white/5 bg-plasma/[.04] px-6 py-5 sm:px-8">
+      <p class="section-label">// download</p>
+      <h2 class="font-display text-2xl font-bold text-white">The configuration package</h2>
+      <p class="mt-2 max-w-2xl text-[14px] leading-relaxed text-zinc-400">
+        The seven MINS configuration files exactly as they run on this rover, plus the
+        documentation explaining the values. Everything in the archive is in English.
+      </p>
+    </div>
+
+    <div class="grid gap-6 p-6 sm:p-8 lg:grid-cols-[1.15fr_.85fr]">
+      <div>
+        <p class="mb-3 font-mono text-[10px] uppercase tracking-[.18em] text-zinc-500">Contents</p>
+<pre class="code">leo_rover_mins_handoff.zip
+  README.txt                       <b>&lt;- read this first</b>
+  config_MINS_leo/                 <b>&lt;- the 7 live config files</b>
+    config.yaml          config_imu.yaml
+    config_camera.yaml   config_estimator.yaml
+    config_init.yaml     config_wheel.yaml
+    config_system.yaml
+  documentation/
+    main.pdf                       <b>&lt;- full technical report</b>
+    patches_sqrtVINS_README.md
+    patches_openVINS_README.md
+    rpng_sqrtvins_zupt_bug_report.md
+    robot_sqrtVINS_config_README.md</pre>
+
+        <p class="text-[13px] leading-relaxed text-zinc-500">
+          <strong class="text-zinc-300">Do not adopt these files wholesale.</strong> Their
+          extrinsics and noise densities belong to <em>this</em> unit. Diff them against
+          your own and examine every difference deliberately — that is what the package is
+          for.
+        </p>
+      </div>
+
+      <div class="flex flex-col justify-between gap-4">
+        <a href="downloads/leo_rover_mins_handoff.zip" download
+           class="group flex items-center gap-4 rounded-xl border border-plasma/25 bg-plasma/10 px-5 py-4 transition hover:bg-plasma/20 hover:shadow-neon-plasma">
+          <span class="grid h-11 w-11 flex-none place-items-center rounded-lg bg-plasma/15 text-plasma ring-1 ring-plasma/30">
+            <i data-lucide="download" class="h-5 w-5"></i>
+          </span>
+          <span class="min-w-0">
+            <span class="block font-display text-base font-bold text-white">Download .zip</span>
+            <span class="block font-mono text-[11px] text-zinc-500">2.7 MB · 16 files</span>
+          </span>
+        </a>
+
+        <div class="rounded-xl border border-white/10 bg-white/[.02] p-4">
+          <p class="mb-2 font-mono text-[9px] uppercase tracking-[.18em] text-zinc-600">SHA-256</p>
+          <p class="break-all font-mono text-[10px] leading-relaxed text-zinc-500">88602235683bd119747fb05cf4a858e7db911e2953458a9d8b3adcca72268a5c</p>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-white/[.02] p-4">
+          <p class="mb-2 font-mono text-[9px] uppercase tracking-[.18em] text-zinc-600">When to send it</p>
+          <p class="text-[12px] leading-relaxed text-zinc-500">
+            When someone reports an estimator that goes unstable <em>immediately</em> rather
+            than drifting slowly. That symptom is almost never a defect in MINS — it is a
+            configuration or calibration mismatch, and a line-by-line diff against files
+            that are known to run resolves it fastest.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ FOOTER ══════════════════ -->
+<footer class="border-t border-white/5">
+  <div class="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-5 py-8 text-xs text-zinc-600 sm:flex-row">
+    <p>© 2026 LEO ROVER · Florida Tech Robotics Lab</p>
+    <p class="font-mono">ROS NOETIC · AGILEX LEO · INTEL D455</p>
+  </div>
+</footer>
+
+<script src="vendor/lucide-1.25.0.umd.js?v=v1"></script>
+<script src="app.js?v=r42"></script>
+<script src="3d_engine.js?v=r3"></script>
+<script>
+  lucide.createIcons();
+  if (window.I18N) I18N.apply();
+
+  /* Fond partagé avec index/ops/logbook — même globe filaire, même parallaxe,
+     pour que la page appartienne visuellement au reste du site. Densité
+     RÉDUITE de moitié par rapport à index.html : c'est une page de lecture,
+     le fond doit se faire oublier derrière le texte, pas se faire remarquer. */
+  var isMobile = window.matchMedia && window.matchMedia('(max-width: 767px)').matches;
+  if (window.LEO3D && window.LEO3D.initBackground) {
+    LEO3D.initBackground('bg3d_mins', {
+      lite:       isMobile,
+      rings:      isMobile ? 1 : 2,
+      nParticles: isMobile ? 220 : 750,
+      targetFps:  isMobile ? 30 : 60,
+      rotAmp:     0.20,
+      zoomRange:  1.4,
+      baseZ:      19,
+      scroll:     true,
+    });
+  }
+
+  /* Repères capteurs : la seule figure de la page qui bouge à la souris.
+     initFrames renvoie null si WebGL est indisponible — la page reste
+     entièrement lisible sans elle (le canvas occupe alors un vide sombre,
+     et la légende sous le cadre porte déjà l'information). */
+  if (window.LEO3D && window.LEO3D.initFrames) {
+    LEO3D.initFrames("frames3d", { cameraZ: 4.9 });
+  }
+</script>
+</body>
+</html>

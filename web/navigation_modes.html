@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="icon" type="image/svg+xml" href="leo_icon.svg" />
 <title>LEO ROVER — Navigation Modes</title>
-<script src="i18n.js?v=r33"></script>
+<script src="i18n.js?v=r35"></script>
 <script src="vendor/tailwind.min.js"></script>
 <script>
   tailwind.config = {
@@ -86,8 +86,9 @@
         <a href="index.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788373841" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788895799" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
+        <a href="mins_tuning.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_mins">MINS Tuning</a>
         <a href="system.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-2.5 py-2 text-[13px] text-zinc-400 transition hover:text-white" data-i18n="nav_robot">Robot</a>
         <a href="navigation_modes.html" class="rounded-lg bg-white/5 px-2.5 py-2 text-[13px] text-white" data-i18n="nav_navmodes">Nav Modes</a>
@@ -116,8 +117,9 @@
         <a href="index.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_home">Home</a>
         <a href="ops.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_ops">Operations</a>
         <a href="logbook.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_log">Logbook</a>
-        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788373841" target="_blank" rel="noopener"
+        <a href="reports/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf?v=1788895799" target="_blank" rel="noopener"
            class="flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"><i data-lucide="file-text" class="h-3.5 w-3.5"></i><span data-i18n="nav_report">Report</span></a>
+        <a href="mins_tuning.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_mins">MINS Tuning</a>
         <a href="system.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_system">System</a>
         <a href="robot_description.html" class="rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white" data-i18n="nav_robot">Robot</a>
         <a href="navigation_modes.html" class="rounded-lg bg-white/5 px-3 py-2.5 text-sm text-white" data-i18n="nav_navmodes">Nav Modes</a>
@@ -145,6 +147,34 @@
 
   <!-- ══════════════════ VINS / MINS CARDS ══════════════════ -->
   <section class="mx-auto max-w-5xl px-5 pb-6">
+    <!-- Topologie de fusion (2026-09-04). Les trois blocs ci-dessous décrivent
+         chaque estimateur séparément ; celui-ci montre ce qui les SÉPARE, et
+         qui tient en une liaison : seul MINS reçoit les roues. Additif — sans
+         WebGL la section se masque, le reste de la page est inchangé. -->
+    <div class="tile glass mb-5 overflow-hidden" id="secFlux">
+      <div class="flex items-center justify-between border-b border-white/5 px-5 py-3">
+        <p class="font-mono text-[10px] uppercase tracking-[.18em] text-zinc-500">
+          Topologie de fusion — qui consomme quoi</p>
+        <span class="font-mono text-[10px] text-zinc-500">bougez la souris</span>
+      </div>
+      <canvas id="cvFlux" style="width:100%;height:300px;display:block"></canvas>
+      <!-- Légende STATIQUE plutôt que des étiquettes 3D : elles se
+           désaligneraient dès que l'utilisateur fait pivoter la scène. -->
+      <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-1 border-t border-white/5 px-5 py-2 font-mono text-[10px] text-zinc-500">
+        <span>entrées, de haut en bas : <span class="text-zinc-300">IMU · caméra stéréo · <span class="text-ok">roues</span></span></span>
+        <span>estimateurs : <span class="text-plasma">MINS</span> · <span class="text-accent">openVINS</span> · <span style="color:#fbbf24">sqrtVINS</span></span>
+      </div>
+      <p class="border-t border-white/5 px-5 py-3 text-[12px] leading-relaxed text-zinc-500">
+        Les trois estimateurs reçoivent l'IMU et la caméra stéréo.
+        <span class="text-ok">Seul MINS consomme l'odométrie des roues</span> — c'est
+        cette unique liaison qui lui donne son ancrage en <em>x</em>/<em>y</em> quand la
+        vision décroche, et qui explique pourquoi il survit à des trajets où les deux
+        VIO purs divergent. Elle ne contraint en revanche pas <em>z</em> :
+        <code class="text-zinc-400">Wheel2DAng</code> a un jacobien
+        ∂h/∂z identiquement nul.
+      </p>
+    </div>
+
     <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
 
       <!-- VINS -->
@@ -571,9 +601,18 @@
   </section>
 
   <script src="vendor/lucide-1.25.0.umd.js?v=v1"></script>
+  <script src="vendor/three.min.js"></script>
+  <script src="3d_engine.js?v=r3"></script>
   <script>
     lucide.createIcons();
     if (window.I18N) I18N.apply();
+    /* Topologie de fusion. Optionnelle : sans WebGL ou sans le moteur, on
+       masque la section plutôt que de laisser un cadre vide. */
+    (function () {
+      var sec = document.getElementById("secFlux");
+      if (!window.LEO3D || !LEO3D.initSensorFlow) { if (sec) sec.style.display = "none"; return; }
+      if (!LEO3D.initSensorFlow("cvFlux") && sec) sec.style.display = "none";
+    })();
   </script>
 </body>
 </html>

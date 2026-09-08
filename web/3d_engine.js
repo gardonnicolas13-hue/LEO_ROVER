@@ -634,6 +634,499 @@
     };
   }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     REPÈRES CAPTEURS (mins_tuning.html) — orbite à la souris
+     ──────────────────────────────────────────────────────────────────────
+     Ce n'est PAS un décor : la scène montre les trois repères dont la page
+     explique les transformations. T_imu_cam et T_imu_wheel sont le concept
+     le plus coûteux du document (une erreur de 90° y a produit une dérive
+     monotone en z que la calibration en ligne ne rattrape pas), et une
+     figure orbitable est le seul support où l'on VOIT que le repère roues
+     pointe à l'opposé du repère caméra — le fameux Rz(pi).
+
+     Palette : strictement celle de mission.css. x=plasma, y=ok, z=accent.
+     Aucune rotation automatique : la scène ne bouge QUE sous la souris,
+     pour qu'on puisse s'arrêter sur un angle et le lire.
+  ══════════════════════════════════════════════════════════════════════ */
+  var F = { X: 0xff6b35, Y: 0x3fdc97, Z: 0x22d3ee, BODY: 0x2a3546, DIM: 0x6b7684 };
+
+  /* Triade d'axes. len = longueur, w = épaisseur du trait. */
+  function makeTriad(len, op) {
+    var g = new THREE.Group();
+    [[F.X, new THREE.Vector3(1,0,0)],
+     [F.Y, new THREE.Vector3(0,1,0)],
+     [F.Z, new THREE.Vector3(0,0,1)]].forEach(function (ax) {
+      var col = ax[0], dir = ax[1];
+      var geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0,0,0), dir.clone().multiplyScalar(len)
+      ]);
+      g.add(new THREE.Line(geo, new THREE.LineBasicMaterial({
+        color: col, transparent: true, opacity: op || 0.95,
+      })));
+      /* pointe : un cône orienté sur l'axe */
+      var cone = new THREE.Mesh(
+        new THREE.ConeGeometry(len * 0.075, len * 0.2, 12),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op || 0.95 })
+      );
+      cone.position.copy(dir.clone().multiplyScalar(len));
+      /* ConeGeometry pointe vers +y : on l'aligne sur la direction voulue */
+      cone.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir);
+      g.add(cone);
+    });
+    return g;
+  }
+
+  /* Trait pointillé entre deux points — matérialise une translation. */
+  function makeLink(a, b, col) {
+    var geo = new THREE.BufferGeometry().setFromPoints([a, b]);
+    var m = new THREE.Line(geo, new THREE.LineDashedMaterial({
+      color: col, dashSize: 0.09, gapSize: 0.07,
+      transparent: true, opacity: 0.8,
+    }));
+    m.computeLineDistances();
+    return m;
+  }
+
+  function buildFrames() {
+    var root = new THREE.Group();
+
+    /* ── Châssis filaire : la caisse du rover, échelle 1 unité ≈ 0.2 m ──
+       Les décalages réels (0.15 m caméra, 0.03 m roues) sont AMPLIFIÉS
+       pour rester lisibles à l'écran ; les DIRECTIONS, elles, sont exactes. */
+    var body = new THREE.Mesh(
+      new THREE.BoxGeometry(2.2, 0.62, 1.55),
+      new THREE.MeshPhongMaterial({
+        color: F.BODY, emissive: 0x142033, emissiveIntensity: 0.8, shininess: 40,
+        transparent: true, opacity: 0.42,
+      })
+    );
+    root.add(body);
+    /* Arêtes franches : sur un panneau sombre, c'est le filaire qui porte la
+       forme, pas la face. Opacité montée après rendu de contrôle — à 0.5 le
+       châssis disparaissait dans le fond. */
+    root.add(new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(2.2, 0.62, 1.55)),
+      new THREE.LineBasicMaterial({ color: 0x93a3b8, transparent: true, opacity: 0.85 })
+    ));
+
+    /* ── Quatre roues ─────────────────────────────────────────────────── */
+    [[-0.78, 0.86], [0.78, 0.86], [-0.78, -0.86], [0.78, -0.86]].forEach(function (p) {
+      var w = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.34, 0.34, 0.17, 22),
+        new THREE.MeshPhongMaterial({ color: 0x222c3a, shininess: 26 })
+      );
+      w.rotation.x = Math.PI / 2;
+      w.position.set(p[0], -0.32, p[1]);
+      root.add(w);
+      root.add(new THREE.Mesh(
+        new THREE.TorusGeometry(0.34, 0.018, 8, 26),
+        new THREE.MeshBasicMaterial({ color: 0x93a3b8, transparent: true, opacity: 0.75 })
+      ).translateX(p[0]).translateY(-0.32).translateZ(p[1]));
+    });
+
+    /* ── Repère IMU : origine, au centre du châssis ────────────────────── */
+    var imu = makeTriad(1.25, 1.0);
+    root.add(imu);
+    root.add(new THREE.Mesh(
+      new THREE.SphereGeometry(0.075, 16, 16),
+      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    ));
+
+    /* ── Repère CAMÉRA : en avant (+x) et en hauteur (+z du corps) ──────
+       T_imu_cam applique R : cam-z -> +x, cam-x -> -y, cam-y -> -z.
+       On reproduit cette rotation exactement, pas une approximation. */
+    var camG = new THREE.Group();
+    camG.position.set(1.18, 0.52, 0);
+    var Rcam = new THREE.Matrix4().set(
+      0, 0, 1, 0,
+     -1, 0, 0, 0,
+      0,-1, 0, 0,
+      0, 0, 0, 1
+    );
+    camG.quaternion.setFromRotationMatrix(Rcam);
+    camG.add(makeTriad(0.9, 1.0));
+    /* boîtier stéréo : deux objectifs séparés par la baseline 90.2 mm */
+    var housing = new THREE.Mesh(
+      new THREE.BoxGeometry(0.16, 0.2, 0.72),
+      new THREE.MeshPhongMaterial({ color: 0x1b2432, shininess: 60 })
+    );
+    camG.add(housing);
+    [-0.22, 0.22].forEach(function (dz) {
+      var lens = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.062, 0.062, 0.05, 18),
+        new THREE.MeshPhongMaterial({ color: 0x0d1520, emissive: F.Z,
+                                      emissiveIntensity: 0.42, shininess: 90 })
+      );
+      lens.rotation.z = Math.PI / 2;
+      lens.position.set(0.09, 0, dz);
+      camG.add(lens);
+    });
+    root.add(camG);
+    root.add(makeLink(new THREE.Vector3(0,0,0), camG.position.clone(), F.Z));
+
+    /* ── Repère ROUES : Rz(pi) — il pointe à l'OPPOSÉ de la caméra ──────
+       C'est le fait que la page explique et qu'aucun texte ne rend
+       évident : sans cette rotation, chaque mesure roue contredisait la
+       prédiction inertielle et le chi2 les rejetait silencieusement. */
+    var whG = new THREE.Group();
+    whG.position.set(0, -0.30, 0);
+    whG.rotation.z = Math.PI;
+    whG.add(makeTriad(0.9, 1.0));
+    root.add(whG);
+    root.add(makeLink(new THREE.Vector3(0,0,0), whG.position.clone(), F.X));
+
+    return { group: root };
+  }
+
+  /* Orbite pilotée par la souris, amortie. Pas d'auto-rotation. */
+  function initFrames(canvasId, opts) {
+    opts = opts || {};
+    var canvas = typeof canvasId === 'string'
+      ? document.getElementById(canvasId) : canvasId;
+    if (!canvas || typeof THREE === 'undefined') return null;
+
+    var renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+    } catch (e) { return null; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x000000, 0);
+
+    var scene  = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+    camera.position.set(0, 0, opts.cameraZ || 4.9);
+
+    scene.add(new THREE.AmbientLight(0x5b6f8f, 1.35));
+    var key = new THREE.DirectionalLight(0xbcd4ff, 1.6);
+    key.position.set(4, 6, 5); scene.add(key);
+    var rim = new THREE.DirectionalLight(F.X, 0.75);
+    rim.position.set(-5, -2, -3); scene.add(rim);
+
+    var built = buildFrames();
+    scene.add(built.group);
+
+    function resize() {
+      var w = canvas.clientWidth || 300, h = canvas.clientHeight || 300;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    resize();
+    window.addEventListener('resize', resize, { passive: true });
+
+    /* Cible d'orientation : suit la souris sur TOUTE la fenêtre, pour que la
+       figure réagisse pendant la lecture et pas seulement au survol direct. */
+    var tgtY = 0.55, tgtX = 0.18, curY = 0.55, curX = 0.18;
+    var reduce = !!(window.matchMedia &&
+                    window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+    function aim(cx, cy) {
+      var r = canvas.getBoundingClientRect();
+      var nx = (cx - (r.left + r.width  / 2)) / (window.innerWidth  / 2);
+      var ny = (cy - (r.top  + r.height / 2)) / (window.innerHeight / 2);
+      tgtY = 0.55 + nx * 0.85;
+      tgtX = 0.18 + ny * 0.42;
+    }
+    if (!reduce) {
+      window.addEventListener('mousemove', function (e) { aim(e.clientX, e.clientY); },
+                              { passive: true });
+      canvas.addEventListener('touchmove', function (e) {
+        if (e.touches && e.touches[0]) aim(e.touches[0].clientX, e.touches[0].clientY);
+      }, { passive: true });
+    }
+
+    var visible = true, raf, clock = new THREE.Clock();
+    document.addEventListener('visibilitychange', function () { visible = !document.hidden; });
+
+    function frame() {
+      raf = requestAnimationFrame(frame);
+      if (!visible) return;
+      /* amorti : 0.055 ≈ suit sans coller, s'arrête sans rebond */
+      curY += (tgtY - curY) * 0.055;
+      curX += (tgtX - curX) * 0.055;
+      built.group.rotation.y = curY;
+      built.group.rotation.x = curX;
+      /* respiration très légère — la figure reste vivante à souris immobile */
+      built.group.position.y = Math.sin(clock.getElapsedTime() * 0.5) * 0.035;
+      renderer.render(scene, camera);
+    }
+    frame();
+
+    return {
+      renderer: renderer, scene: scene, camera: camera,
+      stop: function () { cancelAnimationFrame(raf); }, resize: resize,
+    };
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     EXTRINSÈQUES SUPERPOSÉES (tf_validator.html) — orbite à la souris
+     ──────────────────────────────────────────────────────────────────────
+     La page compare la convention caméra↔IMU des trois estimateurs, mais
+     dans TROIS panneaux séparés : constater qu'ils décrivent — ou non — la
+     même géométrie oblige à comparer de tête. Cette scène les met dans un
+     SEUL repère IMU, où l'accord et le désaccord se voient.
+
+     Sur les données actuelles : MINS et openVINS coïncident exactement
+     (cam0 à 0,15/0/0,10, base stéréo 90,2 mm), sqrtVINS est à ~15 cm.
+
+     Marqueurs CONCENTRIQUES de rayons décroissants : deux estimateurs qui
+     coïncident se lisent comme des anneaux emboîtés. Avec des sphères de
+     même taille, celui du dessous disparaîtrait et l'accord ressemblerait
+     à une absence — la maquette l'a montré avant que ce soit codé.
+  ══════════════════════════════════════════════════════════════════════ */
+  function initTfCompare(canvasId, opts) {
+    opts = opts || {};
+    var canvas = typeof canvasId === 'string'
+      ? document.getElementById(canvasId) : canvasId;
+    if (!canvas || typeof THREE === 'undefined') return null;
+
+    var renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+    } catch (e) { return null; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x000000, 0);
+
+    var scene  = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(40, 1, 0.01, 100);
+    camera.position.set(0, 0, 0.62);
+
+    scene.add(new THREE.AmbientLight(0x6b8199, 1.15));
+    var key = new THREE.DirectionalLight(0xd6e6ff, 0.95); key.position.set(-1, 1.4, 1);
+    scene.add(key);
+
+    var monde = new THREE.Group(); scene.add(monde);
+
+    /* sol : repère métrique, pas de la décoration — pas de 5 cm */
+    var grille = new THREE.GridHelper(0.4, 8, 0x2b3542, 0x1d242e);
+    grille.rotation.x = Math.PI / 2;          // GridHelper est en XZ, on veut XY
+    monde.add(grille);
+
+    /* repère IMU commun */
+    monde.add(makeTriad(0.07, 1.0));
+    monde.add(new THREE.Mesh(
+      new THREE.SphereGeometry(0.005, 16, 16),
+      new THREE.MeshBasicMaterial({ color: 0xffffff })));
+
+    var api_frames = [];
+    function ajouteEstimateur(nom, couleur, frames, rang) {
+      var col = new THREE.Color(couleur);
+      frames.forEach(function (f) {
+        if (!f || !f.nom || f.nom.indexOf('cam') !== 0) return;
+        var t = [f.T[0][3], f.T[1][3], f.T[2][3]];
+        // Rayon décroissant selon le rang, et FILAIRE : deux estimateurs qui
+        // coïncident se lisent alors comme des cages emboîtées. Une sphère
+        // pleine, même à 0,92 d'opacité, masque complètement celle du
+        // dessous — testé, openVINS disparaissait entièrement sous MINS.
+        var r = 0.013 - rang * 0.0032;
+        var m = new THREE.Mesh(
+          new THREE.SphereGeometry(Math.max(r, 0.005), 14, 10),
+          new THREE.MeshBasicMaterial({ color: col, wireframe: true,
+                                        transparent: true, opacity: 0.95 }));
+        m.position.set(t[0], t[1], t[2]);
+        monde.add(m);
+        monde.add(makeLink(new THREE.Vector3(0, 0, 0),
+                           new THREE.Vector3(t[0], t[1], t[2]), col.getHex()));
+        api_frames.push({ est: nom, nom: f.nom, t: t });
+      });
+    }
+
+    /* orbite souris amortie, même comportement qu'initFrames */
+    var tgtY = 0.7, tgtX = 0.35, curY = 0.7, curX = 0.35;
+    var reduce = !!(window.matchMedia &&
+                    window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    function aim(cx, cy) {
+      var r = canvas.getBoundingClientRect();
+      tgtY = 0.7 + (cx - (r.left + r.width / 2)) / (window.innerWidth / 2) * 0.9;
+      tgtX = 0.35 + (cy - (r.top + r.height / 2)) / (window.innerHeight / 2) * 0.45;
+    }
+    if (!reduce) {
+      window.addEventListener('mousemove', function (e) { aim(e.clientX, e.clientY); },
+                              { passive: true });
+      canvas.addEventListener('touchmove', function (e) {
+        if (e.touches && e.touches[0]) aim(e.touches[0].clientX, e.touches[0].clientY);
+      }, { passive: true });
+    }
+
+    function resize() {
+      var w = canvas.clientWidth || 300, h = canvas.clientHeight || 300;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    resize();
+    window.addEventListener('resize', resize, { passive: true });
+
+    var visible = true, raf;
+    document.addEventListener('visibilitychange', function () { visible = !document.hidden; });
+    function frame() {
+      raf = requestAnimationFrame(frame);
+      if (!visible) return;
+      curY += (tgtY - curY) * 0.055;
+      curX += (tgtX - curX) * 0.055;
+      monde.rotation.z = curY;
+      monde.rotation.x = -1.15 + curX;      // vue plongeante par défaut
+      renderer.render(scene, camera);
+    }
+    renderer.render(scene, camera);   /* première image immédiate, cf. ci-dessus */
+    frame();
+
+    return {
+      renderer: renderer, scene: scene, camera: camera, resize: resize,
+      stop: function () { cancelAnimationFrame(raf); },
+      /* Les données arrivent de tf_frames.json, chargé par la page : le
+         moteur ne va pas les chercher lui-même, il les reçoit. */
+      setFrames: function (estimateurs, couleurs) {
+        Object.keys(estimateurs).forEach(function (nom, i) {
+          var e = estimateurs[nom];
+          if (e && e.frames) ajouteEstimateur(nom, couleurs[nom] || 0xffffff, e.frames, i);
+        });
+      },
+      frames: function () { return api_frames; },
+    };
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     TOPOLOGIE DE FUSION (navigation_modes.html) — orbite à la souris
+     ──────────────────────────────────────────────────────────────────────
+     La page oppose VINS, MINS et sqrtVINS en prose. Le fait qui explique
+     tout le reste tient en une ligne : les trois reçoivent l'IMU et la
+     caméra stéréo, mais SEUL MINS consomme l'odométrie des roues. C'est ce
+     qui lui donne son ancrage en x/y quand la vision décroche — et c'est
+     aussi pourquoi lui seul survit à des trajets où les deux VIO purs
+     divergent.
+
+     La scène ne dit rien d'autre : trois capteurs, trois estimateurs, et
+     une liaison qui n'existe que pour un seul. Le lien « roues » est
+     volontairement plus épais et animé pour qu'on le remarque.
+  ══════════════════════════════════════════════════════════════════════ */
+  function initSensorFlow(canvasId, opts) {
+    opts = opts || {};
+    var canvas = typeof canvasId === 'string'
+      ? document.getElementById(canvasId) : canvasId;
+    if (!canvas || typeof THREE === 'undefined') return null;
+
+    var renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+    } catch (e) { return null; }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x000000, 0);
+
+    var scene  = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
+    camera.position.set(0, 0, 9.2);
+
+    scene.add(new THREE.AmbientLight(0x6b8199, 1.2));
+    var key = new THREE.DirectionalLight(0xd6e6ff, 0.9); key.position.set(-1, 1.2, 1.4);
+    scene.add(key);
+
+    var monde = new THREE.Group(); scene.add(monde);
+
+    var CAPTEURS = [
+      { nom: 'IMU',     y:  1.7, c: 0x9fb2c8 },
+      { nom: 'caméra',  y:  0.0, c: 0x9fb2c8 },
+      { nom: 'roues',   y: -1.7, c: 0x3fdc97 },   // le seul qui n'alimente qu'un estimateur
+    ];
+    var ESTIM = [
+      { nom: 'MINS',     y:  1.7, c: 0xff6b35, roues: true  },
+      { nom: 'openVINS', y:  0.0, c: 0x22d3ee, roues: false },
+      { nom: 'sqrtVINS', y: -1.7, c: 0xfbbf24, roues: false },
+    ];
+    var XG = -2.6, XD = 2.6;
+
+    function boite(x, y, coul, large) {
+      var g = new THREE.Group();
+      var geo = new THREE.BoxGeometry(large ? 1.9 : 1.5, 0.72, 0.5);
+      g.add(new THREE.Mesh(geo, new THREE.MeshPhongMaterial({
+        color: 0x18202b, emissive: coul, emissiveIntensity: 0.12,
+        shininess: 30, transparent: true, opacity: 0.85 })));
+      g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo),
+        new THREE.LineBasicMaterial({ color: coul, transparent: true, opacity: 0.9 })));
+      g.position.set(x, y, 0);
+      monde.add(g);
+      return g;
+    }
+    CAPTEURS.forEach(function (s) { boite(XG, s.y, s.c, false); });
+    ESTIM.forEach(function (e) { boite(XD, e.y, e.c, true); });
+
+    /* Liaisons. Celle des roues est la seule qui ne parte pas vers les trois :
+       c'est l'information que la scène existe pour porter. */
+    var fluxRoues = [];
+    CAPTEURS.forEach(function (s) {
+      ESTIM.forEach(function (e) {
+        if (s.nom === 'roues' && !e.roues) return;
+        var roue = (s.nom === 'roues');
+        var pts = [new THREE.Vector3(XG + 0.78, s.y, 0),
+                   new THREE.Vector3(0, (s.y + e.y) / 2, roue ? 0.55 : 0),
+                   new THREE.Vector3(XD - 0.96, e.y, 0)];
+        var courbe = new THREE.QuadraticBezierCurve3(pts[0], pts[1], pts[2]);
+        var geo = new THREE.BufferGeometry().setFromPoints(courbe.getPoints(28));
+        monde.add(new THREE.Line(geo, new THREE.LineBasicMaterial({
+          color: roue ? 0x3fdc97 : 0x46566b,
+          transparent: true, opacity: roue ? 0.95 : 0.45 })));
+        if (roue) {
+          // pastille qui parcourt la liaison : attire l'œil sur la seule
+          // entrée que MINS possède et que les deux autres n'ont pas
+          var p = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12),
+                    new THREE.MeshBasicMaterial({ color: 0x3fdc97 }));
+          monde.add(p);
+          fluxRoues.push({ courbe: courbe, mesh: p, t: 0 });
+        }
+      });
+    });
+
+    var tgtY = 0.0, tgtX = 0.0, curY = 0.0, curX = 0.0;
+    var reduce = !!(window.matchMedia &&
+                    window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    function aim(cx, cy) {
+      var r = canvas.getBoundingClientRect();
+      tgtY = (cx - (r.left + r.width / 2)) / (window.innerWidth / 2) * 0.42;
+      tgtX = (cy - (r.top + r.height / 2)) / (window.innerHeight / 2) * 0.26;
+    }
+    if (!reduce) {
+      window.addEventListener('mousemove', function (e) { aim(e.clientX, e.clientY); },
+                              { passive: true });
+      canvas.addEventListener('touchmove', function (e) {
+        if (e.touches && e.touches[0]) aim(e.touches[0].clientX, e.touches[0].clientY);
+      }, { passive: true });
+    }
+
+    function resize() {
+      var w = canvas.clientWidth || 300, h = canvas.clientHeight || 300;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+    }
+    resize();
+    window.addEventListener('resize', resize, { passive: true });
+
+    var visible = true, raf, clock = new THREE.Clock();
+    document.addEventListener('visibilitychange', function () { visible = !document.hidden; });
+    function frame() {
+      raf = requestAnimationFrame(frame);
+      if (!visible) return;
+      curY += (tgtY - curY) * 0.06;
+      curX += (tgtX - curX) * 0.06;
+      monde.rotation.y = curY;
+      monde.rotation.x = curX;
+      if (!reduce) {
+        var t = clock.getElapsedTime();
+        fluxRoues.forEach(function (f, i) {
+          var u = (t * 0.32 + i * 0.5) % 1;
+          f.mesh.position.copy(f.courbe.getPoint(u));
+        });
+      }
+      renderer.render(scene, camera);
+    }
+    /* Première image dessinée TOUT DE SUITE, sans attendre la boucle : en
+       vrai navigateur le contenu apparaît dès le premier rendu au lieu du
+       premier rAF, et une capture headless (qui n'attend pas les rAF) voit
+       enfin la scène. */
+    renderer.render(scene, camera);
+    frame();
+
+    return { renderer: renderer, scene: scene, camera: camera, resize: resize,
+             stop: function () { cancelAnimationFrame(raf); } };
+  }
+
   /* ── API publique ─────────────────────────────────────────────────── */
   window.LEO3D = {
     initSatellite: function(id, opts) {
@@ -660,6 +1153,23 @@
     /* Fond interactif (parallaxe souris) pour ops.html et logbook.html */
     initBackground: function(id, opts) {
       return initBackground(id, opts);
+    },
+    /* Repères capteurs orbitables (mins_tuning.html). Pas d'auto-rotation :
+       la scène ne bouge que sous la souris, pour qu'un angle puisse être
+       tenu et lu. */
+    initFrames: function(id, opts) {
+      return initFrames(id, opts);
+    },
+    /* Extrinsèques des trois estimateurs superposées dans un repère IMU
+       commun (tf_validator.html). Les données lui sont FOURNIES par la page
+       via setFrames() : le moteur ne connaît pas tf_frames.json. */
+    initTfCompare: function(id, opts) {
+      return initTfCompare(id, opts);
+    },
+    /* Topologie de fusion : qui consomme quoi (navigation_modes.html).
+       Seul MINS reçoit les roues — c'est le fait que la scène porte. */
+    initSensorFlow: function(id, opts) {
+      return initSensorFlow(id, opts);
     },
   };
 
