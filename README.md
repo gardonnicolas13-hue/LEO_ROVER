@@ -98,7 +98,7 @@ par git.** Cette correspondance est volontaire depuis le rangement du
 
 ## 📘 Le rapport
 
-**Le document de référence de ce projet est [`report_latex/main.pdf`](report_latex/main.pdf), 561 pages.**
+**Le document de référence de ce projet est [`report_latex/main.pdf`](report_latex/main.pdf), 564 pages.**
 
 Le code seul ne se suffit pas. Le rapport contient :
 
@@ -116,7 +116,7 @@ Le code seul ne se suffit pas. Le rapport contient :
   matérielles, puis un index des tableaux et des extraits de code.
   Les pannes coûteuses et leurs symptômes trompeurs sont traitées tout au
   long du rapport et récapitulées dans le **registre des points ouverts**
-  (48 entrées, `Fusion_Campaign.tex`), pas dans un index dédié.
+  (49 entrées, `Fusion_Campaign.tex`), pas dans un index dédié.
 
 Les limites connues y sont documentées aussi franchement que les résultats,
 notamment la calibration des intrinsèques couleur qui reste **bloquante**

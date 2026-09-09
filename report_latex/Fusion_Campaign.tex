@@ -9436,6 +9436,128 @@ obviously possible, which is why the current code holds in both cases and
 leaves the operator the respawn --- a documented procedure being preferable
 to an automatic behaviour that guesses wrong half the time.
 
+\section{The calibration that was half-harvested}
+\label{sec:demicalib}
+
+Appendix~D lists the Kalibr IMU--camera calibration as the highest-value
+task still outstanding on this platform, and \S\ref{sec:extunobs} explains
+why freezing \code{do\_calib\_ext} made it more urgent rather than less. Both
+statements were written believing the calibration had never been run. It
+had. The output has been sitting in \code{calib\_data/} since
+2026-08-20, it is numerically good, and half of it is already deployed ---
+which is a more awkward situation than either having it or not.
+
+\subsection{What exists}
+
+\code{imucam\_20260728\_175145-results-imucam.txt} reports a converged
+solution against \code{/imu/data\_clean} --- the CORE2 unit, not the D455's
+internal IMU, which the bag's topic list confirms:
+
+\begin{center}
+\begin{tabular}{@{}lr@{}}
+\toprule
+Residual & value \\
+\midrule
+Reprojection, cam0 & $0.187$\,px (median $0.170$, $\sigma$ $0.112$) \\
+Reprojection, cam1 & $0.201$\,px (median $0.161$, $\sigma$ $0.148$) \\
+Gyroscope  & $2.64\times10^{-5}$\,rad/s \\
+Accelerometer & $8.26\times10^{-4}$\,m/s$^2$ \\
+Time offset, cam0 to imu0 & $-0.862$\,ms \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Sub-pixel reprojection on both cameras. The four noise densities
+this run produced are, digit for digit, the four values in
+\code{config\_imu.yaml} --- so this calibration was not ignored: its IMU
+half was adopted and is what MINS has been running on ever since. Its
+extrinsic half was not.
+
+\subsection{Where the two disagree}
+
+MINS still carries the tape-measure seed. Against Kalibr's measured
+$\mathbf{T}_{ic}$:
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+ & deployed & Kalibr & difference \\
+\midrule
+$x$ & $+0.1500$\,m & $+0.00330$\,m & $+0.1467$\,m \\
+$y$ & $+0.0000$\,m & $+0.02631$\,m & $-0.0263$\,m \\
+$z$ & $+0.1000$\,m & $+0.02051$\,m & $+0.0795$\,m \\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{total}} & $\mathbf{0.169}$\,\textbf{m} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The \emph{rotations} agree closely: the deployed matrix is the
+exact $90^\circ$ idealisation of Kalibr's measured one, row by row
+($[0,0,1]$ against $[-0.058,-0.076,0.995]$, and so on). That agreement is
+worth noting for its own sake --- it confirms the frame convention used
+throughout this report is the right one --- but it also isolates the
+disagreement entirely in the translation, where it amounts to $16.9$\,cm.
+
+Through Eq.~(\ref{eq:reproj}) that lever-arm error is $28.5$\,px of
+reprojection at a $2$\,m feature depth, a $\chi^2$ contribution of order
+$810$ against a gate near $6$. If the deployed value were simply wrong by
+that much, no visual measurement would survive the gate at all.
+
+\subsection{Why neither number can be installed as it stands}
+
+The temptation is to run \code{fill\_mins\_camchain.py} and be done. The
+calibration bag forbids it, and the reason is the null direction of
+Eq.~(\ref{eq:nulldir}): the extrinsic translation is observable only under
+rotation, so a calibration recording without vigorous excitation constrains
+it weakly no matter how good its reprojection residual looks.
+
+Measured on \code{imucam\_20260728\_175145.bag} itself:
+
+\begin{center}
+\begin{tabular}{@{}lrl@{}}
+\toprule
+Quantity & value & assessment \\
+\midrule
+duration & $90.0$\,s & adequate \\
+cumulative rotation & $611^\circ$ & modest \\
+peak angular rate & $36.5^\circ$/s & gentle \\
+accelerometer $\sigma$, per axis & $0.20/0.10/0.09$\,m/s$^2$ & \textbf{near-stationary} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The last row is the disqualifying one. An accelerometer standard
+deviation of a fifth of a metre per second squared is barely above what the
+unit reads sitting still; the recording contains almost no translational
+excitation. Kalibr's reprojection residual can be excellent under those
+conditions and its translation still be poorly determined, because
+reprojection is dominated by the rotation --- which \emph{is} well observed
+here, and which is precisely the part that agrees with the deployed seed.
+
+So the position is this. The rotation is confirmed twice over and can be
+trusted. The translation has two candidate values, a $15$\,cm tape measure
+and a $3.4$\,cm Kalibr estimate from a recording that could not observe it,
+and \textbf{neither is established}. Installing the Kalibr number would
+replace an unmeasured value with a badly measured one.
+
+\begin{trapbox}{The consequence of the 2026-09-07 freeze, restated}
+While \code{do\_calib\_ext} was true, this ambiguity was survivable: MINS
+refined the translation away from whichever seed it started with, at least
+during motion. The freeze of \S\ref{sec:extunobs} removed that path
+deliberately, on the measured grounds that the same mechanism random-walks
+at rest. That decision stands --- but it means the seed is now permanent,
+and this section shows the seed is a tape measure that no calibration on
+disk is good enough to replace.
+
+The action is therefore not ``install the existing calibration'' but
+``re-record it with proper excitation''. What was previously the
+highest-value outstanding task is now also a blocking one, and it is
+cheaper than it looks: the bag is ninety seconds of hand-held motion in
+front of a target, and the pipeline that consumes it already exists and has
+already run once.
+\end{trapbox}
+
 \section{Open items registry}
 \label{sec:openitems}
 \small
@@ -10074,6 +10196,7 @@ to an automatic behaviour that guesses wrong half the time.
     changes nothing while the measurement has no path into the filter.
     Verify the fix by the arrival of measurements, not by the appearance of
     \code{/mins/vicon0/pose}, which publishes either way \\
+
 47 & \textbf{MINS diverges spontaneously with every input healthy, and a
     respawn is the only known remedy} (2026-09-08: two distinct failures
     within one hour on the same process). The first was a \emph{locked
@@ -10112,6 +10235,24 @@ to an automatic behaviour that guesses wrong half the time.
     any estimator reset. A durable fix would invalidate the cached
     correction whenever the upstream source reports a reset, rather than
     relying on the operator to remember the sequence \\
+49 & \textbf{An IMU--camera calibration exists, is half-installed, and
+    cannot be finished with the recording on disk} (2026-08-20 output,
+    found 2026-09-09, \S\ref{sec:demicalib}). Kalibr converged against
+    \code{/imu/data\_clean} with $0.187$/$0.201$\,px reprojection, and its
+    four noise densities are already deployed digit-for-digit in
+    \code{config\_imu.yaml}. Its extrinsic was never installed: MINS still
+    carries the tape-measure seed, $16.9$\,cm away in translation, worth
+    $28.5$\,px of reprojection at 2\,m. The rotations agree closely, so the
+    disagreement is purely the lever arm &
+    Do \emph{not} install the existing value. The calibration bag carries
+    $611^\circ$ of cumulative rotation, a $36.5^\circ$/s peak and an
+    accelerometer standard deviation of $0.20/0.10/0.09$\,m/s$^2$ --- near
+    stationary, so the translation is weakly observable by
+    Eq.~(\ref{eq:nulldir}) whatever the reprojection residual says.
+    Re-record with vigorous six-axis excitation and re-run the same
+    pipeline, which already exists and has already run once. Since
+    \code{do\_calib\_ext} was frozen on 2026-09-07 the seed is permanent,
+    so this is now blocking rather than merely valuable \\
 \end{longtable}
 
 \FloatBarrier
