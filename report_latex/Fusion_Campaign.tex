@@ -8739,6 +8739,335 @@ $r_{\mathrm{decl}} = 0.0622$ against $r_{\mathrm{fw}} = 0.0625$ --- which is
 registry item 1, until now dormant in a configuration file and now visible
 on every telemetry tick.
 
+\section{What each sensor actually constrains: an observability audit of
+this platform}
+\label{sec:obsaudit}
+
+The opening chapter recalled the four directions a monocular-inertial
+system can never fix: global position, and rotation about gravity. That
+result is about the \emph{trajectory}. Two failures in this campaign came
+from a different and less-cited place --- the observability of the
+\emph{calibration} states, and of the vertical direction on a wheeled
+platform --- and both cost days before being named. This section derives
+them, because in each case the fix is obvious once the algebra is written
+and invisible until it is.
+
+\subsection{Extrinsic calibration is unobservable at rest}
+\label{sec:extunobs}
+
+MINS carries the camera--IMU extrinsic $\mathbf{T}_{IC} = (\mathbf{R}_{IC},
+\mathbf{p}_{IC})$ in its state vector and refines it online when
+\code{do\_calib\_ext} is true. The question is what information a visual
+measurement carries \emph{about that pair} when the platform does not move.
+
+A feature $\mathbf{f}$ expressed in the global frame projects into the
+camera as
+\begin{equation}
+\mathbf{z} = \boldsymbol{\pi}\!\left(
+  \mathbf{R}_{IC}^{\top}\,\mathbf{R}_{GI}^{\top}
+  \bigl(\mathbf{f} - \mathbf{p}_{GI}\bigr) - \mathbf{R}_{IC}^{\top}\,\mathbf{p}_{IC}
+\right),
+\label{eq:projext}
+\end{equation}
+with $\boldsymbol\pi$ the pinhole map and $(\mathbf{R}_{GI},
+\mathbf{p}_{GI})$ the IMU pose. The filter learns $\mathbf{p}_{IC}$ only
+through $\partial \mathbf{z} / \partial \mathbf{p}_{IC}$. Writing
+$\mathbf{p}_C = \mathbf{R}_{IC}^{\top}\mathbf{R}_{GI}^{\top}(\mathbf{f} -
+\mathbf{p}_{GI}) - \mathbf{R}_{IC}^{\top}\mathbf{p}_{IC}$ for the feature in
+camera coordinates,
+\begin{equation}
+\frac{\partial \mathbf{z}}{\partial \mathbf{p}_{IC}}
+  = \underbrace{\frac{\partial \boldsymbol\pi}{\partial \mathbf{p}_C}}_{\text{2}\times\text{3}}
+    \bigl(-\mathbf{R}_{IC}^{\top}\bigr).
+\label{eq:jacext}
+\end{equation}
+
+Equation~(\ref{eq:jacext}) is not zero: a single image does constrain the
+lever arm. The difficulty is that it constrains it in exactly the same way
+it constrains the position $\mathbf{p}_{GI}$, whose Jacobian is
+\begin{equation}
+\frac{\partial \mathbf{z}}{\partial \mathbf{p}_{GI}}
+  = \frac{\partial \boldsymbol\pi}{\partial \mathbf{p}_C}
+    \bigl(-\mathbf{R}_{IC}^{\top}\mathbf{R}_{GI}^{\top}\bigr).
+\end{equation}
+The two differ by the single rotation $\mathbf{R}_{GI}^{\top}$. If the
+platform is stationary, $\mathbf{R}_{GI}$ is constant, and every measurement
+in the window sees the \emph{same} pair of Jacobians related by the
+\emph{same} constant rotation. Their columns then span a common subspace,
+and the information matrix acquires a null direction along
+\begin{equation}
+\delta\mathbf{p}_{GI} = -\mathbf{R}_{GI}\,\delta\mathbf{p}_{IC},
+\label{eq:nulldir}
+\end{equation}
+which leaves every predicted measurement unchanged. Moving the camera
+one centimetre forward and declaring the rover one centimetre backward
+produces an identical image. \textbf{Only a change in $\mathbf{R}_{GI}$
+breaks the tie}, because it changes the relative rotation between the two
+Jacobians; that is, only rotation of the platform makes the lever arm
+observable.
+
+\begin{eqblock}
+\textbf{Consequence, and it is not a subtlety.} An estimator asked to
+refine an unobservable state does not hold it still. Along the null
+direction of Eq.~(\ref{eq:nulldir}) the measurements exert no restoring
+force, so the estimate executes a random walk driven only by its own
+process noise. Measured on a healthy instance, robot stationary, over
+75\,s: \code{cam0} $x$ from $0.2113$ to $0.2096$, $y$ from $0.0373$ to
+$0.0359$, $z$ from $0.0935$ to $0.0946$\,m --- monotone, ${\approx}1.4$\,mm
+per minute, with no sign of convergence. Extrapolated, ${\approx}8$\,cm per
+hour of standing still.
+\end{eqblock}
+
+\subsection{From a drifting lever arm to a rejected measurement}
+\label{sec:levertochi2}
+
+A wandering extrinsic would be harmless if it stayed in the calibration
+block. It does not, and the coupling is quantitative. A lateral error
+$\Delta$ in $\mathbf{p}_{IC}$ displaces the predicted projection of a
+feature at depth $d$ by
+\begin{equation}
+\delta u \;\approx\; \frac{f\,\Delta}{d},
+\label{eq:reproj}
+\end{equation}
+directly from the pinhole map $u = f\,x/z$. With this rover's calibrated
+focal length $f \approx 337$\,px (Kalibr output, installed in \code{config\_camera.yaml}), features at a
+typical indoor depth $d = 2$\,m and a decimetre of accumulated extrinsic
+error,
+\begin{equation}
+\delta u \approx \frac{337 \times 0.10}{2.0} \approx 17\ \text{px}.
+\end{equation}
+The Mahalanobis gate accepts a residual $\mathbf{r}$ when $\mathbf{r}^{\top}
+\mathbf{S}^{-1} \mathbf{r} < \gamma$, with $\mathbf{S}$ built from
+\code{sigma\_px} $= 1$\,px and $\gamma$ scaled by \code{chi2\_mult} $= 1$.
+A 17\,px residual against a 1\,px sigma is a $\chi^2$ contribution of order
+$17^2 = 289$ for two degrees of freedom, against a threshold near $6$.
+Every visual measurement is rejected, in silence, and the filter is left
+with the wheels alone.
+
+That is the entire failure chain, and each arrow in it was measured rather
+than assumed:
+
+\begin{center}
+\begin{tikzpicture}[
+  font=\small, >={Latex[length=2mm]},
+  bloc/.style={draw, rounded corners=2pt, align=center, font=\scriptsize,
+               minimum height=8mm, inner sep=3pt},
+  mesure/.style={bloc, fill=blue!8},
+  panne/.style={bloc, fill=alertred!12, draw=alertred!70},
+  fl/.style={->, thick, draw=black!60}
+]
+  \node[mesure]                        (a) at (0,0)     {stationary\\platform};
+  \node[mesure, right=7mm of a]        (b)              {$\mathbf{p}_{IC}$ unobservable\\Eq.~(\ref{eq:nulldir})};
+  \node[mesure, right=7mm of b]        (c)              {random walk\\1.4\,mm/min};
+  \node[panne,  right=7mm of c]        (d)              {17\,px reprojection\\Eq.~(\ref{eq:reproj})};
+  \node[panne,  below=6mm of d]        (e)              {$\chi^2 \approx 289$\\vs threshold 6};
+  \node[panne,  left=7mm of e]         (f)              {all visual\\updates rejected};
+  \node[panne,  left=7mm of f]         (g)              {$X/Y$ anchor lost\\(wheels only)};
+  \node[panne,  left=7mm of g]         (h)              {divergence,\\robot immobile};
+  \foreach \x/\y in {a/b, b/c, c/d, d/e, e/f, f/g, g/h}
+    \draw[fl] (\x) -- (\y);
+\end{tikzpicture}
+\end{center}
+
+\noindent The fix follows from the first box, not the last: freeze
+\code{do\_calib\_ext}. Estimating a quantity the data cannot resolve is not
+a refinement, it is an unbounded input to the filter. The cost of freezing
+is that the tape-measure seed becomes final --- which is precisely why the
+outstanding Kalibr IMU--camera calibration was promoted from a precision
+improvement to the highest-value remaining task (\S\ref{sec:openitems},
+item~2).
+
+\subsection{Why the wheels cannot save the vertical}
+\label{sec:zunobs}
+
+The platform runs \code{type: "Wheel2DAng"}, a differential-drive model
+built from two wheel angular rates. Its measurement, expressed in the body
+frame, is
+\begin{equation}
+\begin{bmatrix} v_x \\ \omega_z \end{bmatrix}
+  = \begin{bmatrix} \dfrac{r}{2} & \dfrac{r}{2} \\[6pt]
+                    \dfrac{r}{b} & -\dfrac{r}{b} \end{bmatrix}
+    \begin{bmatrix} \omega_L \\ \omega_R \end{bmatrix},
+\label{eq:wheel2d}
+\end{equation}
+with $r$ the effective radius and $b$ the track width. The model has two
+outputs. It says nothing whatever about $v_y$, $v_z$, $\omega_x$ or
+$\omega_y$ --- not that they are zero, but that this sensor does not
+measure them. The measurement Jacobian with respect to the vertical
+position is identically null:
+\begin{equation}
+\frac{\partial}{\partial p_z}
+  \begin{bmatrix} v_x \\ \omega_z \end{bmatrix} = \mathbf{0}.
+\label{eq:wheelnoz}
+\end{equation}
+
+Gravity does not rescue it either. The accelerometer observes the
+\emph{direction} of $\mathbf{g}$, which fixes roll and pitch, but it enters
+the propagation as
+\begin{equation}
+\dot{\mathbf{v}} = \mathbf{R}_{GI}\,(\mathbf{a}_m - \mathbf{b}_a) + \mathbf{g},
+\end{equation}
+where any residual bias $\mathbf{b}_a$ along the vertical is integrated
+twice into $p_z$ with nothing to contradict it. On this rover, therefore,
+\textbf{the camera is the sole sensor constraining $z$}, and the moment its
+contribution weakens --- feature starvation, a $\chi^2$ gate closing on a
+bad extrinsic, an initialisation taken during a disturbance --- the
+vertical is left to integrate freely.
+
+\begin{center}
+\begin{tikzpicture}[font=\small,
+  capteur/.style={draw, rounded corners=2pt, minimum width=24mm,
+                  minimum height=7mm, font=\scriptsize, align=center},
+  tete/.style={font=\scriptsize\bfseries},
+  oui/.style={draw=green!45!black, fill=green!25, circle, inner sep=2pt},
+  non/.style={draw=alertred!70, fill=alertred!15, circle, inner sep=2pt}
+]
+  % colonnes = degres de liberte
+  \node[tete] at (3.2,1.15) {$x,\,y$};
+  \node[tete] at (5.0,1.15) {yaw};
+  \node[tete] at (6.8,1.15) {roll, pitch};
+  \node[tete] at (8.6,1.15) {$z$};
+
+  % lignes = capteurs
+  \node[capteur] (w) at (0.8,0.6)  {wheels};
+  \node[capteur] (i) at (0.8,0.0)  {IMU};
+  \node[capteur] (c) at (0.8,-0.6) {camera};
+
+  % ce que chaque capteur contraint reellement
+  \node[oui] at (3.2, 0.6) {}; \node[oui] at (5.0, 0.6) {};
+  \node[non] at (6.8, 0.6) {}; \node[non] at (8.6, 0.6) {};
+
+  \node[non] at (3.2, 0.0) {}; \node[non] at (5.0, 0.0) {};
+  \node[oui] at (6.8, 0.0) {}; \node[non] at (8.6, 0.0) {};
+
+  \node[oui] at (3.2,-0.6) {}; \node[oui] at (5.0,-0.6) {};
+  \node[oui] at (6.8,-0.6) {}; \node[oui] at (8.6,-0.6) {};
+
+  \draw[decorate, decoration={brace, amplitude=4pt}, draw=alertred!80, thick]
+    (9.15,-0.85) -- (9.15,0.85);
+  \node[font=\scriptsize, align=left, text=alertred!80, anchor=west]
+    at (9.4,0.0) {only one\\sensor:\\no redundancy};
+\end{tikzpicture}
+\end{center}
+
+\noindent Read the last column: three sensors, and only one of them says
+anything about height. This is not a redundancy gap that can be closed by
+tuning --- it is structural, and it is why the vertical is the first axis
+to leave on this platform. Section~\ref{sec:zclamp} states what was and was
+not done about it.
+
+\subsection{Clamping the output is not constraining the filter}
+\label{sec:zclamp}
+
+Because $z$ is physically constant on a flat floor, it is tempting to force
+it to zero and be done. That was implemented, and the distinction it forces
+is worth stating precisely, because it is easy to get backwards.
+
+\begin{center}
+\begin{tikzpicture}[font=\small, >={Latex[length=2mm]},
+  boite/.style={draw, rounded corners=2pt, align=center, font=\scriptsize,
+                minimum height=9mm, inner sep=3pt},
+  filtre/.style={boite, fill=blue!8},
+  sortie/.style={boite, fill=green!12},
+  diagn/.style={boite, fill=orange!14},
+  fl/.style={->, thick, draw=black!60}
+]
+  \node[filtre] (imu)  at (0,0)               {\code{/imu/data\_clean}};
+  \node[filtre, right=7mm of imu]  (mins)     {MINS\\\scriptsize $z$ free};
+  \node[filtre, right=7mm of mins] (raw)      {\code{/mins/imu/odom}\\\scriptsize $z$ estimated};
+  \node[sortie, right=7mm of raw]  (sel)      {\code{pose\_selector}\\\scriptsize $z \leftarrow 0$};
+  \node[sortie, right=7mm of sel]  (fused)    {\code{/robot\_pose\_fused}\\\scriptsize $z \equiv 0$};
+  \node[diagn, below=8mm of sel]   (diag)     {\code{pose\_z\_brut}\\\scriptsize $z$ preserved};
+
+  \draw[fl] (imu)  -- (mins);
+  \draw[fl] (mins) -- (raw);
+  \draw[fl] (raw)  -- (sel);
+  \draw[fl] (sel)  -- (fused);
+  \draw[fl] (sel)  -- (diag);
+  \draw[->, thick, dashed, draw=alertred!70]
+    (fused.north) to[bend right=25] (mins.north);
+  \node[font=\scriptsize, text=alertred!80] at (7.2,1.35) {no such path};
+\end{tikzpicture}
+\end{center}
+
+\noindent The dashed arrow is the point. \code{pose\_selector} is a pure
+consumer: MINS subscribes to \code{/imu/data\_clean},
+\code{/joint\_states\_mins} and the two image topics, and to nothing else
+--- verified against the running node, not assumed from the launch file.
+No feedback path exists, so clamping the output changes what is
+\emph{displayed} and leaves the estimate untouched. In particular:
+
+\begin{itemize}[leftmargin=1.6em]
+  \item the filter's covariance, its bias states and its $X/Y$ accuracy are
+        bit-for-bit what they were;
+  \item the vertical error is still there, still coupled through the
+        covariance to velocity and bias, so a clamped output can look
+        healthier than the filter genuinely is;
+  \item the symptom that has twice betrayed a locked initialisation --- a
+        visibly wrong $z$ beside a healthy $X/Y$ --- is removed from the
+        published pose.
+\end{itemize}
+
+The third point is why the raw value is republished on a separate topic and
+why a warning fires past 25\,cm. A cosmetic improvement that deletes a
+diagnostic is a net loss, and this one came within one design decision of
+being exactly that.
+
+\begin{trapbox}{Clamping the input of a transform is not clamping its output}
+The first implementation forced $z=0$ on the pose handed to the TF
+broadcaster. That pose is expressed in the \emph{IMU} frame; the broadcast
+composes it with the static $\mathbf{T}_{B\!I}$ before publishing
+$\text{odom} \rightarrow \text{base\_footprint}$, and that composition
+re-introduces the sensor's mounting height:
+\[
+  \mathbf{T}_{OB} = \mathbf{T}_{OI}\,\mathbf{T}_{B\!I}^{-1}
+  \quad\Longrightarrow\quad
+  \bigl[\mathbf{T}_{OB}\bigr]_{z} \neq 0
+  \ \text{ even when }\ \bigl[\mathbf{T}_{OI}\bigr]_{z} = 0 .
+\]
+Measured on the running system: the TF read $-0.159$\,m while
+\code{/robot\_pose\_fused} announced $0$ for the \emph{same} frame. The map
+and the pose would have disagreed with neither of them signalling it. The
+clamp belongs on the transform that is actually broadcast.
+\end{trapbox}
+
+\subsection{A sampling trap on the replacement IMU}
+\label{sec:dupsample}
+
+The MinIMU-9 v5 driver polls an LSM6DS33 configured at $104$\,Hz. A
+free-running loop at a nearby rate does not merely jitter; it aliases, and
+the two failure modes are not symmetric.
+
+Let the true angular rate be $\omega(t)$ and the propagation integrate
+samples $\omega_k$ over intervals $\Delta t$. A \emph{missed} sample widens
+one interval: the trapezoidal estimate over $2\Delta t$ carries the usual
+$O(\Delta t^2)$ truncation error, and the integral remains unbiased. A
+\emph{duplicated} sample is different in kind --- the same $\omega_k$ is
+integrated twice, so
+\begin{equation}
+\widehat{\theta} - \theta
+  \;=\; \omega_k\,\Delta t \;+\; O(\Delta t^2),
+\label{eq:dupbias}
+\end{equation}
+a first-order term that does not vanish with the step and does not average
+out, because duplicates occur preferentially while the beat between poll
+rate and ODR is slow. Integrated once more into position, a systematic
+first-order velocity error becomes a quadratic position error --- the same
+mechanism, at smaller amplitude, as the accelerometer scale residual of
+\S\ref{sec:july28accel}.
+
+The remedy is to publish only on a fresh sample. \code{STATUS\_REG}
+(\code{0x1E}) carries the layout
+\[
+  \bigl[\,-\ \ -\ \ -\ \ -\ \ \text{EV\_BOOT}\ \ \text{TDA}\ \ \text{GDA}\ \ \text{XLDA}\,\bigr],
+\]
+so gating on $\text{XLDA} \wedge \text{GDA}$ removes duplicates outright and
+leaves only the benign failure mode. The poll rate is then chosen
+\emph{above} the ODR --- $250$\,Hz against $104$\,Hz, roughly $2.4$ polls
+per sample --- so that each sample is collected within a few milliseconds
+of becoming available. Polling below the ODR, at the $100$\,Hz the driver
+first used, would have fallen behind by about four samples per second.
+
 \section{Open items registry}
 \label{sec:openitems}
 \small
