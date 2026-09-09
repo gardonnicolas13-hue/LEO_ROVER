@@ -9246,6 +9246,196 @@ sample to sample and therefore invisible to Eq.~(\ref{eq:allan}). Noise
 characterization and scale calibration answer different questions, and
 passing one does not excuse the other.
 
+\section{The re-anchoring correction, and the offset it can freeze}
+\label{sec:se3corr}
+
+The cockpit exposes a single pose topic and a button that changes which
+estimator produces it. The two estimators keep independent origins, so a
+raw switch would step the output by whatever separates them --- tens of
+metres, in this campaign. \code{pose\_selector} therefore maintains a
+rigid-body correction per source and applies it before publishing. The
+mechanism is three lines of code and is described qualitatively in
+Appendix~D; it is derived here because its one structural weakness produced
+a 142\,m error on 2026-09-08 that looked exactly like an estimator failure
+and was not one.
+
+\subsection{Deriving the correction}
+\label{sec:corrderiv}
+
+Let $\mathbf{T}^{s}_{\text{raw}}(t) \in SE(3)$ be the pose published by
+source $s$, and $\mathbf{T}_{\text{fused}}(t)$ the pose served downstream.
+The selector stores one correction $\mathbf{C}_s$ per source and publishes
+\begin{equation}
+\mathbf{T}_{\text{fused}}(t) = \mathbf{C}_s\,\mathbf{T}^{s}_{\text{raw}}(t).
+\label{eq:corrapply}
+\end{equation}
+The requirement at a switch from $a$ to $b$ at time $t^{\ast}$ is that the
+served pose not jump:
+\begin{equation}
+\mathbf{C}_b\,\mathbf{T}^{b}_{\text{raw}}(t^{\ast})
+  \;=\;
+  \mathbf{C}_a\,\mathbf{T}^{a}_{\text{raw}}(t^{\ast})
+  \;=\;
+  \mathbf{T}_{\text{fused}}(t^{\ast\,-}),
+\end{equation}
+which determines $\mathbf{C}_b$ uniquely:
+\begin{equation}
+\boxed{\;
+\mathbf{C}_b \;=\; \mathbf{T}_{\text{fused}}(t^{\ast\,-})\,
+                   \bigl[\mathbf{T}^{b}_{\text{raw}}(t^{\ast})\bigr]^{-1}. \;}
+\label{eq:corrdef}
+\end{equation}
+The inverse is the SE(3) inverse of Eq.~(\ref{eq:seinv}), with the same
+$-\mathbf{R}^{\top}\mathbf{p}$ translation block. Each source is initialised
+with $\mathbf{C}_s = \mathbf{I}$, so before any switch the selector is a
+pass-through.
+
+Two properties follow immediately, and the second is the whole problem.
+
+\paragraph{The correction is constant between switches.}
+Equation~(\ref{eq:corrdef}) is evaluated once, at $t^{\ast}$. For all
+$t > t^{\ast}$ the same $\mathbf{C}_b$ multiplies every incoming pose.
+Differentiating Eq.~(\ref{eq:corrapply}) with $\mathbf{C}_b$ constant, the
+served motion is the raw motion rotated into the anchored frame:
+\begin{equation}
+\delta\mathbf{T}_{\text{fused}}
+  = \mathbf{C}_b\,\delta\mathbf{T}^{b}_{\text{raw}},
+\end{equation}
+so \emph{relative} motion is preserved exactly. This is the desired
+behaviour: re-anchoring must not distort the trajectory, only re-place its
+origin.
+
+\paragraph{The correction anchors to a pose, not to the world.}
+$\mathbf{C}_b$ encodes the offset between the source's origin and the frame
+the output happened to be in at $t^{\ast}$. It carries no information about
+whether that frame was \emph{correct}. If $\mathbf{T}_{\text{fused}}
+(t^{\ast\,-})$ was wrong --- because the previously active source had
+diverged --- then $\mathbf{C}_b$ faithfully preserves that error, and keeps
+preserving it indefinitely.
+
+\subsection{The failure mode: a correct estimator behind a frozen offset}
+\label{sec:frozenoffset}
+
+Now let the upstream source reset. A respawned MINS re-initialises at a new
+origin, so $\mathbf{T}^{b}_{\text{raw}}$ changes discontinuously at some
+$t_r > t^{\ast}$:
+\begin{equation}
+\mathbf{T}^{b}_{\text{raw}}(t_r^{+}) \;\neq\; \mathbf{T}^{b}_{\text{raw}}(t_r^{-}),
+  \qquad\text{while}\qquad
+  \mathbf{C}_b(t_r^{+}) \;=\; \mathbf{C}_b(t_r^{-}).
+\end{equation}
+Nothing in Eq.~(\ref{eq:corrdef}) is re-evaluated, because no \emph{switch}
+occurred. The served pose therefore becomes
+\begin{equation}
+\mathbf{T}_{\text{fused}} = \underbrace{\mathbf{C}_b}_{\text{stale}}
+  \cdot \underbrace{\mathbf{T}^{b}_{\text{raw}}}_{\text{healthy}} ,
+\label{eq:stalecorr}
+\end{equation}
+a constant rigid offset applied to a perfectly good estimate. The signature
+is distinctive once known, and was measured directly on 2026-09-08:
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+ & $x$ (m) & $y$ (m) & $z$ (m) \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{absolute position, end of window}}\\
+raw \code{/mins/imu/odom}         & $-0.0012$ & $+0.0016$ & $+0.0170$ \\
+served \code{/robot\_pose\_fused} & $-0.4236$ & $-0.0846$ & $-142.0488$ \\
+\midrule
+\multicolumn{4}{@{}l}{\emph{displacement over the same 30\,s window}}\\
+raw \code{/mins/imu/odom}         & $-0.0039$ & $+0.0012$ & $+0.0034$ \\
+served \code{/robot\_pose\_fused} & $-0.0037$ & $+0.0018$ & $+0.0034$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The \emph{deltas} agree to a tenth of a millimetre while the
+\emph{absolute} values differ by 142\,m. That is Eq.~(\ref{eq:stalecorr})
+written in measurements: relative motion tracked faithfully, absolute
+position offset by a constant. An operator watching the map sees a diverged
+robot; the estimator underneath is accurate to millimetres.
+
+\begin{center}
+\begin{tikzpicture}[font=\small, >={Latex[length=2mm]},
+  etape/.style={draw, rounded corners=2pt, align=center, font=\scriptsize,
+                minimum height=9mm, inner sep=3pt},
+  sain/.style={etape, fill=green!12},
+  malade/.style={etape, fill=alertred!12, draw=alertred!70},
+  fig/.style={etape, fill=orange!14},
+  fl/.style={->, thick, draw=black!60}
+]
+  \node[malade] (div) at (0,0)                {MINS diverged\\\scriptsize $z=-327$\,m};
+  \node[fig, right=7mm of div]   (calc)       {$\mathbf{C}$ computed\\\scriptsize Eq.~(\ref{eq:corrdef})};
+  \node[sain, right=7mm of calc] (resp)       {MINS respawned\\\scriptsize $z\approx 0$, healthy};
+  \node[fig, right=7mm of resp]  (stale)      {$\mathbf{C}$ NOT\\re-evaluated};
+  \node[malade, below=7mm of stale] (out)     {served pose\\\scriptsize offset $142$\,m};
+
+  \draw[fl] (div) -- (calc);
+  \draw[fl] (calc) -- (resp);
+  \draw[fl] (resp) -- (stale);
+  \draw[fl] (stale) -- (out);
+  \draw[fl, draw=green!45!black] (resp.south) to[bend right=20]
+    node[midway, below, font=\scriptsize, text=green!35!black]
+    {estimate is fine} (out.west);
+\end{tikzpicture}
+\end{center}
+
+\subsection{Why re-selecting the source does not clear it}
+
+The instinctive remedy --- press the button again, or call
+\code{set\_source\_by\_name} --- does not work, and Eq.~(\ref{eq:corrdef})
+says why. Re-selecting source $b$ while $b$ is already active evaluates
+\begin{equation}
+\mathbf{C}_b^{\text{new}}
+  = \mathbf{T}_{\text{fused}}(t^{-})\bigl[\mathbf{T}^{b}_{\text{raw}}(t)\bigr]^{-1}
+  = \bigl(\mathbf{C}_b^{\text{old}}\mathbf{T}^{b}_{\text{raw}}(t)\bigr)
+    \bigl[\mathbf{T}^{b}_{\text{raw}}(t)\bigr]^{-1}
+  = \mathbf{C}_b^{\text{old}} ,
+\label{eq:idempotent}
+\end{equation}
+because the served pose it anchors to is itself the product of the stale
+correction. The operation is idempotent: it recomputes the same matrix. The
+correction is preserved \emph{by construction}, which is precisely what one
+asks of it at a genuine switch and precisely what one does not want here.
+
+Restarting the node clears it, since $\mathbf{C}_s$ initialises to
+$\mathbf{I}$. That is the procedure used on 2026-09-08 --- and it dictates
+the ordering: the upstream estimator first, the selector second. Restarting
+the selector before MINS would anchor $\mathbf{I}$ against a still-diverged
+raw pose and serve the divergence directly.
+
+\begin{trapbox}{A diagnosis that points at the wrong subsystem}
+Equation~(\ref{eq:stalecorr}) is a factorisation, and both factors are
+observable separately --- but only if one thinks to look. The served topic
+alone cannot distinguish ``the estimator diverged'' from ``the estimator is
+fine behind a stale correction'', because the two produce identical output.
+The discriminator is the \emph{delta}: a diverging filter has drifting
+deltas, a stale correction has deltas that match the raw source exactly.
+Reading the absolute value of \code{/robot\_pose\_fused} and concluding that
+MINS had failed would have sent the investigation into the filter, where
+there was nothing to find.
+\end{trapbox}
+
+\subsection{The durable fix, and why it was not applied blind}
+
+Equation~(\ref{eq:corrdef}) is evaluated on a switch. The defect is that a
+source reset is also an event that invalidates $\mathbf{C}_s$, and nothing
+signals it. A principled repair is to have the selector detect the
+discontinuity itself --- a jump in $\mathbf{T}^{s}_{\text{raw}}$ far larger
+than $v_{\max}\Delta t$ is not physical motion --- and reset $\mathbf{C}_s$
+to $\mathbf{I}$ rather than preserve it.
+
+The plausibility guard already computes exactly this quantity for a
+different purpose: it freezes the output when a source jumps implausibly.
+The two behaviours must not be conflated, and that is the design question
+left open (\S\ref{sec:openitems}, item~48). A transient spike should be
+\emph{held}, as it is now; a genuine re-initialisation should
+\emph{re-anchor}. Distinguishing them from the pose stream alone is not
+obviously possible, which is why the current code holds in both cases and
+leaves the operator the respawn --- a documented procedure being preferable
+to an automatic behaviour that guesses wrong half the time.
+
 \section{Open items registry}
 \label{sec:openitems}
 \small
