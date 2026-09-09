@@ -1021,3 +1021,183 @@ no reference trajectory, and separates the three estimators cleanly here.
 It costs nothing to log and would have flagged the sqrtVINS defect on the
 first recording rather than three days later.
 \end{trapbox}
+
+\section{Is the filter honest about its own uncertainty?}
+\label{sec:nees}
+
+An estimator publishes two things: a state and a covariance. Every
+consumer downstream --- a fusion node, a $\chi^2$ gate, a planner deciding
+whether it knows where it is --- weights the first by the second. This
+report has measured the first extensively and has never once checked the
+second. This section does, and the answer differs by three orders of
+magnitude between estimators.
+
+\subsection{The test, and why a stationary robot makes it exact}
+
+Consistency has a standard definition. For an estimate $\hat{\mathbf{x}}$
+of a true state $\mathbf{x}$ with reported covariance $\mathbf{P}$, the
+\emph{normalized estimation error squared} is
+\begin{equation}
+\varepsilon \;=\; \tilde{\mathbf{x}}^{\top}\mathbf{P}^{-1}\tilde{\mathbf{x}},
+\qquad \tilde{\mathbf{x}} = \hat{\mathbf{x}} - \mathbf{x} .
+\label{eq:nees}
+\end{equation}
+If the filter's error is genuinely zero-mean Gaussian with covariance
+$\mathbf{P}$ --- which is exactly what publishing $\mathbf{P}$ asserts ---
+then $\varepsilon$ follows a chi-squared law with as many degrees of freedom
+as the state has dimensions. Restricting to the $3\times3$ position block:
+\begin{equation}
+\varepsilon \;\sim\; \chi^2(3),
+\qquad
+\mathbb{E}[\varepsilon] = 3,
+\qquad
+\mathrm{med}(\varepsilon) = 2.366,
+\qquad
+F^{-1}(0.95) = 7.815 .
+\label{eq:chi3}
+\end{equation}
+A median far below $2.37$ means $\mathbf{P}$ is too large --- the filter
+declares more uncertainty than it has. A median far above means
+$\mathbf{P}$ is too small, and the filter is claiming a precision it does
+not possess.
+
+Applying Eq.~(\ref{eq:nees}) normally requires ground truth, which this
+platform does not have. The stationary recordings remove that obstacle
+entirely: if the robot does not move, its true position is its initial
+position, exactly and by construction, so
+\begin{equation}
+\tilde{\mathbf{p}}(t) \;=\; \hat{\mathbf{p}}(t) - \hat{\mathbf{p}}(0)
+\end{equation}
+is the error itself, not an approximation of it. The three short recordings
+of 2026-08-21 are therefore the only place in this campaign where
+Eq.~(\ref{eq:nees}) can be evaluated without assumption.
+
+\begin{center}
+\begin{tikzpicture}[font=\small,
+  vraie/.style={draw=green!45!black, thick},
+  annonce/.style={draw=alertred!70, thick, dashed}]
+  % cas 1 : conservateur
+  \begin{scope}[shift={(0,0)}]
+    \node[font=\scriptsize\bfseries] at (0,1.75) {conservative};
+    \draw[annonce] (0,0) ellipse (1.35 and 1.05);
+    \draw[vraie]   (0,0) ellipse (0.16 and 0.13);
+    \foreach \x/\y in {0.05/0.03, -0.06/0.05, 0.03/-0.07, -0.04/-0.03, 0.07/0.01}
+      \fill[black!70] (\x,\y) circle (0.9pt);
+    \node[font=\scriptsize, text=alertred!80] at (0,-1.42) {$\varepsilon \ll 2.37$};
+  \end{scope}
+  % cas 2 : coherent
+  \begin{scope}[shift={(3.9,0)}]
+    \node[font=\scriptsize\bfseries] at (0,1.75) {calibrated};
+    \draw[annonce] (0,0) ellipse (0.85 and 0.65);
+    \foreach \x/\y in {0.35/0.22, -0.42/0.31, 0.28/-0.44, -0.55/-0.18, 0.62/0.09, -0.2/0.5}
+      \fill[black!70] (\x,\y) circle (0.9pt);
+    \node[font=\scriptsize, text=green!35!black] at (0,-1.42) {$\varepsilon \approx 2.37$};
+  \end{scope}
+  % cas 3 : surconfiant
+  \begin{scope}[shift={(7.8,0)}]
+    \node[font=\scriptsize\bfseries] at (0,1.75) {overconfident};
+    \draw[annonce] (0,0) ellipse (0.30 and 0.24);
+    \foreach \x/\y in {0.95/0.55, -1.05/0.68, 0.75/-0.9, -1.2/-0.35, 1.25/0.15}
+      \fill[black!70] (\x,\y) circle (0.9pt);
+    \node[font=\scriptsize, text=alertred!80] at (0,-1.42) {$\varepsilon \gg 7.81$};
+  \end{scope}
+  \node[font=\scriptsize, anchor=west] at (-1.9,-2.15)
+    {dashed: the $\mathbf{P}$ the filter publishes \quad dots: where its error actually lands};
+\end{tikzpicture}
+\end{center}
+
+\subsection{Result}
+
+Evaluating Eq.~(\ref{eq:nees}) sample by sample, discarding the first tenth
+of each recording as initialisation transient:
+
+\begin{center}
+\begin{tabular}{@{}llrrl@{}}
+\toprule
+Recording & estimator & median $\varepsilon$ & $\sigma$ factor & assessment \\
+\midrule
+stationary 30\,s & MINS     & $0.0003$ & $0.011$ & far too large \\
+                 & openVINS & $0.0001$ & $0.007$ & far too large \\
+                 & sqrtVINS & $0.0920$ & $0.197$ & too large \\
+\midrule
+stationary 20\,s & MINS     & $0.0006$ & $0.016$ & far too large \\
+                 & openVINS & $0.0000$ & $0.005$ & far too large \\
+                 & sqrtVINS & $\mathbf{45.75}$ & $\mathbf{4.39}$ & \textbf{overconfident} \\
+\midrule
+stationary 10\,s & MINS     & $0.0000$ & $0.004$ & far too large \\
+                 & openVINS & $0.0001$ & $0.008$ & far too large \\
+                 & sqrtVINS & $0.1471$ & $0.249$ & too large \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The fourth column restates the third in units an implementer can
+act on. Since $\varepsilon$ is quadratic in the error and inversely
+quadratic in $\sigma$, a median NEES of $\varepsilon_m$ corresponds to a
+reported standard deviation wrong by the factor
+\begin{equation}
+k \;=\; \sqrt{\frac{\varepsilon_m}{\mathrm{med}\,\chi^2(3)}}
+  \;=\; \sqrt{\frac{\varepsilon_m}{2.366}} ,
+\label{eq:sigmafactor}
+\end{equation}
+with $k<1$ meaning $\sigma$ is inflated and $k>1$ meaning it is deflated.
+
+
+\begin{figure}[htbp]
+  \centering
+  \IfFileExists{figures/nees_coherence.png}{%
+    \includegraphics[width=\linewidth]{figures/nees_coherence.png}%
+  }{%
+    \fbox{\parbox{0.9\linewidth}{\centering\vspace{1em}
+    \code{figures/nees\_coherence.png} not generated\vspace{1em}}}%
+  }
+  \caption[Filter consistency against the $\chi^2(3)$ reference]{Consistency
+  on the three stationary recordings, where the true position is known
+  exactly. \textbf{Left:} median NEES, logarithmic, against the $\chi^2(3)$
+  median of $2.37$ (solid) and its $95$th percentile of $7.81$ (dashed).
+  MINS and openVINS sit four orders of magnitude below the reference;
+  sqrtVINS exceeds the $95$th percentile on one run. \textbf{Right:} the
+  same result expressed by Eq.~(\ref{eq:sigmafactor}) as a multiplicative
+  error on the reported $\sigma$, where unity is calibrated.}
+  \label{fig:nees}
+\end{figure}
+
+\subsection{Reading the two failure modes}
+
+\paragraph{MINS and openVINS inflate by roughly two orders of magnitude.}
+$k$ between $0.004$ and $0.016$ means the published $\sigma$ is $60$ to
+$250$ times larger than the error warrants. MINS announces $3\sigma \approx
+1.13$\,m on a recording where it holds position to $6$\,mm. Nothing is
+\emph{wrong} in the pose --- the estimate is excellent --- but the
+covariance is not usable information. A consumer weighting by it would
+treat a millimetre-grade pose as decimetre-grade, and a $\chi^2$ gate built
+on it would accept almost anything.
+
+\paragraph{sqrtVINS deflates, on one recording out of three.} $k = 4.39$
+means its reported $\sigma$ is $4.4$ times smaller than its error justifies;
+Eq.~(\ref{eq:chi3}) puts a median $\varepsilon$ of $45.75$ far beyond the
+$95$th percentile of $7.815$, so this is not a tail event but the typical
+behaviour of that run. The same recording is the one where sqrtVINS reports
+$5.8$\,m/s on a stationary platform (\S\ref{sec:plafondphysique}) --- the
+overconfidence and the impossible velocity are two views of one broken
+state, three days before the \code{02\_zupt\_guards} patch.
+
+The asymmetry between the two modes matters more than their magnitudes. An
+inflated covariance is wasteful: it discards information the filter actually
+has. A deflated one is actively misleading, because every downstream
+consumer is built to trust it in proportion to how small it is.
+
+\begin{trapbox}{What this test does not establish}
+Three recordings, all stationary, all from one evening. The stationary case
+is what makes the truth exact and the test possible, but it is also the
+regime where a filter is least stressed --- the result says nothing about
+covariance calibration during aggressive motion, where the process-noise
+model does most of its work.
+
+Extending it would need ground truth during motion, which returns to the
+same missing capability as \S\ref{sec:capdesaccord}: this platform has no
+external reference. What can be done cheaply is to repeat this exact test
+after any change to a noise parameter, since it costs one stationary
+recording and a matrix solve per sample, and it is the only check in this
+report that validates the second half of what an estimator publishes.
+\end{trapbox}
