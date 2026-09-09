@@ -1414,3 +1414,94 @@ re-running the same measurement, which is a twenty-minute experiment and is
 recorded here as the next thing to do rather than as a conclusion already
 drawn.
 \end{trapbox}
+
+\subsection{A covariance that has stopped being a variable}
+\label{sec:covsaturee}
+
+The stationary recordings showed \emph{what} the covariances are worth. The
+seven-minute drive shows \emph{how they behave}, and for MINS the answer is
+that its position covariance stops behaving at all.
+
+A filter propagating between corrections should see $\mathbf{P}$ grow, since
+integrating IMU noise adds uncertainty; each accepted measurement should
+pull it back. The published series should therefore saw-tooth. Sampling
+MINS over the window $150 \le t \le 420$\,s --- $23{,}137$ samples, during
+which the estimator itself reports $6.09$\,m of travel:
+
+\begin{center}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Window $150$--$420$\,s & MINS & openVINS \\
+\midrule
+$3\sigma$ minimum & $12.8908$\,m & $0.2600$\,m \\
+$3\sigma$ maximum & $12.9255$\,m & $4.0005$\,m \\
+range over $270$\,s & $\mathbf{0.0347}$\,\textbf{m} & $3.7405$\,m \\
+coefficient of variation & $\mathbf{2.8\times10^{-4}}$ & $5.8\times10^{-1}$ \\
+path reported over window & $6.09$\,m & $2307.61$\,m \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent MINS's reported position uncertainty varies by three and a half
+centimetres across four and a half minutes of driving --- three parts in ten
+thousand. It is not a saw-tooth, not a growth curve, not a decay: it is a
+constant that happens to be expressed in metres.
+
+\begin{center}
+\begin{tikzpicture}[font=\small, >={Latex[length=2mm]}, xscale=1.06]
+  \draw[->, thick] (0,0) -- (9.2,0) node[right, font=\scriptsize] {$t$};
+  \draw[->, thick] (0,0) -- (0,2.9) node[above, font=\scriptsize] {$3\sigma$};
+  % attendu : dents de scie
+  \draw[thick, green!45!black]
+    (0.3,0.35) -- (1.3,1.15) -- (1.3,0.45) -- (2.3,1.25) -- (2.3,0.5)
+    -- (3.3,1.3) -- (3.3,0.55) -- (4.1,1.2);
+  \node[font=\scriptsize, text=green!35!black, anchor=west] at (0.35,1.62)
+    {expected: grow, then a correction pulls it back};
+  % observe : plat
+  \draw[very thick, alertred!75] (4.9,0.95) -- (8.9,0.96);
+  \node[font=\scriptsize, text=alertred!85, anchor=west] at (4.95,1.45)
+    {observed on MINS: flat to $3\times10^{-4}$};
+  \draw[dotted, gray] (4.5,0) -- (4.5,2.6);
+  \node[font=\scriptsize, anchor=north] at (2.2,-0.12) {a filter tracking its own uncertainty};
+  \node[font=\scriptsize, anchor=north] at (6.9,-0.12) {a filter reporting a ceiling};
+\end{tikzpicture}
+\end{center}
+
+\subsection{Reading the two behaviours together}
+
+The contrast with openVINS on the same window is what makes the point,
+because the two failures are opposite and neither is visible from the pose
+alone.
+
+openVINS's covariance \emph{does} move --- a coefficient of variation of
+$0.58$, a step from $0.26$ to $3.67$\,m around $t=230$\,s, genuine
+structure. But over that same window it reports $2307$\,m of travel on a
+platform that covered a few metres. Its covariance is alive and its state is
+nonsense.
+
+MINS is the mirror image. Its pose over that window is the only one of the
+three that stays physically possible (\S\ref{sec:plafondphysique}), and its
+covariance is inert. A consumer reading only the pose would prefer MINS
+without hesitation; a consumer reading only the covariance would see a
+number that never changes and conclude, wrongly, that nothing was happening.
+
+\begin{trapbox}{What a saturated covariance costs, concretely}
+Three consequences follow, and none of them show up as an error message.
+
+\textbf{A $\chi^2$ gate built on it cannot reject.} The gate compares a
+residual against $\mathbf{P}$; a $\mathbf{P}$ two orders of magnitude too
+large accepts essentially any measurement, which removes the very protection
+the gate exists to provide.
+
+\textbf{Fusion weighting is wrong by the same factor.} Any node combining
+this pose with another source weights by $\mathbf{P}^{-1}$, so MINS is
+weighted a hundred times less than its accuracy deserves.
+
+\textbf{Divergence becomes undetectable from the covariance.} A filter
+losing its fix normally announces it by a growing $\mathbf{P}$. If
+$\mathbf{P}$ is pinned at a ceiling, the two spontaneous divergences of
+\S\ref{sec:openitems} --- item 47, still open --- would look identical to
+healthy operation in the one channel designed to warn about them. That is
+consistent with what was observed on 2026-09-08, where the failure was
+found by reading $z$ directly and not by any covariance signal.
+\end{trapbox}
