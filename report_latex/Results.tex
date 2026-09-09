@@ -1201,3 +1201,124 @@ after any change to a noise parameter, since it costs one stationary
 recording and a matrix solve per sample, and it is the only check in this
 report that validates the second half of what an estimator publishes.
 \end{trapbox}
+
+\subsection{The velocity block, where the truth is exactly zero}
+\label{sec:neesvitesse}
+
+Section~\ref{sec:nees} tested the position block, taking the initial
+position as truth. The velocity block admits a cleaner test still: on a
+stationary platform the true velocity is not \emph{approximately} zero, it
+\emph{is} zero, so no subtraction and no reference epoch are needed. The
+error is the estimate:
+\begin{equation}
+\tilde{\mathbf{v}}(t) = \hat{\mathbf{v}}(t) - \mathbf{0} = \hat{\mathbf{v}}(t),
+\qquad
+\varepsilon_v = \hat{\mathbf{v}}^{\top}\mathbf{P}_{vv}^{-1}\hat{\mathbf{v}}
+\;\sim\; \chi^2(3).
+\label{eq:neesvel}
+\end{equation}
+This is worth doing separately because $\mathbf{P}_{vv}$ is the block that
+drives propagation: between measurements, position uncertainty grows from
+velocity uncertainty, so an error here compounds into the position block
+rather than staying local.
+
+\begin{center}
+\begin{tabular}{@{}llrrrl@{}}
+\toprule
+Recording & estimator & median $|\hat{\mathbf{v}}|$ & mean $\sigma_v$ & $\varepsilon_v$ & $k$ \\
+\midrule
+stationary 30\,s & MINS     & $0.0033$ & $0.0175$ & $0.041$ & $0.13$ \\
+                 & openVINS & $0.0277$ & $0.0084$ & $9.76$  & $\mathbf{2.03}$ \\
+                 & sqrtVINS & $1.1448$ & $0.0199$ & $3.6\times10^{3}$ & $38.8$ \\
+\midrule
+stationary 20\,s & MINS     & $0.0042$ & $0.0238$ & $0.046$ & $0.14$ \\
+                 & openVINS & $0.0204$ & $0.0039$ & $20.9$  & $\mathbf{2.97}$ \\
+                 & sqrtVINS & $5.7770$ & $0.0022$ & $8.5\times10^{6}$ & $1899$ \\
+\midrule
+stationary 10\,s & MINS     & $0.0030$ & $0.0167$ & $0.038$ & $0.13$ \\
+                 & openVINS & $0.0277$ & $0.0084$ & $9.76$  & $\mathbf{2.03}$ \\
+                 & sqrtVINS & $1.1448$ & $0.0163$ & $5.2\times10^{3}$ & $46.9$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Velocities in m/s; $k$ from Eq.~(\ref{eq:sigmafactor}).
+
+\paragraph{MINS is close to calibrated here.} $k$ between $0.13$ and $0.14$
+means its velocity $\sigma$ is about seven times larger than warranted ---
+conservative, but within one order of magnitude, against the two orders its
+position block was out by. Of the six covariance blocks measured in this
+report, this is the only one approaching usable calibration.
+
+\paragraph{openVINS is overconfident on velocity.} All three recordings give
+$\varepsilon_v$ between $9.76$ and $20.87$, every one above the $\chi^2(3)$
+$95$th percentile of $7.815$. Concretely, on the 20-second run it reports
+$\sigma_v = 3.9$\,mm/s while carrying a $20.4$\,mm/s velocity on a
+stationary robot --- an error five times its own one-sigma, sustained rather
+than transient.
+
+
+\begin{figure}[htbp]
+  \centering
+  \IfFileExists{figures/nees_pos_vit.png}{%
+    \includegraphics[width=\linewidth]{figures/nees_pos_vit.png}%
+  }{%
+    \fbox{\parbox{0.9\linewidth}{\centering\vspace{1em}
+    \code{figures/nees\_pos\_vit.png} not generated\vspace{1em}}}%
+  }
+  \caption[Position and velocity covariance compared]{The two covariance
+  blocks of each filter, on the same recordings. Pale bars are the position
+  block, solid bars the velocity block; the green band spans the $5$th to
+  $95$th percentiles of $\chi^2(3)$, within which a consistent filter should
+  fall. MINS sits below it on both blocks, closer on velocity. openVINS
+  falls far below on position and \emph{above} on velocity --- the same
+  matrix wrong in opposite directions. sqrtVINS leaves the plot.}
+  \label{fig:neesposvel}
+\end{figure}
+
+\subsection{The same matrix, wrong in opposite directions}
+\label{sec:blocsopposes}
+
+Placing the two blocks side by side is the result of this chapter:
+
+\begin{center}
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+Estimator & $k$ (position) & $k$ (velocity) & \\
+\midrule
+MINS     & $0.004$--$0.016$ & $0.13$--$0.14$ & both conservative, velocity far less so \\
+openVINS & $0.005$--$0.008$ & $\mathbf{2.03}$--$\mathbf{2.97}$ & \textbf{opposite signs} \\
+sqrtVINS & $0.20$--$4.39$   & $38.8$--$1899$ & overconfident throughout \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent openVINS is the striking case. Its position covariance is inflated
+by a factor of roughly $150$ in $\sigma$, and its velocity covariance is
+deflated by a factor of $2$ to $3$ --- two blocks of the same matrix,
+published in the same message, erring in opposite directions. Nothing in the
+pose alone reveals this; both blocks pass every check made earlier in this
+report, because those checks never looked at $\mathbf{P}$.
+
+The practical consequence follows from which block does what. A downstream
+gate reading the position block will be far too permissive. Propagation
+reading the velocity block will under-grow position uncertainty between
+measurements, which partly explains why the position block can stay wide
+while the filter's own predicted growth is too slow: the two errors are not
+independent, they are the same miscalibration seen at two points of the same
+loop.
+
+\begin{trapbox}{Why this is worth more than a better tuned number}
+The instinct on seeing $k=150$ is to divide the noise density by $150$ and
+move on. That would be tuning to a single stationary recording and is
+exactly the practice this report warns against elsewhere --- the same
+mistake as inheriting a datasheet figure, with a different provenance.
+
+What the measurement supports is narrower and more useful: a statement that
+these covariances are \emph{not} calibrated, a number for how far, and a
+procedure costing one stationary recording that can be repeated after any
+change. A filter whose covariance is wrong by two orders of magnitude is not
+producing an uncertainty estimate at all --- it is producing a constant that
+happens to have units of metres, and the honest move is to say so rather
+than to rescale it once and call it characterised.
+\end{trapbox}
