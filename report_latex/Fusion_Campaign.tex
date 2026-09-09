@@ -10253,6 +10253,18 @@ already run once.
     pipeline, which already exists and has already run once. Since
     \code{do\_calib\_ext} was frozen on 2026-09-07 the seed is permanent,
     so this is now blocking rather than merely valuable \\
+50 & \textbf{No estimator recording exists after either divergence
+    patch} (\S\ref{sec:datationpreuves}). The sqrtVINS ZUPT guards are
+    dated 2026-08-24 and the openVINS covariance reset 2026-08-28; the most
+    recent recording in \code{data/} is from 2026-08-24, and it carries no
+    covariance columns. Every consistency result in this report therefore
+    describes software that has since been changed &
+    Record one stationary run and one drive on the current build, exported
+    with the \code{Ppose} and \code{Ptwist} columns, and re-run the NEES
+    procedure of \S\ref{sec:nees}. About twenty minutes of robot time. It
+    would date the covariance audit to what is actually running and close
+    the before-and-after on both patches, neither of which has a measured
+    effect today \\
 \end{longtable}
 
 \FloatBarrier

@@ -1505,3 +1505,84 @@ healthy operation in the one channel designed to warn about them. That is
 consistent with what was observed on 2026-09-08, where the failure was
 found by reading $z$ directly and not by any covariance signal.
 \end{trapbox}
+
+\subsection{Everything measured in this chapter predates the fixes}
+\label{sec:datationpreuves}
+
+The measurements above are dated, and placing them against the patch
+history changes what the chapter can claim. Both VIO estimators received
+divergence fixes during the campaign; neither has been recorded since.
+
+\begin{center}
+\begin{tikzpicture}[font=\small, >={Latex[length=2mm]}, xscale=1.30]
+  \draw[->, thick] (0,0) -- (7.4,0);
+  \foreach \x/\d in {0.5/{20 Aug}, 1.9/{21 Aug}, 3.5/{24 Aug}, 5.4/{28 Aug}, 6.9/{today}}
+    { \draw (\x,-0.10) -- (\x,0.10); \node[font=\scriptsize, below=2pt] at (\x,-0.10) {\d}; }
+  \node[font=\scriptsize, align=center, fill=blue!10, draw, rounded corners=2pt,
+        inner sep=2.5pt] at (1.9,0.85) {recordings\\with covariance};
+  \draw[->, draw=black!55] (1.9,0.52) -- (1.9,0.12);
+  \node[font=\scriptsize, align=center, fill=blue!10, draw, rounded corners=2pt,
+        inner sep=2.5pt] at (3.5,-0.95) {recordings\\pose only};
+  \draw[->, draw=black!55] (3.5,-0.62) -- (3.5,-0.14);
+  \node[font=\scriptsize, align=center, fill=alertred!12, draw=alertred!70,
+        rounded corners=2pt, inner sep=2.5pt] at (3.5,0.85) {sqrtVINS\\ZUPT patch};
+  \draw[->, draw=alertred!70] (3.5,0.52) -- (3.5,0.12);
+  \node[font=\scriptsize, align=center, fill=alertred!12, draw=alertred!70,
+        rounded corners=2pt, inner sep=2.5pt] at (5.4,0.85) {openVINS\\reset patch};
+  \draw[->, draw=alertred!70] (5.4,0.52) -- (5.4,0.12);
+  \draw[decorate, decoration={brace, amplitude=4pt}, draw=alertred!80, thick]
+    (6.85,-0.30) -- (5.5,-0.30);
+  \node[font=\scriptsize, text=alertred!85, align=center] at (6.2,-0.85)
+    {no recording\\at all};
+\end{tikzpicture}
+\end{center}
+
+\noindent The \code{02\_zupt\_guards} patch of 2026-08-24 modifies
+\code{ov\_srvins/src/update/UpdaterZeroVelocity.cpp} --- sqrtVINS. The
+\code{01\_reset\_covariance} patch of 2026-08-28 modifies
+\code{ov\_msckf/src/core/VioManager.cpp} --- openVINS. Searching the data
+directories for anything recorded after that second date returns nothing.
+
+Three consequences for how this chapter should be read.
+
+\textbf{The covariance audit is entirely pre-patch.} The recordings
+carrying $\mathbf{P}$ are from 2026-08-21, before either fix. Every
+statement in \S\ref{sec:nees} through \S\ref{sec:covsaturee} describes
+filters as they were that evening. The MINS results are unaffected --- MINS
+received neither patch --- but the openVINS and sqrtVINS numbers are
+historical by construction.
+
+\textbf{openVINS was never measured post-patch either.} The 24 August
+recordings sit after the sqrtVINS fix but before the openVINS one, and
+they carry no covariance. On those recordings openVINS reports $10{,}244$\,m
+of path and a $3374$\,m excursion against MINS's $91.9$\,m and $17.9$\,m
+over the same 415 seconds --- worse than the 21 August figures, which is
+consistent with its own fix not yet existing rather than with anything the
+sqrtVINS patch did.
+
+\textbf{No patch in this campaign has a measured effect.} Both are
+documented, both have a written rationale, both were verified against the
+symptom that motivated them at the time of writing. Neither has a recording
+taken afterwards under comparable conditions.
+
+\begin{trapbox}{A curiosity in the 24 August exports, unresolved}
+\code{testbag\_20260824\_223708} and \code{valide\_20260824\_223810} carry
+different bytes --- their checksums differ and their position columns are
+not equal --- yet they agree to five significant figures on every aggregate
+computed here: $20{,}766$ samples, $415.3$\,s, $91.88$\,m of MINS path,
+$17.887$\,m of extent, and an identical median MINS--openVINS separation of
+$230.055$\,m.
+
+Two independent runs do not do that. The likely explanation is one source
+bag exported twice through slightly different paths, but the exports carry
+no provenance field and nothing in the logbook records the session, so this
+is stated as an open question rather than resolved. Both were treated as a
+single recording in the figures above, which is the conservative choice if
+they are duplicates and a minor loss of sample size if they are not.
+\end{trapbox}
+
+\noindent The remedy is inexpensive and specific: one stationary recording
+and one drive, exported with the covariance columns, on the current build.
+That would date the covariance audit to the software actually running,
+close the before-and-after on both patches, and cost about twenty minutes
+of robot time. It is recorded as item~50.
