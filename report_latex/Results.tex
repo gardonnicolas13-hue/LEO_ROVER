@@ -902,3 +902,122 @@ The magnetometer on the incoming MinIMU-9 v5 is the first candidate the
 project will have had --- which is a further reason to characterise that
 sensor properly rather than treat it as a spare accelerometer.
 \end{trapbox}
+
+\section{A validity test that needs no reference at all}
+\label{sec:plafondphysique}
+
+Every comparison so far has needed something to compare against --- another
+estimator, wheel odometry, a closed loop. There is one test that needs
+nothing: the platform cannot exceed its own maximum speed. The LEO Rover is
+geared to roughly $0.4$\,m/s and has been measured at $0.21$\,m/s in normal
+operation. Any estimator reporting more than that is wrong, and no ground
+truth is required to say so.
+
+The four recordings of 2026-08-21 in \code{data/matlab/} carry all three
+estimators simultaneously, with velocity and full pose covariance --- the
+only set in this campaign that does. Three are short stationary tests, the
+fourth is a seven-minute drive.
+
+\begin{figure}[htbp]
+  \centering
+  \IfFileExists{figures/plafond_physique.png}{%
+    \includegraphics[width=\linewidth]{figures/plafond_physique.png}%
+  }{%
+    \fbox{\parbox{0.9\linewidth}{\centering\vspace{1em}
+    \code{figures/plafond\_physique.png} not generated\vspace{1em}}}%
+  }
+  \caption[Reported speed against the platform's mechanical ceiling]{The
+  three estimators against a constraint none of them can argue with.
+  \textbf{Left:} peak reported speed, logarithmic; the dashed line is the
+  rover's $0.4$\,m/s mechanical ceiling and everything above it is
+  impossible by construction. \textbf{Right:} the fraction of samples above
+  that ceiling. MINS does not appear in the right panel because its bar is
+  zero on all four recordings.}
+  \label{fig:plafond}
+\end{figure}
+
+\subsection{What the three estimators do with an impossible claim}
+
+\begin{center}
+\begin{tabular}{@{}llrr@{}}
+\toprule
+Recording & estimator & peak $|v|$ & \% above ceiling \\
+\midrule
+stationary, 30\,s & MINS & $0.010$ & $0.0\,\%$ \\
+                  & openVINS & $0.032$ & $0.0\,\%$ \\
+                  & sqrtVINS & $1.148$ & $\mathbf{100.0\,\%}$ \\
+\midrule
+stationary, 20\,s & MINS & $0.017$ & $0.0\,\%$ \\
+                  & openVINS & $0.023$ & $0.0\,\%$ \\
+                  & sqrtVINS & $\mathbf{5.779}$ & $\mathbf{100.0\,\%}$ \\
+\midrule
+stationary, 10\,s & MINS & $0.010$ & $0.0\,\%$ \\
+                  & openVINS & $0.030$ & $0.0\,\%$ \\
+                  & sqrtVINS & $1.147$ & $\mathbf{100.0\,\%}$ \\
+\midrule
+driving, 420\,s   & MINS & $0.264$ & $0.0\,\%$ \\
+                  & openVINS & $10.839$ & $47.5\,\%$ \\
+                  & sqrtVINS & $\mathbf{32.835}$ & $47.6\,\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent MINS is inside the envelope on every sample of every recording,
+including a peak of $0.264$\,m/s on the drive that sits sensibly below the
+ceiling. That is a stronger statement than any comparison against another
+estimator, because it cannot be argued with: the platform could not have
+done what the other two describe.
+
+\subsection{Dating the sqrtVINS result, which changes what it means}
+
+Reading the table as a ranking would be wrong, and the dates say why.
+These recordings are from the evening of 2026-08-21. The
+\code{02\_zupt\_guards} patch --- the one that removed the
+\code{!disparity\_passed \&\&} short-circuit, measured at 290 acceptances
+against 0 rejections with $|v| = 1.0\times10^{23}$\,m/s --- is dated
+2026-08-24, three days later.
+
+What Figure~\ref{fig:plafond} shows for sqrtVINS is therefore not its
+current behaviour. It is a measurement of \emph{the defect that patch
+corrected}, taken before the correction existed, and it is worth keeping for
+exactly that reason: the bug report describes a $\chi^2$ gate that never
+rejected, and this is what that looks like from the outside --- a filter
+reporting $5.8$\,m/s on a platform standing still, for one hundred per cent
+of a twenty-second recording.
+
+openVINS is a different matter. It is not covered by that patch, it is
+clean on all three stationary recordings, and it spends $47.5\,\%$ of the
+seven-minute drive above the ceiling. That behaviour is not dated away by
+anything in this campaign.
+
+\subsection{The covariance is not always honest either}
+
+These files also carry each filter's own $3\sigma$ bounds, which allows a
+question asked nowhere else in this report: does the uncertainty an
+estimator reports actually contain its error?
+
+On the 20-second stationary recording, sqrtVINS ends $0.151$\,m from where
+it started while reporting a final $3\sigma$ of $0.063$\,m. The error
+exceeds by a factor of $2.4$ the interval the filter claims contains the
+truth with $99.7\,\%$ probability. That is overconfidence, and it is more
+dangerous than a large error honestly declared: a consumer weighting this
+pose by its stated covariance would trust it far more than it deserves.
+
+The other two err the opposite way on the same recordings. MINS reports
+$3\sigma$ between $1.1$ and $1.4$\,m for closure errors of $3$ to $8$\,mm
+--- conservative by two orders of magnitude --- and openVINS reports
+$0.26$\,m for millimetre closures. Neither is well calibrated; but a filter
+that overstates its uncertainty degrades gracefully, while one that
+understates it invites exactly the trust it cannot support.
+
+\begin{trapbox}{Why the ceiling test deserves to be automated}
+\code{pose\_selector} already computes this quantity: its
+\code{max\_plausible\_speed} guard exists to freeze the output when a source
+claims impossible motion, and \S\ref{sec:gardemesuree} measured it
+suppressing a 4\,km divergence. What the present section adds is that the
+same threshold is a \emph{diagnostic}, not only a filter. The fraction of
+samples above the ceiling is computable offline from any recording, needs
+no reference trajectory, and separates the three estimators cleanly here.
+It costs nothing to log and would have flagged the sqrtVINS defect on the
+first recording rather than three days later.
+\end{trapbox}
