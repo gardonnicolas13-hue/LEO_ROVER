@@ -9068,6 +9068,184 @@ per sample --- so that each sample is collected within a few milliseconds
 of becoming available. Polling below the ODR, at the $100$\,Hz the driver
 first used, would have fallen behind by about four samples per second.
 
+\section{The two calibration inputs the filter cannot check}
+\label{sec:calibinputs}
+
+An estimator validates its \emph{measurements} continuously --- that is what
+the $\chi^2$ gate is for. It never validates its \emph{calibration}. The
+noise densities and the camera--IMU transform are read once at startup and
+trusted for the rest of the run, so an error in either propagates into every
+subsequent update with nothing to signal it. Both are quoted throughout this
+report; neither has so far been derived. This section does that, because in
+both cases the failure mode is a silent sign or unit error rather than
+anything the software would notice.
+
+\subsection{Inverting Kalibr's extrinsic, and why transposition is not enough}
+\label{sec:seinv}
+
+Kalibr reports \code{T\_cam\_imu}: the transform that takes a point
+\emph{expressed in the IMU frame} and re-expresses it in the camera frame.
+MINS's \code{config\_camera.yaml} wants the opposite convention,
+\code{T\_imu\_cam}. The two are related by an SE(3) inverse, and the
+temptation --- transposing the rotation and negating the translation
+independently --- is wrong.
+
+Write the Kalibr output in homogeneous form:
+\begin{equation}
+\mathbf{T}_{CI} =
+\begin{bmatrix} \mathbf{R}_{CI} & \mathbf{p}_{CI} \\[2pt]
+                \mathbf{0}^{\top} & 1 \end{bmatrix},
+\qquad
+\mathbf{p}_C = \mathbf{R}_{CI}\,\mathbf{p}_I + \mathbf{p}_{CI}.
+\label{eq:tci}
+\end{equation}
+Solving Eq.~(\ref{eq:tci}) for $\mathbf{p}_I$ gives
+$\mathbf{p}_I = \mathbf{R}_{CI}^{\top}\mathbf{p}_C -
+\mathbf{R}_{CI}^{\top}\mathbf{p}_{CI}$, so
+\begin{equation}
+\boxed{\;
+\mathbf{T}_{IC} = \mathbf{T}_{CI}^{-1} =
+\begin{bmatrix} \mathbf{R}_{CI}^{\top} & -\,\mathbf{R}_{CI}^{\top}\mathbf{p}_{CI} \\[2pt]
+                \mathbf{0}^{\top} & 1 \end{bmatrix}. \;}
+\label{eq:seinv}
+\end{equation}
+
+The translation block is $-\mathbf{R}^{\top}\mathbf{p}$, \textbf{not}
+$-\mathbf{p}$. The rotation must act on the translation before the sign is
+applied, and skipping that step leaves an error whose magnitude is the full
+lever arm whenever the two frames are not aligned. On this platform the
+camera--IMU rotation is close to a $90^\circ$ composition
+(\S\ref{sec:extrinsic}), so the naive form would misplace the camera by
+essentially the whole $\lVert\mathbf{p}\rVert \approx 0.18$\,m --- an error
+Eq.~(\ref{eq:reproj}) converts into ${\approx}30$\,px of reprojection at
+2\,m, well past the gate.
+
+\begin{center}
+\begin{tikzpicture}[font=\small, >={Latex[length=2mm]},
+  repere/.style={draw, rounded corners=2pt, minimum width=17mm,
+                 minimum height=8mm, font=\scriptsize, fill=blue!8},
+  fleche/.style={->, thick, draw=black!65}
+]
+  \node[repere] (i) at (0,0)   {IMU $\{I\}$};
+  \node[repere] (c) at (4.2,0) {camera $\{C\}$};
+  \draw[fleche] (i) to[bend left=32]
+    node[midway, above, font=\scriptsize] {$\mathbf{T}_{CI}$ \;(Kalibr)} (c);
+  \draw[fleche, draw=green!45!black] (c) to[bend left=32]
+    node[midway, below, font=\scriptsize, text=green!35!black]
+    {$\mathbf{T}_{IC} = \mathbf{T}_{CI}^{-1}$ \;(MINS)} (i);
+  \node[font=\scriptsize, align=left, anchor=west] at (5.6,0)
+    {$\mathbf{R} \mapsto \mathbf{R}^{\top}$\\
+     $\mathbf{p} \mapsto -\mathbf{R}^{\top}\mathbf{p}$\\[2pt]
+     \textcolor{alertred!80}{not $-\mathbf{p}$}};
+\end{tikzpicture}
+\end{center}
+
+\noindent \code{fill\_mins\_camchain.py} applies Eq.~(\ref{eq:seinv}) and
+also copies the estimated time offset, which Kalibr reports in the same
+file and which is easy to leave behind. The rotation is the part that
+cannot be recovered later: Eq.~(\ref{eq:nulldir}) showed the translation is
+observable under rotation, but a $90^\circ$ seeding error in
+$\mathbf{R}_{IC}$ sits outside any region the filter can walk back from ---
+which is exactly the vertical divergence recorded on 2026-07-04.
+
+\subsection{Where the noise densities come from, and the unit trap in them}
+\label{sec:allan}
+
+The four numbers in \code{config\_imu.yaml} are not datasheet values. They
+were measured on this unit by Allan-variance analysis of a long stationary
+recording, and their derivation matters because two of the four are
+routinely quoted in the wrong units.
+
+For a signal sampled at $f_s$, form averages over bins of duration $\tau$
+and compute the Allan variance
+\begin{equation}
+\sigma^2(\tau) = \frac{1}{2\,(K-1)}\sum_{k=1}^{K-1}
+  \bigl(\bar{y}_{k+1} - \bar{y}_k\bigr)^2 ,
+\label{eq:allan}
+\end{equation}
+where $\bar{y}_k$ is the mean of the $k$-th bin. Plotted against $\tau$ on
+log--log axes, an inertial sensor shows two asymptotes that correspond to
+the two noise processes the filter models:
+\begin{equation}
+\sigma(\tau) \;\simeq\; \underbrace{\frac{N}{\sqrt{\tau}}}_{\text{white noise}}
+  \;\oplus\; \underbrace{B\sqrt{\frac{\tau}{3}}}_{\text{bias random walk}} ,
+\label{eq:allanslopes}
+\end{equation}
+a $-1/2$ slope at short averaging times and a $+1/2$ slope at long ones,
+with a minimum between them. The white-noise density $N$ is read at
+$\tau = 1$\,s on the descending branch; the random-walk coefficient $B$ is
+read from the ascending branch at $\tau = 3$\,s, where the $\sqrt{\tau/3}$
+form makes the value the ordinate directly.
+
+\begin{center}
+\begin{tikzpicture}[font=\small, scale=1.0]
+  \draw[->, thick] (0,0) -- (7.4,0) node[right, font=\scriptsize] {$\log \tau$};
+  \draw[->, thick] (0,0) -- (0,3.5) node[above, font=\scriptsize] {$\log \sigma(\tau)$};
+
+  % white-noise branch, slope -1/2
+  \draw[thick, blue!65, dashed] (0.5,3.1) -- (3.6,1.05)
+    node[pos=0.25, above right, font=\scriptsize, text=blue!65]
+    {slope $-1/2$: white noise $N$};
+  % random-walk branch, slope +1/2
+  \draw[thick, orange!80!black, dashed] (3.6,1.05) -- (6.9,3.0)
+    node[pos=0.72, below right, font=\scriptsize, text=orange!70!black]
+    {slope $+1/2$: bias random walk $B$};
+  % measured curve
+  \draw[very thick, black!75]
+    (0.5,3.15) .. controls (2.0,1.9) and (2.9,1.15) .. (3.6,1.12)
+               .. controls (4.4,1.12) and (5.6,2.2) .. (6.9,3.05);
+
+  % read-off points
+  \draw[dotted, gray] (1.6,0) -- (1.6,2.28);
+  \node[font=\scriptsize, below] at (1.6,0) {$\tau=1$\,s};
+  \fill[blue!65] (1.6,2.28) circle (1.7pt);
+  \draw[dotted, gray] (5.3,0) -- (5.3,1.98);
+  \node[font=\scriptsize, below] at (5.3,0) {$\tau=3$\,s};
+  \fill[orange!80!black] (5.3,1.98) circle (1.7pt);
+  \node[font=\scriptsize, below] at (3.6,0) {minimum};
+\end{tikzpicture}
+\end{center}
+
+\begin{trapbox}{Continuous density against per-sample deviation}
+The recurring error is not in Eq.~(\ref{eq:allan}) but in the units that
+come out of it. A gyroscope white-noise density $N$ carries
+$\text{rad}/\text{s}/\sqrt{\text{Hz}}$, i.e.\ $\text{rad}/\sqrt{\text{s}}$;
+the per-sample standard deviation an implementer might measure directly is
+$\sigma_{\text{sample}} = N\sqrt{f_s}$. At this platform's ${\approx}86$\,Hz
+the two differ by $\sqrt{86} \approx 9.3$, close to an order of magnitude.
+Substituting one for the other does not make the filter fail: it makes it
+quietly over- or under-confident, which is far harder to notice than a
+crash. The values below are continuous densities, as MINS expects.
+\end{trapbox}
+
+\noindent Measured on this unit and installed in \code{config\_imu.yaml}:
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Symbol & Parameter & Value & Unit \\
+\midrule
+$N_g$ & \code{gyro\_noise}  & $1.2637\times10^{-3}$ & rad/s/$\sqrt{\text{Hz}}$ \\
+$B_g$ & \code{gyro\_bias}   & $3.3010\times10^{-5}$ & rad/s$^2$/$\sqrt{\text{Hz}}$ \\
+$N_a$ & \code{accel\_noise} & $2.3315\times10^{-2}$ & m/s$^2$/$\sqrt{\text{Hz}}$ \\
+$B_a$ & \code{accel\_bias}  & $8.9292\times10^{-4}$ & m/s$^3$/$\sqrt{\text{Hz}}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Two remarks close the loop with the rest of this chapter. First,
+these densities describe the \emph{CORE2} unit; the MinIMU-9 v5 that will
+replace it (\S\ref{sec:openitems}) must be re-characterized before its
+numbers are trusted, and inheriting these would be exactly the datasheet
+fallacy this project has avoided elsewhere. Second, no Allan-variance figure
+protects against a \emph{scale} error: the campaign's accelerometer read
+$8.67$\,m/s$^2$ against a local gravity of $9.790$
+(\S\ref{sec:july28accel}), an $11.4\,\%$ deficit (equivalently, the $1.129$ scale factor
+applied by \code{imu\_sanitizer}) that is perfectly consistent
+sample to sample and therefore invisible to Eq.~(\ref{eq:allan}). Noise
+characterization and scale calibration answer different questions, and
+passing one does not excuse the other.
+
 \section{Open items registry}
 \label{sec:openitems}
 \small
