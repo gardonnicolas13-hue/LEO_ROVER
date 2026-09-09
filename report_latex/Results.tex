@@ -628,3 +628,151 @@ stationary --- and does not support a ranking. The controlled comparison of
 \S\ref{sec:estimator-comparison}, one recording replayed through both, is
 the only ranking evidence in this report.
 \end{trapbox}
+
+\section{The plausibility guard, measured against an independent reference}
+\label{sec:gardemesuree}
+
+\code{pose\_selector} carries a guard that freezes its output when the active
+source jumps implausibly, and re-anchors when the source calms down. It was
+written in July on the reasoning that no physically impossible jump should
+reach the map, the trace or the return-to-base. Whether it \emph{works} had
+never been quantified: the guard fires silently by design, and the fused
+topic looks the same whether it is passing a healthy source through or
+suppressing a catastrophic one.
+
+Recording \code{zuptclean\_20260820\_162020} settles it, because it contains
+the exact adversarial case. At $t = 97.94$\,s the operator switched the
+served source to openVINS --- and on this run openVINS was diverging.
+
+\begin{figure}[htbp]
+  \centering
+  \IfFileExists{figures/garde_vraisemblance.png}{%
+    \includegraphics[width=\linewidth]{figures/garde_vraisemblance.png}%
+  }{%
+    \fbox{\parbox{0.9\linewidth}{\centering\vspace{1em}
+    \code{figures/garde\_vraisemblance.png} not generated\vspace{1em}}}%
+  }
+  \caption[The plausibility guard suppressing a diverging source]{The guard
+  under adversarial conditions, on a 600-second recording. \textbf{Left:}
+  cumulative path travelled by each series, logarithmic. The dashed line
+  marks the instant the operator selects openVINS as the served source; the
+  shaded region is the interval during which a diverging estimator is the
+  \emph{selected} one. The blue curve is what was asked for, the black curve
+  is what was served, and the vertical gap between them is the guard's
+  entire contribution. \textbf{Right:} path accumulated after the switch
+  only. The served pose travels $8.8$\,m while the source it nominally
+  follows travels $4019$\,m --- a suppression to $0.22\,\%$. Wheel odometry,
+  independent of both estimators, gives $15.1$\,m as the reference.}
+  \label{fig:garde-mesuree}
+\end{figure}
+
+\subsection{What the numbers establish}
+
+Over the interval where openVINS was the selected source:
+
+\begin{center}
+\begin{tabular}{@{}lrl@{}}
+\toprule
+Series & path after switch & role \\
+\midrule
+wheel odometry      & $15.1$\,m   & independent reference \\
+MINS                & $22.5$\,m   & running, not selected \\
+openVINS            & $4019.5$\,m & \textbf{selected source} \\
+pose served         & $8.8$\,m    & what reached the map \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The operator selected a broken estimator and the map stayed
+sane. Four kilometres of accumulated nonsense produced under nine metres of
+served motion, against a true fifteen. Expressed as a ratio the guard
+suppressed $99.78\,\%$ of its own source's path, and it did so without any
+supervisory signal telling it that openVINS had failed --- the decision is
+taken from the pose stream alone, one sample at a time.
+
+\subsection{The cost, which the same numbers make visible}
+
+The served path of $8.8$\,m sits \emph{below} the wheel reference of
+$15.1$\,m, and that shortfall is not noise. It is the guard's price, and it
+follows directly from what freezing means: while the output is held, the
+robot's real motion is not tracked. Roughly six metres of genuine
+displacement were lost in that recording --- served as stillness rather than
+as motion.
+
+This is the correct trade for the purpose the guard was written for. A
+frozen pose is wrong by a bounded amount that shrinks the moment the source
+recovers; a passed-through divergence is wrong without bound and pollutes
+the trace, the logged trajectory and any return-to-base computed from it.
+But the trade must be stated, because a reader comparing the served path
+against ground truth would otherwise read the $6$\,m deficit as an
+estimation error rather than as the guard doing precisely its job.
+
+\begin{trapbox}{Two things this recording does not show}
+\textbf{It does not rank the estimators.} openVINS diverged here for
+reasons documented in \S\ref{sec:accelexpire} and since corrected; a
+recording from before a fix is evidence about the guard, not about the
+estimator's present quality.
+
+\textbf{It does not validate the guard's thresholds.} What is measured is
+that the guard fires and suppresses on \emph{this} magnitude of divergence
+--- four kilometres against a $0.21$\,m/s platform, which is not a subtle
+case. A divergence slow enough to stay under
+\code{max\_plausible\_speed} would pass through untouched, and nothing in
+this recording says how slow that is. The guard is demonstrated against a
+gross failure; its behaviour near its own threshold remains uncharacterised.
+\end{trapbox}
+
+\subsection{The stationarity detector, validated in the direction that matters}
+\label{sec:zuptvalid}
+
+The same recording carries \code{/imu\_sanitizer/is\_stationary}, the boolean
+that gates zero-velocity updates. It is a safety-critical signal in one
+direction only, and the asymmetry is worth naming before any number is
+quoted. Declaring the platform stationary when it is moving injects a false
+zero-velocity constraint into a filter that has no way to contradict it ---
+the error is asserted, not merely missed. Declaring motion when the platform
+is still merely forgoes a ZUPT opportunity: the filter loses information it
+could have had, but is told nothing false.
+
+A single detector accuracy figure therefore hides the only question that
+matters. Scored against wheel odometry over the same recording, weighting by
+time rather than by transition count so that brief flickers do not dominate:
+
+\begin{center}
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+Detector says & wheels say & time & consequence \\
+\midrule
+stationary & stationary & $345.5$\,s  ($60.2\,\%$) & correct \\
+moving     & moving     & $127.3$\,s  ($22.2\,\%$) & correct \\
+stationary & \textbf{moving} & $\mathbf{0.0}$\,\textbf{s}  ($0.0\,\%$) & \textbf{false ZUPT} \\
+moving     & stationary & $101.0$\,s  ($17.6\,\%$) & ZUPT opportunity lost \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Overall temporal agreement is $82.4\,\%$, which taken alone would
+read as mediocre. The decomposition says something quite different: the
+$17.6\,\%$ disagreement lies \emph{entirely} in the benign direction, and
+the dangerous cell is empty. Over $574$\,s of classified time the detector
+never once asserted stationarity while the wheels were turning.
+
+Of the $447$\,s during which the platform was genuinely still, the detector
+recognised $77.4\,\%$ and missed $22.6\,\%$. That is the cost of its
+conservatism, and it is the right side to err on: a missed ZUPT leaves the
+filter no worse than a filter without ZUPT at all, whereas a false ZUPT is
+an actively wrong measurement. The zero in the third row is the result;
+the $82.4\,\%$ is not.
+
+\begin{trapbox}{Scope of this validation}
+One recording, one motion profile, one lighting condition. The detector's
+thresholds were not exercised near their boundaries: this run alternates
+between clear stops and clear driving at up to $0.21$\,m/s, so the
+interesting regime --- creeping motion just above the detector's own
+threshold --- is absent from the data entirely. What is established is that
+the detector has no gross false-positive failure mode on ordinary
+stop-and-go operation, not that it is correct near its decision boundary.
+The $26$\,s excluded from the table are intervals where the wheel window
+held too few samples to classify, and are reported here rather than
+silently dropped.
+\end{trapbox}
