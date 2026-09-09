@@ -782,30 +782,21 @@ held too few samples to classify, and are reported here rather than
 silently dropped.
 \end{trapbox}
 
-\subsection{Cumulative path is not comparable across sampling rates}
+\subsection{The sampling-rate inflation, measured}
 \label{sec:cadencetrap}
 
 The table above lists MINS at $22.5$\,m where the wheels give $15.1$\,m, and
-that juxtaposition invites a conclusion it does not support. Cumulative path
-integrates every increment between consecutive samples, including the ones
-produced by noise rather than by motion. For a series of $N$ samples carrying
-independent per-sample position noise of scale $\sigma$, the expected
-spurious contribution to path length grows as
-\begin{equation}
-\mathbb{E}\bigl[\ell_{\text{noise}}\bigr] \;\propto\; N\sigma ,
-\label{eq:pathnoise}
-\end{equation}
-linearly in the sample count. Two series describing the \emph{same}
-trajectory at different rates therefore report different path lengths, and
-the faster one reports more.
+that juxtaposition invites a conclusion it does not support.
+\S\ref{sec:july29extent} derives why: cumulative path length sums $n$
+increments, each collecting its own independent noise, and the resulting
+inflation is \emph{quadratic in the sampling rate}. Two series describing the
+same trajectory at different rates are therefore not comparable as path
+lengths at all --- and MINS publishes at ${\approx}86$\,Hz against
+${\approx}20$\,Hz for \code{/firmware/wheel\_odom}, a ratio of $4.3$.
 
-That is exactly the situation here: MINS publishes at ${\approx}86$\,Hz and
-\code{/firmware/wheel\_odom} at ${\approx}20$\,Hz, a ratio of $4.3$. The
-comparison is not between two estimates of a distance; it is between a
-distance measured with $4.3$ times more opportunities to accumulate noise.
-
-The test is direct --- decimate MINS to the wheel rate and recompute.
-Across six recordings in which both series are healthy:
+That derivation has not, until now, been checked against data. The test is
+direct: decimate MINS to the wheel rate and recompute. Across six recordings
+in which both series are healthy:
 
 \begin{center}
 \begin{tabular}{@{}lrrr@{}}
@@ -824,26 +815,26 @@ Recording & wheels & MINS at 86\,Hz & MINS at 20\,Hz \\
 \end{tabular}
 \end{center}
 
-\noindent At matched rates the median ratio is $0.98$: MINS and wheel
-odometry agree on distance travelled to within about two per cent, across
-six independent recordings. The apparent seven-per-cent excess at full rate
---- and the larger figures visible in individual runs --- is an artefact of
-Eq.~(\ref{eq:pathnoise}), not an estimation error.
+\noindent Decimation moves the median ratio from $1.07$ to $0.98$. At
+matched rates MINS and wheel odometry agree on distance travelled to within
+about two per cent, across six independent recordings --- and since the two
+references are physically unrelated, one inertial-visual and one from wheel
+encoders, that agreement says something neither could say alone. The
+apparent excess at full rate is the predicted artefact, now observed.
 
 \begin{trapbox}{What this does and does not license}
 It licenses the statement that MINS's \emph{scale} is sound: over twenty
 metres of driving it neither stretches nor shrinks the path appreciably
-against an independent odometric reference. Since the two references are
-physically unrelated --- one inertial-visual, one from wheel encoders --- an
-agreement to two per cent is meaningful in a way that either alone is not.
+against an independent odometric reference.
 
 It does not license a claim about \emph{accuracy}. Two trajectories can have
 identical lengths and diverge steadily in position; path length is blind to
 heading error, which is precisely the channel this platform is weakest in
-(\S\ref{sec:wheelyaw}). Nor is the wheel reference itself exact: the
-effective radius carries a calibrated $r_{\mathrm{eff}} = 62.2$\,mm against
-a stock $62.5$\,mm, and mecanum rollers scrub. The two per cent should be
-read as ``no gross scale error detected'', not as a measured accuracy.
+(\S\ref{sec:wheelyaw}) and which \S\ref{sec:capdesaccord} takes up next. Nor
+is the wheel reference itself exact: the effective radius carries a
+calibrated $r_{\mathrm{eff}} = 62.2$\,mm against a stock $62.5$\,mm, and
+mecanum rollers scrub. The two per cent should be read as ``no gross scale
+error detected'', not as a measured accuracy.
 \end{trapbox}
 
 \subsection{Heading: two references that disagree, and neither is truth}
