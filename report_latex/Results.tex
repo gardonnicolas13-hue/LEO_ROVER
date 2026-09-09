@@ -517,3 +517,114 @@ initialisation holds a perfectly steady --- and perfectly wrong --- position,
 and exactly that failure was observed on 2026-09-08 with $z$ locked
 327~m below ground while $x$ and $y$ looked healthy. Boundedness is a
 necessary condition here, never a sufficient one.
+
+\section{Divergence across the whole recording set}
+\label{sec:divsurvey}
+
+Section~\ref{sec:estimator-comparison} compared the two estimators on one
+recording. That is the only admissible way to claim one is better than the
+other on a given run, but it says nothing about how \emph{often} either
+fails. This section asks the second question against every paired recording
+the campaign kept, and the answer is less flattering to both than the single
+comparison suggests.
+
+\subsection{An independent reference, and why the obvious metric is wrong}
+
+Final distance from the origin is the tempting score and it is misleading
+here. Three openVINS runs finish at $0.00$\,m, which reads as perfect
+tracking; inspection shows two of them never left a $6$\,cm ball for the
+whole recording, and a third excursioned $249$\,m before returning to the
+start by coincidence. A stuck estimator and an accurate one are
+indistinguishable by that number.
+
+The bags carry \code{/firmware/wheel\_odom}, integrated from the encoders and
+independent of both filters. Wheel odometry drifts --- that is why it is not
+ground truth for accuracy --- but the question asked of it here is far
+weaker and entirely within its competence: \emph{did the robot move, and
+roughly how far}. Two recordings were discarded outright because the wheel
+channel itself was corrupt, reporting path lengths of order
+$10^{25}$\,m; \code{test2\_20260728\_142421} and
+\code{test2\_20260805\_165507} are excluded on that basis, not on their
+estimator behaviour. Fourteen paired recordings remain, ten with the robot
+driving and four with it stationary.
+
+\begin{figure}[htbp]
+  \centering
+  \IfFileExists{figures/divergence_par_essai.png}{%
+    \includegraphics[width=\linewidth]{figures/divergence_par_essai.png}%
+  }{%
+    \fbox{\parbox{0.9\linewidth}{\centering\vspace{1em}
+    \code{figures/divergence\_par\_essai.png} not generated
+    \vspace{1em}}}%
+  }
+  \caption[Divergence across every paired recording]{Every paired recording
+  in the campaign, classified by whether the wheels say the robot moved.
+  \textbf{Left:} the four stationary runs. With a wheel path below 1\,m,
+  \emph{any} estimated displacement is pure error, which makes these the
+  cleanest test available. Each estimator produces exactly one catastrophic
+  failure --- and not on the same run. \textbf{Right:} the ten driving runs,
+  maximum excursion against distance actually travelled. The dotted line
+  marks excursion equal to wheel path; a bounded estimator sits near or
+  below it, since a closed indoor loop returns towards its start. MINS
+  clusters there. openVINS sits two to four orders of magnitude above it on
+  six of ten runs.}
+  \label{fig:divergence-survey}
+\end{figure}
+
+\subsection{What the stationary runs show}
+
+The left panel of Figure~\ref{fig:divergence-survey} is the result worth
+keeping, because it needs no reference trajectory at all: the robot did not
+move, so the correct answer is zero and every metre displayed is error.
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Recording & wheel path & MINS & openVINS \\
+\midrule
+\code{test1\_20260805\_182105} & $0.00$\,m & $0.04$\,m & $0.01$\,m \\
+\code{test1\_20260805\_190028} & $0.05$\,m & $0.13$\,m & $0.06$\,m \\
+\code{test2\_20260805\_164257} & $0.42$\,m & $0.41$\,m & $\mathbf{149.00}$\,m \\
+\code{test2\_20260805\_183528} & $0.00$\,m & $\mathbf{7312.21}$\,m & $0.00$\,m \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Two runs are clean for both filters, at centimetre level. The
+other two each contain one catastrophic failure, and they are different
+runs: openVINS reports 149\,m of travel on a robot that moved 42\,cm, and
+MINS reports \textbf{7.3\,km on a robot that did not move at all}.
+
+That last figure is the sharpest evidence in this report for the
+spontaneous-divergence item of \S\ref{sec:openitems}. It cannot be
+attributed to bad odometry, to feature starvation during motion, or to an
+aggressive manoeuvre, because there was no motion: the wheels recorded zero
+path and zero peak velocity for the entire recording. Whatever fails,
+fails with the platform standing still --- which is exactly what makes it
+hard to reproduce deliberately and exactly why it is still open.
+
+\subsection{What the driving runs show, and what they do not}
+
+The right panel plots maximum excursion against wheel path. The dotted
+diagonal is a useful reference rather than a bound: these are closed indoor
+loops, so a sound estimator should end near where it started and its
+excursion should not greatly exceed the distance travelled. MINS sits on or
+below that line in nine of ten runs, with a single outlier at $230$\,m.
+openVINS exceeds it by two to four orders of magnitude in six of ten,
+reaching $2.3\times10^{4}$\,m.
+
+\begin{trapbox}{What this survey is not}
+It is not a controlled comparison. The fourteen recordings span 28 July to
+20 August, and the configuration changed materially across that window ---
+the ZUPT correction, the accelerometer scale, the wheel remapping and the
+$\chi^2$ settings all moved. Several openVINS failures here are the ZUPT
+verrou of \S\ref{sec:accelexpire}, since fixed. Nor is the sample
+unbiased: these are the recordings that were kept, and a run abandoned
+mid-way because something looked wrong is absent by construction.
+
+The survey therefore supports a claim about \emph{failure modes} --- both
+estimators possess an unbounded one, and it can fire with the robot
+stationary --- and does not support a ranking. The controlled comparison of
+\S\ref{sec:estimator-comparison}, one recording replayed through both, is
+the only ranking evidence in this report.
+\end{trapbox}
