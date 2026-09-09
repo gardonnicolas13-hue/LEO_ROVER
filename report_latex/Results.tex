@@ -1586,3 +1586,83 @@ and one drive, exported with the covariance columns, on the current build.
 That would date the covariance audit to the software actually running,
 close the before-and-after on both patches, and cost about twenty minutes
 of robot time. It is recorded as item~50.
+
+\subsection{A recording taken on the current build}
+\label{sec:mesureactuelle}
+
+Section~\ref{sec:datationpreuves} closed by noting that no estimator
+recording exists after either divergence patch, and that the remedy costs
+about twenty minutes. That recording was made on 2026-09-09: 242 seconds,
+$20{,}597$ MINS samples with both covariance blocks, wheel velocity
+confirmed at $0.000$\,m/s throughout, on the software actually running
+today.
+
+It closes half of item~50 and explains why the other half stayed open.
+
+\subsection{MINS, then and now}
+
+Applying the identical procedure --- same NEES definition, same
+$\chi^2(3)$ reference, same first-tenth discard:
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+State block & $k$ on 2026-08-21 & $k$ on 2026-09-09 & change \\
+\midrule
+position          & $0.011$ & $\mathbf{0.158}$ & $14\times$ closer \\
+linear velocity   & $0.131$ & $0.173$ & unchanged \\
+angular velocity  & $1.260$ & $\mathbf{1.195}$ & unchanged, still calibrated \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Two results, of different kinds.
+
+\textbf{The angular block is calibrated on today's build.} $k = 1.195$
+against $1.260$ three weeks ago. The single well-calibrated covariance
+found in this report is not an artefact of one evening's recording; it
+survives every change made since, and it can be relied on.
+
+\textbf{The position block improved by a factor of fourteen} --- from a
+$\sigma$ inflated ninety-fold to one inflated six-fold. The reported
+$3\sigma$ fell from $1.13$--$1.30$\,m to $0.534$\,m, while the pose itself
+did not change materially: position extent over the recording was
+$44.5$\,mm, inside the $4$--$46$\,mm range of the August runs. The estimate
+is as good as it was; the uncertainty attached to it is much less wrong.
+
+\begin{trapbox}{A plausible cause, and why it is not asserted}
+The obvious candidate is the extrinsic freeze of 2026-09-07
+(\S\ref{sec:extunobs}). Setting \code{do\_calib\_ext: false} removes the
+camera--IMU extrinsic from the estimated state; its uncertainty no longer
+enters the filter, and no longer propagates into the position block through
+the cross-covariances. A large drop in reported position variance is
+exactly what that change should produce, and the direction and rough
+magnitude match.
+
+It is not established. Several things changed between the two recordings,
+the two sessions differ in every uncontrolled respect, and a single pair of
+measurements cannot separate one cause from the others. The clean test is
+available and cheap --- revert \code{do\_calib\_ext} for one stationary
+recording, re-run this procedure, and compare --- and it is the natural
+companion to the wheel-updater experiment already proposed in
+\S\ref{sec:neesangulaire}. Both are recorded as experiments to run, not as
+conclusions reached.
+\end{trapbox}
+
+\subsection{Why the two VIO filters recorded nothing}
+
+The same recording captured zero samples from openVINS and zero from
+sqrtVINS, on a session where both processes were running and their topics
+were advertised. That is not a failure of the recording: neither filter
+initialises on a stationary platform. Both wait for excitation before
+declaring a state, so a stationary run --- the very condition that makes
+the NEES truth exact --- is also the condition under which they publish
+nothing at all.
+
+This is a genuine methodological obstacle rather than an oversight, and it
+sharpens item~50 rather than closing it. Dating the VIO covariance audit
+needs a recording that begins with enough motion to initialise both filters
+and then holds still long enough for the stationary test, in that order,
+without an intervening restart. That is a different and more demanding
+manoeuvre than the one performed here, and it is the reason the openVINS and
+sqrtVINS figures in this chapter remain dated 2026-08-21.
