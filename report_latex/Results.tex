@@ -845,3 +845,69 @@ effective radius carries a calibrated $r_{\mathrm{eff}} = 62.2$\,mm against
 a stock $62.5$\,mm, and mecanum rollers scrub. The two per cent should be
 read as ``no gross scale error detected'', not as a measured accuracy.
 \end{trapbox}
+
+\subsection{Heading: two references that disagree, and neither is truth}
+\label{sec:capdesaccord}
+
+The previous subsection established that MINS's path \emph{length} agrees
+with wheel odometry to two per cent, and closed by noting that length is
+blind to heading. This one looks at heading directly, and the result is
+less comfortable.
+
+Unwrapping both yaw signals from a common origin and comparing accumulated
+rotation at the end of each recording:
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Recording & $|{\rm rot}|$ wheels & duration & disagreement & per rotation \\
+\midrule
+\code{test1\_20260728\_133541}  & $758^\circ$  & $928$\,s & $22.0^\circ$ & $2.90\,\%$ \\
+\code{test1\_20260729\_145637}  & $535^\circ$  & $129$\,s & $15.9^\circ$ & $2.98\,\%$ \\
+\code{test1\_20260805\_184025}  & $511^\circ$  & $163$\,s & $42.6^\circ$ & $8.34\,\%$ \\
+\code{test1\_20260805\_191300}  & $600^\circ$  & $213$\,s & $44.0^\circ$ & $7.32\,\%$ \\
+\code{test2\_20260729\_145417}  & $509^\circ$  & $137$\,s & $22.8^\circ$ & $4.48\,\%$ \\
+\code{zuptclean\_20260820\_162020} & $2052^\circ$ & $600$\,s & $92.7^\circ$ & $4.52\,\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Two things are solid. The disagreement is \textbf{systematically
+one-signed} --- MINS reports more accumulated rotation than the wheels in
+all six recordings, never less --- and it is \textbf{large}: a median
+$4.5\,\%$ of cumulative rotation, or equivalently ${\approx}10^\circ$ per
+minute of operation. On runs that amount to roughly one full turn, the two
+references end tens of degrees apart.
+
+\paragraph{The discrimination fails, and that is the finding.}
+The obvious next question is whether this is a \emph{scale} error, which
+would scale with rotation, or a \emph{drift}, which would scale with time.
+Normalising by each and comparing dispersion:
+\begin{equation}
+\mathrm{CV}\bigl(\text{per rotation}\bigr) = 0.41,
+\qquad
+\mathrm{CV}\bigl(\text{per unit time}\bigr) = 0.47 .
+\end{equation}
+The rotation hypothesis is marginally more stable, and the margin is far too
+thin to conclude from. Both normalisations leave a spread of nearly a factor
+of three ($2.90\,\%$ to $8.34\,\%$; $1.4$ to $15.7^\circ$/min). No single
+mechanism explains these six recordings. The likely reading is that both
+contribute and that configuration heterogeneity across the campaign
+dominates either --- but that is a hypothesis, and it is recorded here as
+one.
+
+\begin{trapbox}{Why this cannot be resolved with the sensors on the rover}
+It is tempting to declare the wheels right and MINS wrong, or the reverse.
+Neither is available. The wheel heading applies a $1.76$ scrub
+compensation calibrated for rubber tyres to mecanum rollers that do not
+scrub (\S\ref{sec:wheelyaw}) --- the report's own analysis says that number
+is wrong for this hardware. MINS's heading is the channel this campaign has
+repeatedly identified as its weakest. The comparison therefore places a
+bound on their \emph{mutual} consistency and cannot attribute the error.
+
+What it does establish is a requirement: closing this question needs a
+heading reference independent of both, and the platform does not carry one.
+The magnetometer on the incoming MinIMU-9 v5 is the first candidate the
+project will have had --- which is a further reason to characterise that
+sensor properly rather than treat it as a spare accelerometer.
+\end{trapbox}
