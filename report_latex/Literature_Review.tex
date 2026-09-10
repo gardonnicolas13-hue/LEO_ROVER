@@ -81,3 +81,99 @@ NASA-STD-8719.13C (Software Safety Standard) introduces the concept of software 
 \section{Synthesis: Positioning of the Present Work}
 
 The LEO Rover Mission Control system occupies a distinctive position in the robotic systems landscape: it is neither a pure research prototype (it achieves production-quality reliability through systematic engineering) nor a commercial product (it is purpose-built for a specific research platform and laboratory environment). It draws from: (1)~the computer vision literature on LED detection and checkerboard localization; (2)~the ROS community's rosbridge ecosystem for WebSocket bridging; (3)~the human factors literature on situational awareness design; (4)~the safety-critical systems engineering literature on deadman switches and fail-safe architectures. Its primary contribution is the full-stack integration of these elements into a cohesive, deployment-validated system, with the architectural innovations of the multiprocess vision pipeline and the density-based LED clustering algorithm representing original engineering solutions to novel failure modes not documented in prior literature.
+
+\section{Visual-Inertial State Estimation: Related Work}
+\label{sec:sotavio}
+
+The preceding sections survey the literature the project began from:
+fiducial detection, web-based HMI, and safety architecture. They do not
+cover state estimation, and by the time the work concluded that had become
+its principal subject. This section supplies the missing lineage, and states
+where the present work sits relative to it.
+
+\subsection{From the Kalman filter to visual-inertial odometry}
+
+The recursive least-squares estimator of Kalman~\cite{kalman1960new}
+establishes the framework every system discussed here inherits: a state
+propagated by a motion model, corrected by measurements, with a covariance
+tracking the estimator's own uncertainty. Its extension to visual-inertial
+navigation faces a specific difficulty --- a camera observing $n$ landmarks
+adds $3n$ states, so a naive filter grows without bound.
+
+The Multi-State Constraint Kalman Filter of
+Mourikis and Roumeliotis~\cite{mourikis2007msckf} resolves this by keeping a
+sliding window of past camera poses rather than the landmarks themselves.
+Each feature is triangulated across the window, its residual is projected
+onto the null space of the landmark Jacobian, and the landmark is
+marginalised out. The state stays bounded, and the estimator remains a
+filter rather than becoming a batch optimisation. Every estimator evaluated
+in this report descends from that construction.
+
+OpenVINS~\cite{geneva2020openvins} provides the reference implementation of
+this family, adding online calibration of extrinsics, intrinsics and time
+offsets, and a First-Estimates-Jacobian treatment of the observability
+problem. MINS~\cite{lee2023mins,lee2025minsjfr} extends the same core to
+heterogeneous sensor sets --- wheel encoders, GPS, LiDAR and motion capture
+alongside the camera --- which is what makes it the appropriate choice for a
+wheeled platform, and which is why this report's estimator comparison is
+between MINS and members of the OpenVINS family rather than against
+feature-based SLAM systems such as ORB-SLAM2~\cite{murartal2017orbslam2}.
+
+\subsection{Calibration as a prerequisite, not a detail}
+
+Visual-inertial estimation is unusually sensitive to the geometric and
+temporal relationship between its sensors. Zhang's
+method~\cite{zhang2000flexible} supplies camera intrinsics; the unified
+spatiotemporal calibration of Furgale et al.~\cite{furgale2013kalibr},
+implemented as Kalibr, supplies the camera--IMU transform and time offset
+that the filter needs before it can fuse anything.
+
+The literature treats this as a solved preliminary. This report does not,
+and \S\ref{sec:extunobs} explains why: the same quantity Kalibr estimates
+offline can also be estimated online, and whether that is advisable depends
+on an observability condition the calibration literature does not need to
+address --- because a calibration procedure supplies the excitation by
+construction, whereas a rover standing still does not.
+
+\subsection{Where this work departs from the literature}
+
+Three differences shape everything that follows.
+
+\textbf{The platform is not the one these systems were designed for.} MSCKF
+and its descendants were developed for handheld and aerial motion, which is
+rich in rotation and acceleration. A differential-drive rover is
+translationally slow, spends much of its time stationary, and rotates about
+one axis. Several results in this report --- extrinsic random-walk at rest
+(\S\ref{sec:extunobs}), the vertical direction resting on a single sensor
+(\S\ref{sec:zunobs}) --- are consequences of that mismatch rather than
+defects of the algorithms.
+
+\textbf{Wheel odometry changes the observability picture.} The literature on
+monocular and stereo VIO treats scale and velocity as quantities to be
+inferred. A wheeled platform measures them directly, which is the premise
+of MINS's wheel updater and, as \S\ref{sec:neesangulaire} suggests, may
+explain why the two filters lacking that measurement are the two whose
+velocity covariance is overconfident.
+
+\textbf{Filter consistency is assessed here, and is largely absent from the
+bibliography this report carries.} The estimation entries above cover
+architecture and calibration; none addresses whether a filter's reported
+covariance matches its actual error. The NEES methodology used in
+\S\ref{sec:nees} is standard in the target-tracking literature and this
+report applies it without citing that source, which is a gap in the
+bibliography rather than in the method. Closing it would mean adding the
+consistency and observability-constrained-filtering references --- the
+work on FEJ and observability-constrained EKF that OpenVINS itself
+implements --- and is recorded as an editorial task rather than a research
+one.
+
+\subsection{Positioning}
+
+The contribution of this report is not a new estimator. It is a measured
+account of how three existing estimators behave on a platform outside their
+design envelope, using validity tests that require no ground truth: a
+physical speed ceiling, a stationary robot whose true state is known
+exactly, and an independent wheel-odometry reference. That methodology, and
+the finding that a well-behaved pose can be published alongside a covariance
+that is wrong by two orders of magnitude, is what this work adds to the
+material surveyed above.

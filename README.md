@@ -98,7 +98,7 @@ par git.** Cette correspondance est volontaire depuis le rangement du
 
 ## 📘 Le rapport
 
-**Le document de référence de ce projet est [`report_latex/main.pdf`](report_latex/main.pdf), 583 pages.**
+**Le document de référence de ce projet est [`report_latex/main.pdf`](report_latex/main.pdf), 586 pages.**
 
 Le code seul ne se suffit pas. Le rapport contient :
 
