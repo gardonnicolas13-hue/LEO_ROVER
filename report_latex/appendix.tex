@@ -1908,6 +1908,411 @@ curl -sI https://cockpit.example.org/ops.html   # expect HTTP/2 200
 tail -20 ~/TOUT/logs/cloudflared.log            # look for "Registered tunnel"
 \end{lstlisting}
 
+\section{Building the operator website, step by step}
+\label{ap:repro-website}
+
+The cockpit is described elsewhere in this report by \emph{topic}: its
+architecture and data flow in \S\ref{sec:multipage}, its public API in
+\S\ref{sec:web}, its transport and ports in \S\ref{ap:repro-webtransport}, the
+Cloudflare tunnel in \S\ref{ap:repro-cloudflare}. \code{web/README\_WEB.md} in the
+repository covers the same ground for a maintainer.
+
+None of those is a \emph{build order}. This section is: fourteen steps from an
+empty directory to a public, self-healing cockpit, each one naming the exact
+files it creates or touches, so that a successor can follow the same path --- or
+find the one file responsible for the part that is misbehaving.
+
+\begin{trapbox}{The entire website runs on the workstation}
+Not one line of the cockpit runs on the robot. Every file named in this
+section is \textbf{[PC]} in the sense of \S\ref{ap:repro-inventory}. The robot
+publishes ROS topics and nothing else; it does not serve HTTP, does not hold
+the pages, and is not reachable from a browser. The robot's own
+\code{rosbridge} is in fact deliberately \emph{disabled}
+(\S\ref{ap:repro-phantom}) so that it cannot compete with the
+workstation's.
+
+This matters when something breaks: a cockpit fault is almost never a robot
+fault, and restarting the rover to fix a blank page is a reflex worth
+unlearning.
+\end{trapbox}
+
+\subsection{Step 1 --- Choose an architecture that needs no server code}
+\label{ap:repro-web-arch}
+
+The decision that shapes everything else: the browser talks to ROS
+\emph{directly}, over a WebSocket, using the \code{rosbridge} protocol v2.0.
+There is no application server, no REST API, no database, and no
+robotics code written for the web at all. A page opens a socket, subscribes to
+topics, publishes to topics, and that is the whole contract.
+
+The consequence worth stating plainly is that \textbf{the pages are static
+files}. They can be copied, opened from disk, and served by anything. What
+makes them a cockpit is \code{vendor/roslib.min.js} plus the address of a
+running \code{rosbridge}.
+
+\subsection{Step 2 --- Stand up the transport}
+\label{ap:repro-web-transport}
+
+\begin{longtable}{@{}L{5.3cm}L{8.3cm}@{}}
+\toprule
+File & Role \\
+\midrule
+\endfirsthead
+\toprule
+File & Role \\
+\midrule
+\endhead
+\code{web/start\_web.sh} &
+  Starts and supervises every web-side service. Read its header before
+  changing anything: it is idempotent by design, and the reason is a real
+  failure (below) \\
+\addlinespace
+\code{tools/robot\_env.sh} &
+  Sourced by \code{start\_web.sh}. Single source of truth for
+  \code{ROS\_MASTER\_URI} and \code{ROS\_IP}; changing networks is one line in
+  \code{\textasciitilde/.leo\_network}, not five files \\
+\bottomrule
+\end{longtable}
+
+\noindent \code{rosbridge} is launched on port \textbf{9090} for direct LAN
+use. The parameter \code{\_websocket\_\allowbreak external\_port:=9090} is passed
+explicitly and must stay: \code{autobahn} validates the HTTP \code{Host}
+header, and \code{rospy} will otherwise re-read a stale
+\code{\textasciitilde websocket\_\allowbreak external\_port} left on the parameter server
+by an earlier launch --- a ghost that cost two days of a broken localhost
+mode.
+
+\begin{trapbox}{Why \code{start\_web.sh} restarts nothing it does not have to}
+The watchdog (\S\ref{ap:repro-watchdog}) re-runs this script whenever
+\emph{one} port is missing. An earlier version started from scratch every
+time, so a \code{9443} that failed to bind --- a flapping Wi-Fi is enough ---
+caused the \emph{healthy} 9090 \code{rosbridge} to be killed once a minute,
+and the operator's cockpit disconnected in a loop. Each component is now
+restarted only if genuinely dead, and a component still starting (process up,
+port not yet bound) is left alone: \code{rosbridge} can take over a minute to
+bind under load.
+\end{trapbox}
+
+\subsection{Step 3 --- The first page}
+\label{ap:repro-web-firstpage}
+
+\begin{longtable}{@{}L{5.3cm}L{8.3cm}@{}}
+\toprule
+File & Role \\
+\midrule
+\endfirsthead
+\toprule
+File & Role \\
+\midrule
+\endhead
+\code{web/vendor/} \newline \code{roslib.min.js} &
+  The ROS client, \emph{vendored} rather than loaded from a CDN. This is
+  deliberate: the cockpit must work on a lab network with no internet \\
+\addlinespace
+\code{web/ops.html} &
+  The control page: driving, AUTO mode, pose source, export \\
+\addlinespace
+\code{web/app.js} &
+  All cockpit logic, shared by the pages that need it. Its header block is the
+  authoritative statement of the ROS contract \\
+\bottomrule
+\end{longtable}
+
+\subsection{Step 4 --- Define the ROS contract, once}
+\label{ap:repro-web-contract}
+
+Four topics carry everything, and they are produced and consumed by
+\code{leo\_backend.py} (\S\ref{ap:repro-backend}) on the workstation:
+
+\begin{longtable}{@{}L{5.0cm}L{8.6cm}@{}}
+\toprule
+Topic & Direction and payload \\
+\midrule
+\endfirsthead
+\toprule
+Topic & Direction and payload \\
+\midrule
+\endhead
+\code{/mission/command} &
+  browser $\rightarrow$ backend. \code{std\_msgs/String} carrying JSON:
+  \code{set\_mode}, \code{stop}, \code{reset}, \code{clear\_map},
+  \code{park}, \code{set\_params}, \code{manual}, \code{set\_view} \\
+\addlinespace
+\code{/mission/telemetry} &
+  backend $\rightarrow$ browser, ${\sim}10$\,Hz. One JSON object, roughly
+  sixty fields (\S\ref{sec:telemetry-schema}) \\
+\addlinespace
+\code{/mission/log} &
+  backend $\rightarrow$ browser. Human-readable mission events \\
+\addlinespace
+\code{/imu/data\_clean} &
+  subscribed directly for the artificial horizon --- the one case where a
+  page reads a sensor topic rather than the backend's summary \\
+\bottomrule
+\end{longtable}
+
+\subsection{Step 5 --- Video, and why it is not on this script any more}
+\label{ap:repro-web-video}
+
+\code{web\_video\_server} serves MJPEG on port \textbf{8080}, and the cockpit
+displays \code{/mission/image\_annotated} --- the backend's annotated frame,
+not the raw camera.
+
+It is started by \code{navigation\_supervision.launch}, \emph{not} by
+\code{start\_web.sh}. The note in the script explains why: it belongs with the
+navigation stack that produces its image, and when \code{start\_web.sh} freed
+port 8080 on every web healing, it killed the supervised instance each time.
+
+\subsection{Step 6 --- Replace \code{http.server} with something that can be trusted}
+\label{ap:repro-web-serve}
+
+\code{web/serve.py} [PC] is the static server on port \textbf{8000}. It exists
+for three defects that \code{python3 -m http.server} has and that only became
+visible once the site was public:
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Stale pages.} Documents that change on every update
+  (\code{.html}, \code{.json}, \code{.pdf}, \code{.js}, \code{.css}) are sent
+  with \code{Cache-Control: no-cache, must-revalidate}. Note the \code{.pdf}:
+  it was forgotten in the first fix, and Cloudflare --- seeing no
+  \code{Cache-Control} --- applied its own four-hour default and publicly
+  served a 300-page report while the disk held 309. A forced browser reload
+  could not help: the stale copy was at the network edge, not in the client.
+\item \textbf{Directory listings.} \code{SimpleHTTPRequestHandler} serves the
+  whole directory, listings included. The audit of 2026-08-18 confirmed live
+  that \code{/exports/} answered 200 with a browsable index of 104 files,
+  17\,MB of experimental data; \code{models/} likewise.
+\item \textbf{Backup files served next to the real ones.} This project's own
+  convention produces names like \code{ops.html.\allowbreak bak-\allowbreak avant-v4-161908} ---
+  complete, obsolete cockpits, published beside the current one. Thirteen were
+  found. The refusal patterns in \code{serve.py} are those of \S10 of the
+  \code{.gitignore}, deliberately: what git refuses to archive, the server
+  refuses to publish.
+\end{enumerate}
+
+\subsection{Step 7 --- A design system, self-hosted}
+\label{ap:repro-web-design}
+
+\begin{longtable}{@{}L{5.3cm}L{8.3cm}@{}}
+\toprule
+File & Role \\
+\midrule
+\endfirsthead
+\toprule
+File & Role \\
+\midrule
+\endhead
+\code{web/mission.css} &
+  The design system --- ``Deep Space Control''. Colour tokens, the
+  glassmorphic panels, the bento grid \\
+\addlinespace
+\code{web/fonts/fonts.css} \newline \code{web/fonts/inter-*.woff2} &
+  Inter, self-hosted in four weights. No Google Fonts request: the cockpit
+  must render identically with no internet \\
+\addlinespace
+\code{web/vendor/} \newline \code{tailwind.min.js} &
+  Utility classes, vendored for the same reason \\
+\addlinespace
+\code{web/vendor/} \newline \code{lucide-1.25.0.umd.js} &
+  Icons \\
+\addlinespace
+\code{web/vendor/} \newline \code{gsap.min.js}, \newline \code{ScrollTrigger.min.js} &
+  Animation on the presentation pages \\
+\addlinespace
+\code{web/vendor/} \newline \code{chart-4.5.1.umd.js} &
+  Plots (PID curves, telemetry history) \\
+\addlinespace
+\code{web/vendor/NASA\_logo.svg}, \newline \code{fit\_seal.svg} &
+  Institutional marks \\
+\bottomrule
+\end{longtable}
+
+\subsection{Step 8 --- The fourteen pages}
+\label{ap:repro-web-pages}
+
+\begin{longtable}{@{}L{4.7cm}L{8.9cm}@{}}
+\toprule
+Page (\code{web/}) & What it is for \\
+\midrule
+\endfirsthead
+\toprule
+Page (\code{web/}) & What it is for \\
+\midrule
+\endhead
+\code{index.html} & Landing page \\
+\code{ops.html} & \textbf{The cockpit.} Driving, AUTO, pose source, export \\
+\code{trajectory.html} & Live 2D map, batched Canvas rendering \\
+\code{logbook.html} & Mission journal; also carries the report download card \\
+\code{demo.html} & \textbf{Read-only by construction} --- no publisher, no
+  command binding. For demonstrations, so that no one can drive by accident \\
+\code{pid.html} & The three control loops, live \\
+\code{system.html} & Host and stack health \\
+\code{audit.html} & Audit views \\
+\code{navigation\_modes.html} & Explains the navigation modes \\
+\code{robot\_description.html} & The robot, with the 3D model \\
+\code{tf\_validator.html} & Inspect and \emph{edit} frames --- the only page
+  that writes (Step 12) \\
+\code{mins\_tuning.html} & MINS parameter exploration \\
+\code{hector\_response.html} & A written answer to a supervisor's question,
+  kept as a page \\
+\code{preview-design.html} & Design bench for the system of Step 7 \\
+\bottomrule
+\end{longtable}
+
+\subsection{Step 9 --- The 3D view}
+\label{ap:repro-web-3d}
+
+\begin{longtable}{@{}L{5.3cm}L{8.3cm}@{}}
+\toprule
+File & Role \\
+\midrule
+\endfirsthead
+\toprule
+File & Role \\
+\midrule
+\endhead
+\code{web/3d\_engine.js} & The renderer used by the description and
+  trajectory pages \\
+\code{web/vendor/three.min.js} & three.js \\
+\code{web/vendor/} \newline \code{OrbitControls.js} & Camera control \\
+\code{web/vendor/STLLoader.js} & Mesh loading \\
+\code{web/models/} \newline \code{leo\_rover\_v1.9\_v5.stl} \newline
+\code{web/models/leo\_rover\_map.stl} & The rover and the room \\
+\code{tools/decimate\_stl.py} & Reduces mesh size before shipping it to a
+  browser --- a CAD export is not a web asset \\
+\bottomrule
+\end{longtable}
+
+\subsection{Step 10 --- Make it bilingual}
+\label{ap:repro-web-i18n}
+
+\code{web/i18n.js} [PC] holds every string in English and French and exposes
+\code{I18N.t()}, \code{I18N.set()} and \code{I18N.apply()}; the DOM is marked
+up with \code{data-i18n} attributes and re-scanned on change. The chosen
+language persists in \code{localStorage}.
+
+Two findings are recorded rather than hidden. The key counts match exactly
+(616 EN, 616 FR), but \textbf{75 keys are dead}, and 37 of those are
+\code{log\_*} --- which reveals that the mission log is \emph{never}
+translated, because the backend emits raw French text on
+\code{/mission/log}. Translating the cockpit did not translate the thing an
+operator actually reads during a mission.
+
+\subsection{Step 11 --- Pages that read data files}
+\label{ap:repro-web-data}
+
+\begin{longtable}{@{}L{5.3cm}L{8.3cm}@{}}
+\toprule
+File & Role \\
+\midrule
+\endfirsthead
+\toprule
+File & Role \\
+\midrule
+\endhead
+\code{web/auto\_entries.json} &
+  Mission events written automatically by \code{leo\_backend.py}; read by
+  \code{logbook.html}. Also the evidence source for several results in this
+  report (RTB pairs, \S\ref{sec:july23rtb}) \\
+\code{web/logbook\_data.js} & The hand-written journal entries \\
+\code{web/tf\_frames.json} & Frames shown --- and edited --- by
+  \code{tf\_validator.html} \\
+\bottomrule
+\end{longtable}
+
+\subsection{Step 12 --- One write path, bound to the loopback on purpose}
+\label{ap:repro-web-write}
+
+\code{tf\_validator.html} can \emph{save} an edited frame. That write is served
+by \code{tools/tf\_save\_server.py} [PC] on \textbf{127.0.0.1:8010}, and the
+binding is the security design:
+
+port 8000 is published to the internet by the Cloudflare tunnel, so a write
+route placed there would be open to everyone. Filtering by client IP would
+achieve nothing, because \code{cloudflared} connects from the loopback itself
+and every request would appear local. Binding the write server to
+\code{127.0.0.1} instead means saving works from the workstation and fails
+from outside --- which is exactly the intent.
+
+\begin{trapbox}{The one place a rotation matrix can be overwritten from a browser}
+This is the page behind the forced-identity incident of 2026-08-20: a
+guard-rail was overridden twice and an identity matrix stayed on disk until
+the next day, invalidating every openVINS feature measurement taken in
+between. The lesson is not to remove the page but to date what it changed:
+after any edit here, check \code{web/tf\_frames.json} against what the
+estimator is actually loading.
+\end{trapbox}
+
+\subsection{Step 13 --- Publish it, with TLS that survives a tunnel}
+\label{ap:repro-web-public}
+
+\begin{longtable}{@{}L{5.3cm}L{8.3cm}@{}}
+\toprule
+File or service & Role \\
+\midrule
+\endfirsthead
+\toprule
+File or service & Role \\
+\midrule
+\endhead
+\code{cloudflared tunnel run} &
+  Publishes the site at \code{cockpit.leo-rover-gardon.dev}. Started from
+  \code{start\_web.sh} with an \textbf{absolute path}: bare
+  \code{cloudflared} failed silently under the watchdog's minimal
+  \code{PATH}, leaving the public tunnel dead with no visible alert \\
+\addlinespace
+\code{tools/} \newline \code{rosbridge\_websocket\_tunnel.py} &
+  The TLS \code{rosbridge} on port \textbf{9443}, launched with
+  \code{\_websocket\_external\_port:=443}. Without that value, handshakes
+  arriving from \code{cloudflared} carry a public \code{Host} with no port
+  --- implicitly 443 --- and \code{autobahn} rejects every one of them \\
+\addlinespace
+\code{\textasciitilde/.leo\_certs/rosbridge\_cert.pem}, \newline
+\code{rosbridge\_key.pem} &
+  The certificate pair. Outside the repository, deliberately \\
+\addlinespace
+\code{/tmp/leo\_tunnel\_off} &
+  A flag, not a file to edit by hand. Created by the cockpit's
+  \emph{Tunnel public} button; \code{start\_web.sh} checks it and refuses to
+  reopen an exposure the operator has just closed --- otherwise the watchdog
+  would reopen it within the minute \\
+\bottomrule
+\end{longtable}
+
+\subsection{Step 14 --- Publish the report onto the site}
+\label{ap:repro-web-report}
+
+\code{tools/update\_report.sh} [PC] compiles this document and deploys it to
+the single public location: the download card of
+\code{logbook.html}, at
+\code{web/reports/} \newline \code{LEO\_Rover\_Mission\_Control\_}\newline\code{Report\_Nicolas\_Gardon.pdf}.
+
+It also rewrites the \code{?v=} stamp on that link across every page that
+carries it. The stamp is not decoration: without it Cloudflare serves a cached
+copy, and the symptom is a report that is visibly several versions old with no
+error anywhere. \code{serve.py}'s \code{no-cache} on \code{.pdf} (Step 6) is
+the second line of defence; the stamp is the first.
+
+\subsection{Verifying the site after any change}
+\label{ap:repro-web-verify}
+
+Three checks, in increasing cost, all documented in
+\code{web/README\_WEB.md}:
+
+\begin{enumerate}[leftmargin=1.4em]
+\item \textbf{Structure} --- the checker in \code{README\_WEB.md} validates
+  every page's structure, links and assets \emph{on the served site}, not on
+  disk. The distinction matters: \code{serve.py} refuses paths that exist
+  perfectly well in the directory.
+\item \textbf{i18n} --- list keys used in HTML but absent from
+  \code{i18n.js}. A missing key renders as its raw identifier, which is
+  unmistakable once seen and easy to miss while editing.
+\item \textbf{Through the tunnel} --- load the public URL, not just
+  \code{localhost:8000}. Several defects in this section existed only at the
+  edge: the four-hour PDF cache, the \code{Host} header rejection on 9443,
+  the browsable \code{exports/}. None was reproducible locally.
+\end{enumerate}
+
 \section{Robot-side configuration}
 \label{ap:repro-robot}
 The Pi runs a stock LEO~Rover image plus three project-specific changes.
