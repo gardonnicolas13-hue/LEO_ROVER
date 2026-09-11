@@ -94,6 +94,10 @@
 # validite numerique sur le chi2 du ZUPT) -- diff produit par `git diff`
 # dans le clone du Pi, jamais soumis en amont, garde pour reproductibilite.
 !/docs/sqrtvins_zupt_numerical_guard.patch
+# Passation ecrite pour le prochain etudiant sur le projet (2026-09-11) :
+# synthese des chantiers prioritaires (sqrtVINS, remplacement IMU) et du
+# registre des 50 points ouverts. Doit survivre au depart de qui l'a ecrit.
+!/docs/HANDOFF_NEXT_STUDENT.md
 
 # ── 4c. patches/ : contributions amont pretes a soumettre ──────────────────
 # Suite du precedent ci-dessus. L'audit du 2026-08-24 a produit QUATRE patchs
