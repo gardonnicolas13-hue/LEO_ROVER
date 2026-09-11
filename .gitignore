@@ -188,6 +188,10 @@ __pycache__/
 # recevoir de regle correspondante : ils revenaient en « Untracked » a
 # chaque `git status`, indefiniment. Corrige le 2026-08-03.
 *.docx
+# Exception (2026-09-11) : le Word du rapport, demande pour que le professeur
+# puisse y acceder via GitHub au meme titre que le PDF. Version texte generee
+# par pandoc -- les diagrammes TikZ n'y sont pas, main.pdf reste la reference.
+!report_latex/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.docx
 report_latex/main.atfi
 report_latex/LEO_Rover_Mission_Control_Report_Nicolas_Gardon.pdf
 
