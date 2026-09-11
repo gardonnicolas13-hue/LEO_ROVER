@@ -787,7 +787,10 @@ workstation. The switch is a ROS \emph{service}, not a topic: calling
 \begin{table}[htbp]
 \centering\small
 \caption{Which machine runs what. \code{rosnode list} shows all of it mixed
-together, which is why this split is worth knowing by heart.}
+together, which is why this split is worth knowing by heart. This table is
+node-level; \S\ref{ap:repro-inventory} carries the same split at
+\emph{file} level, for every configuration file, script and launch file in
+the project.}
 \label{tab:appwho}
 \begin{tabular}{@{}lll@{}}
 \toprule
@@ -882,6 +885,395 @@ Script & What it is for \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\section{Master file inventory: what lives where, and on which machine}
+\label{ap:repro-inventory}
+
+The single most expensive confusion on this project is that \code{rosnode
+list} and \code{rostopic list} present two physically separate computers as
+one flat system. A node name tells you nothing about which machine runs it,
+a topic name tells you nothing about where it is published, and a file path
+that exists on one machine may not exist on the other at all. Every failure
+in \S\ref{ap:repro-trouble} that cost more than an hour began with an
+assumption about \emph{where} something was.
+
+This section is the inventory that answers that question once. Every entry
+carries a machine marker:
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{[PC]} --- the operator workstation (Ubuntu 20.04, \code{eno1}
+  or the USB Wi-Fi dongle). Paths are relative to the repository root,
+  \code{\textasciitilde/TOUT/}, unless written absolute.
+\item \textbf{[ROBOT]} --- the Raspberry Pi 4 aboard the rover. Paths are
+  absolute, exactly as you see them over \code{ssh pi@\$ROBOT\_HOST}. These
+  files are \emph{not} in the repository: they live on the robot's SD card
+  and are lost on a reflash (\S\ref{ap:repro-robot}).
+\end{itemize}
+
+\noindent Everything below was enumerated from the filesystem on
+2026-09-11, not written from memory. Where a file's runtime location differs
+from where its source is stored, both are given.
+
+\subsection{Files that exist only on the robot}
+\label{ap:repro-inv-robot}
+
+These are the reason a fresh SD card does not give you a working rover. None
+of them is in git; all three project-specific changes are described with
+their rationale in \S\ref{ap:repro-robot}.
+
+\begin{longtable}{@{}L{5.6cm}cL{6.4cm}@{}}
+\toprule
+Path & Machine & What it is \\
+\midrule
+\endfirsthead
+\toprule
+Path & Machine & What it is \\
+\midrule
+\endhead
+\code{/etc/ros/robot.launch} & [ROBOT] &
+  The robot's own bring-up launch. Holds the RealSense arguments, including
+  the \code{enable\_gyro}/\code{enable\_accel} defaults that leave the D455's
+  IMU switched off (item 45, \S\ref{ap:repro-camreset}) \\
+\addlinespace
+\code{/etc/ros/setup.bash} & [ROBOT] &
+  Pins \code{ROS\_IP}. This is the file behind the nastiest network failure
+  in this report: it can advertise a dead WireGuard address while the master
+  answers normally and every topic exists (\S\ref{ap:repro-trouble}) \\
+\addlinespace
+\code{/etc/systemd/system/leo.service} \newline plus its \code{LimitRTPRIO}
+  drop-in & [ROBOT] &
+  Starts \code{rosmon}, which starts the ROS master and every robot-side
+  node. The drop-in is Change~1 (\S\ref{ap:repro-rtfix}); without \emph{both}
+  it and the \code{chrt} call, the serial node will not start at all \\
+\addlinespace
+\code{/opt/ros/noetic/share/leo\_bringup/} \newline \code{launch/leo\_bringup.launch}
+  & [ROBOT] &
+  Stock Husarion bring-up, not ours. Replaced wholesale by a reflash \\
+\addlinespace
+\code{/dev/ttyAMA0} & [ROBOT] &
+  The UART to the CORE2/LeoCore board. A GPIO serial line, \textbf{not} USB
+  --- the distinction took a day to establish and is the whole subject of
+  \S\ref{ap:repro-rtfix} \\
+\addlinespace
+\code{hostapd} / \code{dnsmasq} configuration & [ROBOT] &
+  Serve the rover's own access point, SSID \code{LeoRover-e138} at
+  \code{10.0.0.1}. This is the fallback path when the campus network refuses
+  the robot, and the only address that works regardless
+  (\S\ref{ap:repro-trouble}) \\
+\bottomrule
+\end{longtable}
+
+\subsection{The nodes this project wrote}
+\label{ap:repro-inv-nodes}
+
+All sources live in the repository on the workstation. Read the
+\emph{Runs on} column carefully: one of them is stored here but executes on
+the robot, because the hardware it talks to is the robot's.
+
+\begin{longtable}{@{}L{5.4cm}cL{6.6cm}@{}}
+\toprule
+Source file (in repo, [PC]) & Runs on & Role \\
+\midrule
+\endfirsthead
+\toprule
+Source file (in repo, [PC]) & Runs on & Role \\
+\midrule
+\endhead
+\code{catkin\_ws/src/leo\_navigation/} \newline \code{scripts/imu\_sanitizer.py}
+  & [PC] &
+  Despikes and rescales the raw IMU; publishes \code{/imu/data\_clean}, which
+  is what MINS consumes. \S\ref{ap:repro-sanitizer} \\
+\addlinespace
+\code{.../scripts/wheel\_remap.py} & [PC] &
+  Wheel odometry remapping. \S\ref{ap:repro-wheelremap} \\
+\addlinespace
+\code{.../scripts/pose\_selector.py} & [PC] &
+  The estimator switch; publishes \code{/robot\_pose\_fused}, the one topic
+  the rest of the system reads. \S\ref{ap:repro-poseselector} \\
+\addlinespace
+\code{.../scripts/carolus\_vicon\_bridge.py} & [PC] &
+  The only absolute reference into the filter.
+  \S\ref{ap:repro-carolusbridge} \\
+\addlinespace
+\code{.../scripts/carolus\_tf\_bridge.py} & [PC] &
+  TF plumbing for the Carolus/AprilTag frame \\
+\addlinespace
+\code{.../scripts/vins\_rotation\_guard.py} & [PC] &
+  Written, built, \textbf{deliberately not launched}.
+  \S\ref{ap:repro-guardfile} \\
+\addlinespace
+\code{.../scripts/pi\_health\_monitor.py} & [PC] &
+  Thermal and load telemetry from the Pi, read over the network \\
+\addlinespace
+\code{.../scripts/goto\_pose.py} & [PC] &
+  Pose-regulation motion control (\S\ref{ap:posecontrol}) \\
+\addlinespace
+\code{.../scripts/fill\_mins\_camchain.py} & [PC] &
+  Calibration helper: writes Kalibr output into the MINS camera config \\
+\addlinespace
+\code{.../src/minimu9\_node.cpp} \newline
+  \emph{branch} \code{feature/minimu9-driver} & \textbf{[ROBOT]} &
+  I$^2$C driver for the replacement IMU. \textbf{Must run on the robot} ---
+  the I$^2$C bus belongs to the Pi --- which is why it is deliberately absent
+  from \code{navigation\_supervision.launch}, a workstation launch file.
+  Not on the main branch; see the handoff note in
+  \code{docs/HANDOFF\_NEXT\_STUDENT.md} \\
+\addlinespace
+\code{leo\_backend.py} (repository root) & [PC] &
+  The cockpit's brain: FSM, telemetry, vision subprocess.
+  \S\ref{ap:repro-backend} \\
+\bottomrule
+\end{longtable}
+
+\subsection{Launch files, and what each one starts where}
+\label{ap:repro-inv-launch}
+
+All five live in \code{catkin\_ws/src/leo\_navigation/launch/} on the
+workstation, and all five are run \emph{from} the workstation. They start
+workstation nodes only: the robot's nodes are started by \code{leo.service}
+on the robot itself, independently, and are already running before you
+launch anything here.
+
+\begin{longtable}{@{}L{4.6cm}L{9.0cm}@{}}
+\toprule
+File ([PC]) & What it brings up \\
+\midrule
+\endfirsthead
+\toprule
+File ([PC]) & What it brings up \\
+\midrule
+\endhead
+\code{navigation\_master.launch} &
+  The top-level entry point. Includes the three below. This is the one
+  \code{tools/restart\_stack.sh} calls \\
+\addlinespace
+\code{mins.launch} &
+  MINS. Note the configuration path is passed through \code{args="..."} and
+  \emph{not} \code{<param name="config\_path">}: on ROS1 the node reads
+  \code{argv[1]} only, and passing it the other way produces
+  ``unable to open the configuration file'' (item 42) \\
+\addlinespace
+\code{navigation\_supervision.launch} &
+  \code{imu\_sanitizer}, \code{wheel\_remap}, \code{pose\_selector}, the
+  image \code{republish} nodes. Also carries the \code{imu\_source} argument
+  (\code{core2} $\leftrightarrow$ \code{minimu9}) that switches the sanitizer's
+  input topic and accelerometer scale \emph{together} \\
+\addlinespace
+\code{pose\_selector.launch} &
+  The selector alone, for restarting it without the rest --- required after
+  any estimator reset (item 48) \\
+\addlinespace
+\code{tf\_static\_extrinsics.launch} &
+  The static transform tree \\
+\bottomrule
+\end{longtable}
+
+\subsection{Where each estimator actually reads its configuration}
+\label{ap:repro-inv-config}
+
+All estimator configuration is on the workstation: the estimators themselves
+run there (\S\ref{ap:mins-embedded} explains why MINS is not on the Pi).
+
+\begin{longtable}{@{}L{5.0cm}L{8.6cm}@{}}
+\toprule
+Estimator ([PC]) & Configuration path \\
+\midrule
+\endfirsthead
+\toprule
+Estimator ([PC]) & Configuration path \\
+\midrule
+\endhead
+MINS &
+  \code{LEO\_Rover\_Navigation\_System/} \newline
+  \code{MINS-master/mins/config/leo/} \newline
+  Ten files: \code{config.yaml} is the entry point and names the other nine
+  (\code{config\_imu}, \code{config\_camera}, \code{config\_wheel},
+  \code{config\_estimator}, \code{config\_init}, \code{config\_system},
+  \code{config\_vicon}, \code{config\_lidar}, \code{config\_gps}) \\
+\addlinespace
+MINS, camera-only profile &
+  \code{.../mins/config/leo\_vio/} --- the same platform with the wheels
+  removed, used to isolate what the wheels contribute \\
+\addlinespace
+MINS, Pi profile &
+  \code{.../mins/config/leo\_pi/} --- mono, downsampled, calibration off.
+  Kept for reproducibility of the embedded-feasibility arithmetic; never
+  adopted (item 43) \\
+\addlinespace
+openVINS &
+  \code{catkin\_ws/src/open\_vins/config/leo/} \newline
+  \code{estimator\_config.yaml} plus \code{kalibr\_imucam\_chain.yaml} and
+  \code{kalibr\_imu\_chain.yaml} \\
+\bottomrule
+\end{longtable}
+
+\begin{trapbox}{\code{\$(find mins)} does not resolve to the path you are reading}
+\code{mins.launch} loads
+\code{\$(find mins)/config/\$(arg config)/config.yaml}, which resolves
+through the ROS package path, not through the directory you happen to be
+editing. On this workstation \code{mins\_ws/src/MINS} is a
+\textbf{symbolic link} to
+\code{/home/lab272/TOUT/LEO\_Rover\_Navigation\_System/MINS-master}
+(verified 2026-09-11). There is therefore exactly \emph{one} copy of the
+MINS configuration on disk, reachable by two different-looking paths.
+
+This matters in both directions. Editing either path edits the same file, so
+a change you think you made in a scratch copy is live. And if a future
+student replaces that symlink with a real second checkout, the two paths
+become independent, the launch file will keep loading the one you are
+\emph{not} editing, and the filter will silently run yesterday's calibration.
+Check with \code{readlink -f mins\_ws/src/MINS} before trusting either.
+\end{trapbox}
+
+\subsection{Tooling, by the question it answers}
+\label{ap:repro-inv-tools}
+
+\code{tools/} holds roughly sixty scripts [PC]; every one carries a header
+comment explaining why it exists, and that header is the authority, not this
+table. What follows is the subset a new arrival needs in the first week,
+grouped by the question being asked. Several of these \emph{operate on} the
+robot over SSH while \emph{running from} the workstation --- that is the
+normal pattern here, and the \emph{Acts on} column says which.
+
+\begin{longtable}{@{}L{4.8cm}cL{7.2cm}@{}}
+\toprule
+Script (in \code{tools/}, [PC]) & Acts on & Question it answers \\
+\midrule
+\endfirsthead
+\toprule
+Script (in \code{tools/}, [PC]) & Acts on & Question it answers \\
+\midrule
+\endhead
+\code{robot\_env.sh} & [PC] &
+  Where is the robot? Single source of truth for \code{ROS\_MASTER\_URI} and
+  \code{ROS\_IP}, overridable through \code{\textasciitilde/.leo\_network}.
+  Sourced by every other script \\
+\addlinespace
+\code{preflight\_mins.py} & both &
+  Is the whole chain healthy enough to run an experiment? GO/NO-GO in one
+  command. Run it \emph{before} any test that costs robot time \\
+\addlinespace
+\code{restart\_stack.sh} & [PC] &
+  Restart the workstation navigation stack. Mandatory ordering after any
+  estimator reset: sanitizer $\rightarrow$ MINS $\rightarrow$
+  \code{pose\_selector} (item 48) \\
+\addlinespace
+\code{record\_trajectories.sh} & [PC] &
+  Capture an experiment properly. Writes a rosbag to disk, independent of the
+  web cockpit --- which is \emph{not} reliable for a run that counts \\
+\addlinespace
+\code{compare\_tests.m}, \newline \code{plot\_trajectories.m} & [PC] &
+  What did the run show? MATLAB comparison, accepts \code{.mat} or CSV \\
+\addlinespace
+\code{diag\_reseau\_robot.sh} & both &
+  Why can I not reach the robot? \\
+\addlinespace
+\code{recuperer\_robot\_hotspot.sh} & both &
+  The robot is powered but unreachable: switches the workstation onto the
+  rover's own access point, diagnoses over SSH, and restores the campus
+  Wi-Fi afterwards \\
+\addlinespace
+\code{check\_uart\_overruns.sh}, \newline \code{check\_serial\_health.sh}
+  & \textbf{[ROBOT]} &
+  Is the serial link losing bytes? Reads the Pi's own UART counters over SSH
+  (\S\ref{ap:repro-rtfix}) \\
+\addlinespace
+\code{verif\_minimu9.py} & \textbf{[ROBOT]} &
+  Is the replacement IMU wired and sane? Control and pre-calibration of the
+  MinIMU-9, to be run once the sensor is physically installed \\
+\addlinespace
+\code{launch\_sqrtvins\_pi.sh}, \newline \code{sqrtvins\_pi\_ctl.sh}
+  & \textbf{[ROBOT]} &
+  $\sqrt{\text{VINS}}$ runs \emph{on the Pi}, on demand, and not as part of
+  the workstation stack (\S\ref{sec:sqrtvins}) \\
+\addlinespace
+\code{leo\_watchdog.sh} & [PC] &
+  The self-healing cron watchdog. Suspend it with
+  \code{touch /tmp/leo\_maintenance} before any manual work, and
+  \textbf{remember to remove that file afterwards} \\
+\addlinespace
+\code{update\_report.sh} & [PC] &
+  Rebuild and publish this document. Note it prepends the TeX~Live~2026
+  installation in \code{\textasciitilde/texlive/2026/} to \code{PATH}: the
+  system \code{pdflatex} is a Debian TeX~Live~2019 that lacks packages this
+  report uses, so a build run without that \code{PATH} fails on
+  \code{IEEEtrantools.sty} \\
+\bottomrule
+\end{longtable}
+
+\subsection{Cockpit, data, and documentation}
+\label{ap:repro-inv-web}
+
+\begin{longtable}{@{}L{4.4cm}cL{7.6cm}@{}}
+\toprule
+Path & Machine & What it is \\
+\midrule
+\endfirsthead
+\toprule
+Path & Machine & What it is \\
+\midrule
+\endhead
+\code{web/ops.html} & [PC] &
+  The control cockpit: driving, AUTO, pose source, export \\
+\addlinespace
+\code{web/trajectory.html} & [PC] &
+  Live map, batched Canvas rendering \\
+\addlinespace
+\code{web/demo.html} & [PC] &
+  Read-only by construction --- no publisher, no command binding. For
+  demonstrations \\
+\addlinespace
+\code{web/logbook.html} + \code{auto\_entries.json} & [PC] &
+  Mission log, written automatically by the backend \\
+\addlinespace
+\code{web/serve.py} & [PC] &
+  Static server. Its filter mirrors \S10 of the \code{.gitignore}: what git
+  refuses to archive, the server refuses to publish --- added after an audit
+  found \code{exports/} browsable on the public internet \\
+\addlinespace
+\code{web/start\_web.sh} & [PC] &
+  Starts \code{serve.py}, \code{web\_video\_server}, \code{rosbridge} and the
+  Cloudflare tunnel \\
+\addlinespace
+\code{data/trajectories/} & [PC] &
+  Exported runs (CSV, PNG) and the rosbags. Not versioned: the raw
+  recordings exceed what a git repository should carry \\
+\addlinespace
+\code{report\_latex/} & [PC] &
+  This document's sources, and \code{main.pdf} \\
+\addlinespace
+\code{JOURNAL\_DE\_BORD.md} & [PC] &
+  Dated version history of the whole campaign. The first place to look when
+  you need to know \emph{when} something changed \\
+\addlinespace
+\code{docs/HANDOFF\_NEXT\_STUDENT.md} & [PC] &
+  Prioritised list of what to work on next, written at handover \\
+\addlinespace
+\code{archives/} & [PC] &
+  Out of repository. Timestamped backups, received documents, deliveries,
+  figures. Nothing was deleted into it and nothing referenced was moved
+  there \\
+\bottomrule
+\end{longtable}
+
+\begin{trapbox}{A file in this repository is not necessarily code that runs
+here}
+Three categories coexist in the same tree, and telling them apart saves a
+great deal of time:
+\begin{itemize}[leftmargin=1.4em]
+\item Code that runs on the \textbf{workstation} --- the great majority.
+\item Code that is stored here but \textbf{executes on the robot}:
+  \code{minimu9\_node.cpp}, the $\sqrt{\text{VINS}}$ launchers, and every
+  script in the \emph{Acts on: ROBOT} rows above. Copy or deploy them to the
+  Pi; running them here does nothing useful, and in the I$^2$C case will
+  simply find no bus.
+\item Upstream code that is \textbf{not ours at all} --- openVINS, MINS,
+  Kalibr, realsense-ros (\S\ref{ap:repro-repos}). Patches we made to these
+  are kept separately in \code{patches/}, \code{patches\_openvins/} and
+  \code{patches\_mins/} precisely so that the distinction survives a
+  re-clone.
+\end{itemize}
+\end{trapbox}
 
 \section{Upstream sources: what is ours and what is not}
 \label{ap:repro-repos}
@@ -1628,6 +2020,7 @@ changing anything, because most of these nodes exist to work around a specific
 measured defect, and the workaround looks arbitrary until you know which.
 
 \subsection{imu\_sanitizer.py: the IMU is not trustworthy raw}
+\label{ap:repro-sanitizer}
 \textbf{Subscribes} \code{/firmware/imu} (\code{leo\_msgs/Imu}) \quad
 \textbf{Publishes} \code{/imu/data\_clean} (\code{sensor\_msgs/Imu})
 
@@ -1679,6 +2072,7 @@ amplitude against physical ground truth: see
 \emph{both} estimators at once.
 
 \subsection{wheel\_remap.py: a two-line bug that costs a day}
+\label{ap:repro-wheelremap}
 \textbf{Subscribes} \code{/joint\_states} \quad
 \textbf{Publishes} a 2-element \code{JointState} MINS can read
 
@@ -1699,6 +2093,7 @@ estimator, verify how it identifies its inputs. Index-based assumptions are
 common and fail silently.
 
 \subsection{pose\_selector.py: one topic that never breaks}
+\label{ap:repro-poseselector}
 \textbf{Subscribes} \code{/mins/imu/odom}, \code{/ov\_msckf/odomimu} \quad
 \textbf{Publishes} \code{/robot\_pose\_fused} \quad
 \textbf{Service} \code{/pose\_selector/set\_source} (\code{std\_srvs/SetBool};
@@ -1723,6 +2118,7 @@ with it. This is one reason the estimators are deliberately \emph{not} allowed
 to bring down the stack: driving must never depend on estimator health.
 
 \subsection{carolus\_vicon\_bridge.py: the only absolute reference}
+\label{ap:repro-carolusbridge}
 \textbf{Publishes} \code{geometry\_msgs/PoseStamped} on the topic MINS accepts
 as a VICON input
 
@@ -1742,6 +2138,7 @@ bridge. Nothing else may publish on it. A trajectory recorder that also wrote
 there produced a genuinely confusing failure.
 
 \subsection{leo\_backend.py: the cockpit's brain}
+\label{ap:repro-backend}
 This is the largest file in the project ($\sim4500$ lines) and it runs on the
 workstation, launched by \code{leo\_backend\_launch.sh}. It is \emph{not} a
 normal ROS node in spirit: it is the bridge between the browser and ROS.

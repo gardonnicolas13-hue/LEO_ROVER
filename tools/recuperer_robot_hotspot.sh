@@ -70,9 +70,36 @@ echo "Profil WiFi actif au demarrage : ${PROFIL_INITIAL:-<aucun>}"
 # --- 2. basculer sur le point d'acces du robot -------------------------------
 titre "2. Bascule vers « $AP_PROFIL »"
 echo "  (l'internet de ce PC est coupe a partir d'ici)"
-if ! nmcli device wifi connect "$AP_PROFIL" ifname "$WIFI_IF" 2>&1; then
-  echo "ECHEC de l'association. Le robot diffuse-t-il encore ? Verifier :"
-  echo "  nmcli dev wifi list | grep -i leo"
+# 2026-09-11 : le code de retour de `nmcli device wifi connect` ne suffit PAS.
+# Observe en direct : nmcli a imprime « Connection activation failed: (7)
+# Secrets were required, but not provided » et a tout de meme rendu 0, donc le
+# script a continue et l'etape 3 a conclu « le robot ne route pas : suspecter
+# le Pi (carte SD pleine) » — un diagnostic entierement faux, alors que la
+# radio n'avait jamais quitte le WiFi campus. On verifie donc l'ETAT REEL de
+# l'interface, pas ce que nmcli annonce.
+SORTIE_NM="$(nmcli device wifi connect "$AP_PROFIL" ifname "$WIFI_IF" 2>&1)"
+echo "$SORTIE_NM"
+ASSOCIE="$(nmcli -t -f GENERAL.CONNECTION device show "$WIFI_IF" 2>/dev/null \
+           | cut -d: -f2-)"
+if [ "$ASSOCIE" != "$AP_PROFIL" ]; then
+  echo "ECHEC de l'association : l'interface est sur « ${ASSOCIE:-<rien>} »,"
+  echo "pas sur « $AP_PROFIL ». Le robot n'est PAS en cause a ce stade."
+  case "$SORTIE_NM" in
+    *Secrets*|*secrets*)
+      echo
+      echo "  CAUSE : NetworkManager n'a pas pu fournir la cle WPA2 du profil."
+      echo "  Le profil existe pourtant et la cle y est stockee en systeme"
+      echo "  (psk-flags: 0). C'est le contexte d'execution qui manque, pas"
+      echo "  le mot de passe : sans session de bureau (donc sans agent"
+      echo "  polkit), NetworkManager refuse de relire un secret systeme."
+      echo "  => relancer ce script depuis un VRAI terminal de la session"
+      echo "     graphique, pas depuis cron, un service, ni un agent."
+      ;;
+    *)
+      echo "  Le robot diffuse-t-il encore ? Verifier :"
+      echo "    nmcli dev wifi list | grep -i leo"
+      ;;
+  esac
   exit 1
 fi
 
